@@ -1,0 +1,271 @@
+import { Feather } from '@expo/vector-icons';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { colors } from '@/src/styles/theme';
+
+type HomeActionsScreenProps = {
+  onAddExpense: () => void;
+  onAddHours: () => void;
+  onAddJob: () => void;
+  onAddNote: () => void;
+  onAddPayment: () => void;
+  onGoToJobs: () => void;
+  onLogout?: () => void;
+  userEmail?: string;
+};
+
+const primaryActions = [
+  {
+    description: 'See active jobs, budgets, receipts, and hours.',
+    icon: 'grid',
+    key: 'dashboard',
+    label: 'Job dashboard',
+  },
+  {
+    description: 'Scan a receipt and attach it to a job.',
+    icon: 'file-text',
+    key: 'expense',
+    label: 'Add receipt',
+  },
+  {
+    description: 'Log labor against an active job.',
+    icon: 'clock',
+    key: 'hours',
+    label: 'Add hours',
+  },
+  {
+    description: 'Record money received from a client.',
+    icon: 'dollar-sign',
+    key: 'payment',
+    label: 'Add payment',
+  },
+  {
+    description: 'Save a job note, photo, or reminder.',
+    icon: 'clipboard',
+    key: 'note',
+    label: 'Add note',
+  },
+  {
+    description: 'Start tracking a new project.',
+    icon: 'plus',
+    key: 'job',
+    label: 'Add new job',
+  },
+] as const;
+
+export function HomeActionsScreen({
+  onAddExpense,
+  onAddHours,
+  onAddJob,
+  onAddNote,
+  onAddPayment,
+  onGoToJobs,
+  onLogout,
+  userEmail,
+}: HomeActionsScreenProps) {
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
+
+  const handlePress = (key: (typeof primaryActions)[number]['key']) => {
+    if (key === 'expense') {
+      onAddExpense();
+      return;
+    }
+
+    if (key === 'hours') {
+      onAddHours();
+      return;
+    }
+
+    if (key === 'payment') {
+      onAddPayment();
+      return;
+    }
+
+    if (key === 'note') {
+      onAddNote();
+      return;
+    }
+
+    if (key === 'job') {
+      onAddJob();
+      return;
+    }
+
+    onGoToJobs();
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView contentContainerStyle={styles.container}>
+        <View style={styles.header}>
+          <View style={styles.headerTop}>
+            <View style={styles.headerTitle}>
+              <Text style={styles.appName}>conTRACKtor</Text>
+              <Text style={styles.subtitle}>
+                Keep job receipts, hours, and payments in one place.
+              </Text>
+            </View>
+            {onLogout ? (
+              <Pressable
+                accessibilityLabel="Account"
+                style={styles.accountButton}
+                onPress={() => setIsAccountOpen((current) => !current)}>
+                <Feather color={colors.mutedText} name="user" size={22} />
+              </Pressable>
+            ) : null}
+          </View>
+          {onLogout && isAccountOpen ? (
+            <View style={styles.accountPanel}>
+              {userEmail ? <Text style={styles.accountEmail}>{userEmail}</Text> : null}
+              <Pressable style={styles.logoutButton} onPress={onLogout}>
+                <Text style={styles.logoutButtonText}>Log out</Text>
+              </Pressable>
+            </View>
+          ) : null}
+        </View>
+
+        <Text style={styles.heading}>What do you need to update?</Text>
+
+        <View style={styles.actionList}>
+          {primaryActions.map((action) => (
+            <Pressable
+              key={action.key}
+              onPress={() => handlePress(action.key)}
+              style={styles.actionButton}>
+              <View style={styles.iconBlock}>
+                <Feather color={colors.warmWhite} name={action.icon} size={28} />
+              </View>
+              <View style={styles.actionText}>
+                <Text style={styles.actionLabel}>{action.label}</Text>
+                <Text style={styles.actionDescription}>{action.description}</Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: colors.appBackground,
+  },
+  container: {
+    padding: 20,
+    paddingBottom: 20,
+  },
+  header: {
+    marginBottom: 28,
+  },
+  headerTop: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  headerTitle: {
+    flex: 1,
+  },
+  appName: {
+    color: colors.primaryGreen,
+    fontSize: 34,
+    fontWeight: '900',
+    lineHeight: 38,
+  },
+  subtitle: {
+    color: colors.mutedText,
+    fontSize: 16,
+    fontWeight: '600',
+    lineHeight: 22,
+    marginTop: 6,
+  },
+  accountButton: {
+    alignItems: 'center',
+    backgroundColor: colors.cardBackground,
+    borderColor: colors.standardBorder,
+    borderRadius: 12,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 44,
+    minWidth: 44,
+  },
+  accountPanel: {
+    alignSelf: 'flex-end',
+    backgroundColor: colors.cardBackground,
+    borderColor: colors.standardBorder,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 10,
+    marginTop: 10,
+    minWidth: 190,
+    padding: 12,
+  },
+  accountEmail: {
+    color: colors.mutedText,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  logoutButton: {
+    alignItems: 'center',
+    borderColor: colors.strongBorder,
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 42,
+  },
+  logoutButtonText: {
+    color: colors.primaryGreen,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  heading: {
+    color: colors.text,
+    fontSize: 23,
+    fontWeight: '900',
+    lineHeight: 28,
+    marginBottom: 16,
+  },
+  actionList: {
+    gap: 10,
+  },
+  actionButton: {
+    alignItems: 'center',
+    backgroundColor: colors.cardBackground,
+    borderColor: colors.standardBorder,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 14,
+    minHeight: 82,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  iconBlock: {
+    alignItems: 'center',
+    backgroundColor: colors.primaryGreen,
+    borderRadius: 12,
+    height: 48,
+    justifyContent: 'center',
+    width: 48,
+  },
+  actionText: {
+    flex: 1,
+    gap: 4,
+  },
+  actionLabel: {
+    color: colors.text,
+    fontSize: 19,
+    fontWeight: '900',
+    lineHeight: 24,
+  },
+  actionDescription: {
+    color: colors.mutedText,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+});

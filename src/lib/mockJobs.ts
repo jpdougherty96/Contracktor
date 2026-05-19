@@ -1,0 +1,141 @@
+import type { Job } from '@/src/types/job';
+
+export const mockJobs: Job[] = [
+  {
+    id: 'job-smith-bathroom',
+    name: 'Smith Bathroom Remodel',
+    clientName: 'Emily Smith',
+    jobType: 'fixed_bid',
+    quoteAmount: 18500,
+    status: 'active',
+    timeClockEnabled: true,
+    receipts: [
+      {
+        id: 'receipt-smith-1',
+        jobId: 'job-smith-bathroom',
+        date: '2026-05-06',
+        vendor: 'Home Depot',
+        amount: 1240,
+        description: 'Tile, grout, backer board',
+      },
+      {
+        id: 'receipt-smith-2',
+        jobId: 'job-smith-bathroom',
+        date: '2026-05-09',
+        vendor: 'Ferguson',
+        amount: 2150,
+        description: 'Vanity, fixtures, plumbing supplies',
+      },
+    ],
+    hours: [
+      {
+        id: 'hour-smith-1',
+        jobId: 'job-smith-bathroom',
+        date: '2026-05-07',
+        workerName: 'Carlos',
+        hours: 8,
+        hourlyRate: 55,
+        description: 'Demo and prep',
+      },
+      {
+        id: 'hour-smith-2',
+        jobId: 'job-smith-bathroom',
+        date: '2026-05-10',
+        workerName: 'Jamie',
+        hours: 12,
+        hourlyRate: 60,
+        description: 'Rough plumbing and tile layout',
+      },
+    ],
+    payments: [
+      {
+        id: 'payment-smith-1',
+        jobId: 'job-smith-bathroom',
+        date: '2026-05-05',
+        amount: 6500,
+        method: 'Check',
+        note: 'Deposit',
+      },
+    ],
+    notes: [
+      {
+        id: 'note-smith-1',
+        jobId: 'job-smith-bathroom',
+        date: '2026-05-11',
+        text: 'Client approved brushed nickel fixtures.',
+      },
+    ],
+  },
+  {
+    id: 'job-johnson-deck',
+    name: 'Johnson Deck Repair',
+    clientName: 'Mark Johnson',
+    jobType: 'fixed_bid',
+    quoteAmount: 7200,
+    status: 'active',
+    timeClockEnabled: false,
+    receipts: [
+      {
+        id: 'receipt-johnson-1',
+        jobId: 'job-johnson-deck',
+        date: '2026-05-03',
+        vendor: '84 Lumber',
+        amount: 2650,
+        description: 'Pressure-treated lumber and railing kits',
+      },
+      {
+        id: 'receipt-johnson-2',
+        jobId: 'job-johnson-deck',
+        date: '2026-05-08',
+        vendor: 'Ace Hardware',
+        amount: 580,
+        description: 'Fasteners, brackets, stain',
+      },
+    ],
+    hours: [
+      {
+        id: 'hour-johnson-1',
+        jobId: 'job-johnson-deck',
+        date: '2026-05-04',
+        workerName: 'Drew',
+        hours: 18,
+        hourlyRate: 58,
+        description: 'Deck board removal and framing repairs',
+      },
+      {
+        id: 'hour-johnson-2',
+        jobId: 'job-johnson-deck',
+        date: '2026-05-09',
+        workerName: 'Morgan',
+        hours: 14,
+        hourlyRate: 58,
+        description: 'Rail installation and staining',
+      },
+    ],
+    payments: [
+      {
+        id: 'payment-johnson-1',
+        jobId: 'job-johnson-deck',
+        date: '2026-05-02',
+        amount: 2500,
+        method: 'ACH',
+        note: 'Deposit',
+      },
+      {
+        id: 'payment-johnson-2',
+        jobId: 'job-johnson-deck',
+        date: '2026-05-12',
+        amount: 2000,
+        method: 'Card',
+      },
+    ],
+    notes: [
+      {
+        id: 'note-johnson-1',
+        jobId: 'job-johnson-deck',
+        date: '2026-05-06',
+        text: 'Found two additional soft joists near the stairs.',
+      },
+    ],
+  },
+];

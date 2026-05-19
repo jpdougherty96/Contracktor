@@ -1,0 +1,117 @@
+import { fetchCurrentProfileDisplayName } from '@/src/lib/profiles';
+import { supabase } from '@/src/lib/supabase';
+import type { Tables } from '@/src/types/database';
+import type { Job } from '@/src/types/job';
+
+export type ActiveTimeEntry = Tables<'time_entries'>;
+
+const timeEntryFields =
+  'id, job_id, owner_id, started_at, stopped_at, work_date, duration_minutes, hourly_rate, worker_name, description, billable, source, status, created_at, updated_at';
+
+export async function fetchActiveTimeEntries(): Promise<ActiveTimeEntry[]> {
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw new Error(userError.message);
+  }
+
+  if (!userData.user) {
+    throw new Error('You must be logged in to view active timers.');
+  }
+
+  const { data, error } = await supabase
+    .from('time_entries')
+    .select(timeEntryFields)
+    .eq('owner_id', userData.user.id)
+    .eq('status', 'active')
+    .order('started_at', { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data ?? [];
+}
+
+export async function startJobTimer(job: Job): Promise<ActiveTimeEntry> {
+  if (!job.timeClockEnabled) {
+    throw new Error('Enable the time clock for this job before starting a timer.');
+  }
+
+  if (!job.hourlyRate || job.hourlyRate <= 0) {
+    throw new Error('Set the hourly rate for this job before starting a timer.');
+  }
+
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw new Error(userError.message);
+  }
+
+  if (!userData.user) {
+    throw new Error('You must be logged in to start a timer.');
+  }
+
+  const activeEntries = await fetchActiveTimeEntries();
+
+  if (activeEntries.length > 0) {
+    throw new Error('Stop the active timer before starting another one.');
+  }
+
+  const workerName = await fetchCurrentProfileDisplayName().catch(() => null);
+  const startedAt = new Date();
+
+  const { data, error } = await supabase
+    .from('time_entries')
+    .insert({
+      hourly_rate: job.hourlyRate,
+      job_id: job.id,
+      owner_id: userData.user.id,
+      source: 'timer',
+      started_at: startedAt.toISOString(),
+      status: 'active',
+      work_date: startedAt.toISOString().slice(0, 10),
+      worker_name: workerName,
+    })
+    .select(timeEntryFields)
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data;
+}
+
+export async function stopJobTimer(entry: ActiveTimeEntry, _job: Job): Promise<void> {
+  if (!entry.started_at) {
+    throw new Error('Timer entry is missing a start time.');
+  }
+
+  const stoppedAt = new Date();
+  const startedAt = new Date(entry.started_at);
+  const durationMinutes = Math.max(
+    1,
+    Math.round((stoppedAt.getTime() - startedAt.getTime()) / 60_000)
+  );
+
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+    throw new Error('Timer duration must be greater than zero.');
+  }
+
+  const { error } = await supabase
+    .from('time_entries')
+    .update({
+      duration_minutes: durationMinutes,
+      stopped_at: stoppedAt.toISOString(),
+      status: 'reviewed',
+      updated_at: stoppedAt.toISOString(),
+      work_date: stoppedAt.toISOString().slice(0, 10),
+    })
+    .eq('id', entry.id)
+    .eq('owner_id', entry.owner_id);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}

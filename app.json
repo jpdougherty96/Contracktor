@@ -9,7 +9,10 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Contracktor uses the camera to capture receipt photos for job tracking."
+      }
     },
     "android": {
       "adaptiveIcon": {
