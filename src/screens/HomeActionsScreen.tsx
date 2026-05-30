@@ -112,50 +112,52 @@ export function HomeActionsScreen({
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
-        <View style={styles.header}>
-          <View style={styles.headerTop}>
-            <View style={styles.headerTitle}>
-              <Text style={styles.appName}>conTRACKtor</Text>
-              <Text style={styles.subtitle}>
-                Keep job receipts, hours, and payments in one place.
-              </Text>
+        <View style={styles.content}>
+          <View style={styles.header}>
+            <View style={styles.headerTop}>
+              <View style={styles.headerTitle}>
+                <Text style={styles.appName}>conTRACKtor</Text>
+                <Text style={styles.subtitle}>
+                  Keep job receipts, hours, and payments in one place.
+                </Text>
+              </View>
+              {onLogout ? (
+                <Pressable
+                  accessibilityLabel="Account"
+                  style={styles.accountButton}
+                  onPress={() => setIsAccountOpen((current) => !current)}>
+                  <Feather color={colors.mutedText} name="user" size={22} />
+                </Pressable>
+              ) : null}
             </View>
-            {onLogout ? (
-              <Pressable
-                accessibilityLabel="Account"
-                style={styles.accountButton}
-                onPress={() => setIsAccountOpen((current) => !current)}>
-                <Feather color={colors.mutedText} name="user" size={22} />
-              </Pressable>
+            {onLogout && isAccountOpen ? (
+              <View style={styles.accountPanel}>
+                {userEmail ? <Text style={styles.accountEmail}>{userEmail}</Text> : null}
+                <Pressable style={styles.logoutButton} onPress={onLogout}>
+                  <Text style={styles.logoutButtonText}>Log out</Text>
+                </Pressable>
+              </View>
             ) : null}
           </View>
-          {onLogout && isAccountOpen ? (
-            <View style={styles.accountPanel}>
-              {userEmail ? <Text style={styles.accountEmail}>{userEmail}</Text> : null}
-              <Pressable style={styles.logoutButton} onPress={onLogout}>
-                <Text style={styles.logoutButtonText}>Log out</Text>
+
+          <Text style={styles.heading}>What do you need to update?</Text>
+
+          <View style={styles.actionList}>
+            {primaryActions.map((action) => (
+              <Pressable
+                key={action.key}
+                onPress={() => handlePress(action.key)}
+                style={styles.actionButton}>
+                <View style={styles.iconBlock}>
+                  <Feather color={colors.warmWhite} name={action.icon} size={28} />
+                </View>
+                <View style={styles.actionText}>
+                  <Text style={styles.actionLabel}>{action.label}</Text>
+                  <Text style={styles.actionDescription}>{action.description}</Text>
+                </View>
               </Pressable>
-            </View>
-          ) : null}
-        </View>
-
-        <Text style={styles.heading}>What do you need to update?</Text>
-
-        <View style={styles.actionList}>
-          {primaryActions.map((action) => (
-            <Pressable
-              key={action.key}
-              onPress={() => handlePress(action.key)}
-              style={styles.actionButton}>
-              <View style={styles.iconBlock}>
-                <Feather color={colors.warmWhite} name={action.icon} size={28} />
-              </View>
-              <View style={styles.actionText}>
-                <Text style={styles.actionLabel}>{action.label}</Text>
-                <Text style={styles.actionDescription}>{action.description}</Text>
-              </View>
-            </Pressable>
-          ))}
+            ))}
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -168,8 +170,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.appBackground,
   },
   container: {
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
     paddingBottom: 20,
+  },
+  content: {
+    alignSelf: 'center',
+    maxWidth: 720,
+    paddingHorizontal: 4,
+    paddingTop: 12,
+    width: '100%',
   },
   header: {
     marginBottom: 28,
