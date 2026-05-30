@@ -301,7 +301,15 @@ function isMobileWebBrowser(): boolean {
     return false;
   }
 
-  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const userAgent = navigator.userAgent;
+  const isMobileUserAgent = /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent);
+  const hasTouch =
+    typeof navigator.maxTouchPoints === 'number' && navigator.maxTouchPoints > 1;
+  const hasSmallViewport =
+    typeof window !== 'undefined' &&
+    Math.min(window.innerWidth, window.innerHeight) <= 820;
+
+  return isMobileUserAgent || (hasTouch && hasSmallViewport);
 }
 
 function pickWebReceiptImage({ capture }: { capture: boolean }): Promise<ImagePicker.ImagePickerAsset | null> {
