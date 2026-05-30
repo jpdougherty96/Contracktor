@@ -26,6 +26,15 @@ export async function ensureProfileForUser(user: User): Promise<void> {
 }
 
 export async function fetchCurrentProfileDisplayName(): Promise<string | null> {
+  const profile = await fetchCurrentProfile();
+
+  return profile.displayName;
+}
+
+export async function fetchCurrentProfile(): Promise<{
+  defaultHourlyRate: number | null;
+  displayName: string | null;
+}> {
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
   if (userError) {
@@ -33,12 +42,15 @@ export async function fetchCurrentProfileDisplayName(): Promise<string | null> {
   }
 
   if (!userData.user) {
-    return null;
+    return {
+      defaultHourlyRate: null,
+      displayName: null,
+    };
   }
 
   const { data, error } = await supabase
     .from('profiles')
-    .select('full_name')
+    .select('full_name, default_hourly_rate')
     .eq('id', userData.user.id)
     .maybeSingle();
 
@@ -47,14 +59,23 @@ export async function fetchCurrentProfileDisplayName(): Promise<string | null> {
   }
 
   if (data?.full_name) {
-    return data.full_name;
+    return {
+      defaultHourlyRate: data.default_hourly_rate,
+      displayName: data.full_name,
+    };
   }
 
   const metadataName = userData.user.user_metadata.full_name;
 
   if (typeof metadataName === 'string' && metadataName.trim()) {
-    return metadataName.trim();
+    return {
+      defaultHourlyRate: data?.default_hourly_rate ?? null,
+      displayName: metadataName.trim(),
+    };
   }
 
-  return userData.user.email?.split('@')[0] ?? null;
+  return {
+    defaultHourlyRate: data?.default_hourly_rate ?? null,
+    displayName: userData.user.email?.split('@')[0] ?? null,
+  };
 }

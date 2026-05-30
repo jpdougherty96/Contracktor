@@ -135,9 +135,11 @@ function JobCard({ job, onPress }: { job: Job; onPress: () => void }) {
   const laborUsage = getLaborUsage(job);
   const triage = getJobTriage(job, materialUsage, laborUsage);
   const isTimeAndMaterials = job.jobType === 'time_and_materials';
+  const healthLabel = isTimeAndMaterials ? getTimeAndMaterialsLabel(job) : triage.label;
+  const healthTone = isTimeAndMaterials ? getTimeAndMaterialsTone(job) : triage.tone;
 
   return (
-    <Pressable style={styles.card} onPress={onPress}>
+    <Pressable style={[styles.card, getCardAccentStyle(healthTone)]} onPress={onPress}>
       <View style={styles.cardHeader}>
         <View style={styles.cardTitleGroup}>
           <Text style={styles.jobName}>{job.name}</Text>
@@ -149,11 +151,7 @@ function JobCard({ job, onPress }: { job: Job; onPress: () => void }) {
         <Text style={styles.statusPill}>{formatStatus(job.status)}</Text>
       </View>
 
-      <View style={styles.healthRow}>
-        <Text style={[styles.healthPill, styles[triage.tone]]}>
-          {isTimeAndMaterials ? getTimeAndMaterialsLabel(job) : triage.label}
-        </Text>
-      </View>
+      <Text style={[styles.healthPill, getHealthPillStyle(healthTone)]}>{healthLabel}</Text>
 
       <View style={styles.budgetRows}>
         {isTimeAndMaterials ? (
@@ -163,8 +161,18 @@ function JobCard({ job, onPress }: { job: Job; onPress: () => void }) {
           </>
         ) : (
           <>
-            <BudgetUsageRow label="Materials" usage={materialUsage} missingText="No budget set" />
-            <BudgetUsageRow label="Labor" usage={laborUsage} missingText="No hour budget set" />
+            <BudgetUsageRow
+              label="Materials"
+              missingText="No budget set"
+              tone={healthTone}
+              usage={materialUsage}
+            />
+            <BudgetUsageRow
+              label="Labor"
+              missingText="No hour budget set"
+              tone={healthTone}
+              usage={laborUsage}
+            />
           </>
         )}
       </View>
@@ -219,18 +227,33 @@ type TriageTone = 'onTrackPill' | 'watchPill' | 'problemPill' | 'missingPill';
 function BudgetUsageRow({
   label,
   missingText,
+  tone,
   usage,
 }: {
   label: string;
   missingText: string;
+  tone: TriageTone;
   usage: BudgetUsage;
 }) {
+  const percent = usage.percent === null ? null : Math.round(usage.percent);
+
   return (
-    <View style={styles.budgetRow}>
-      <Text style={styles.budgetLabel}>{label}</Text>
-      <Text style={styles.budgetValue}>
-        {usage.percent === null ? missingText : `${Math.round(usage.percent)}%`}
-      </Text>
+    <View style={styles.metricBlock}>
+      <View style={styles.budgetRow}>
+        <Text style={styles.budgetLabel}>{label}</Text>
+        <Text style={styles.budgetValue}>{percent === null ? missingText : `${percent}%`}</Text>
+      </View>
+      {percent !== null ? (
+        <View style={styles.progressTrack}>
+          <View
+            style={[
+              styles.progressFill,
+              getProgressFillStyle(tone),
+              { width: `${Math.min(Math.max(percent, 0), 100)}%` },
+            ]}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -275,7 +298,8 @@ function getJobTriage(
 ): { label: string; reason?: string; tone: TriageTone } {
   const materialPercent = materialUsage.percent;
   const laborPercent = laborUsage.percent;
-  const hasActivity = job.receipts.length > 0 || job.hours.length > 0 || job.payments.length > 0;
+  const hasActivity =
+    totalLocalReceipts(job) > 0 || totalLocalHours(job) > 0 || job.payments.length > 0;
 
   if ((materialPercent ?? 0) > 100 || (laborPercent ?? 0) > 100) {
     if ((laborPercent ?? 0) >= (materialPercent ?? 0)) {
@@ -317,6 +341,10 @@ function getTimeAndMaterialsLabel(job: Job): string {
   return totalLocalReceipts(job) > 0 || totalLocalHours(job) > 0 ? 'Tracking' : 'Ready to track';
 }
 
+function getTimeAndMaterialsTone(job: Job): TriageTone {
+  return totalLocalReceipts(job) > 0 || totalLocalHours(job) > 0 ? 'onTrackPill' : 'missingPill';
+}
+
 function totalLocalHours(job: Job): number {
   return job.actualLaborHours ?? job.hours.reduce((sum, entry) => sum + entry.hours, 0);
 }
@@ -346,10 +374,47 @@ function formatShortLocation(location: string): string {
     .filter(Boolean);
 
   if (parts.length >= 2) {
-    return `${parts[parts.length - 2]}, ${parts[parts.length - 1]}`;
+    const city = getCityFromStreetSegment(parts[parts.length - 2]);
+    const state = parts[parts.length - 1].split(/\s+/)[0];
+
+    return city && state ? `${city}, ${state}` : `${parts[parts.length - 2]}, ${parts[parts.length - 1]}`;
   }
 
   return location;
+}
+
+function getCityFromStreetSegment(value: string): string {
+  const words = value.split(/\s+/).filter(Boolean);
+
+  if (words.length <= 1) {
+    return value;
+  }
+
+  return words[words.length - 1];
+}
+
+function getCardAccentStyle(tone: TriageTone) {
+  if (tone === 'problemPill') return styles.problemCard;
+  if (tone === 'watchPill') return styles.watchCard;
+  if (tone === 'onTrackPill') return styles.onTrackCard;
+
+  return styles.missingCard;
+}
+
+function getHealthPillStyle(tone: TriageTone) {
+  if (tone === 'problemPill') return styles.problemPill;
+  if (tone === 'watchPill') return styles.watchPill;
+  if (tone === 'onTrackPill') return styles.onTrackPill;
+
+  return styles.missingPill;
+}
+
+function getProgressFillStyle(tone: TriageTone) {
+  if (tone === 'problemPill') return styles.problemProgressFill;
+  if (tone === 'watchPill') return styles.watchProgressFill;
+  if (tone === 'onTrackPill') return styles.onTrackProgressFill;
+
+  return styles.missingProgressFill;
 }
 
 const styles = StyleSheet.create({
@@ -449,7 +514,20 @@ const styles = StyleSheet.create({
     borderColor: colors.standardBorder,
     borderRadius: radii.card,
     borderWidth: 1,
+    borderLeftWidth: 5,
     padding: 16,
+  },
+  onTrackCard: {
+    borderLeftColor: colors.primaryGreen,
+  },
+  watchCard: {
+    borderLeftColor: '#D09222',
+  },
+  problemCard: {
+    borderLeftColor: colors.danger,
+  },
+  missingCard: {
+    borderLeftColor: '#CBD5E1',
   },
   cardHeader: {
     alignItems: 'flex-start',
@@ -470,12 +548,7 @@ const styles = StyleSheet.create({
     color: colors.mutedText,
     fontSize: 14,
     fontWeight: '600',
-  },
-  healthRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 14,
+    lineHeight: 19,
   },
   statusPill: {
     backgroundColor: '#EFE9DD',
@@ -490,12 +563,14 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   healthPill: {
+    alignSelf: 'flex-start',
     borderRadius: 999,
-    fontSize: 12,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '900',
+    marginTop: 16,
     overflow: 'hidden',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
   },
   onTrackPill: {
     backgroundColor: '#E7F0E8',
@@ -516,9 +591,12 @@ const styles = StyleSheet.create({
   budgetRows: {
     borderTopColor: '#ECE6DA',
     borderTopWidth: 1,
-    gap: 10,
+    gap: 12,
     marginTop: 14,
     paddingTop: 12,
+  },
+  metricBlock: {
+    gap: 6,
   },
   budgetRow: {
     alignItems: 'center',
@@ -535,6 +613,28 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16,
     fontWeight: '800',
+  },
+  progressTrack: {
+    backgroundColor: '#ECEFF2',
+    borderRadius: 999,
+    height: 6,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    borderRadius: 999,
+    height: 6,
+  },
+  onTrackProgressFill: {
+    backgroundColor: colors.primaryGreen,
+  },
+  watchProgressFill: {
+    backgroundColor: '#D09222',
+  },
+  problemProgressFill: {
+    backgroundColor: colors.danger,
+  },
+  missingProgressFill: {
+    backgroundColor: '#94A3B8',
   },
   attentionReason: {
     color: colors.mutedText,

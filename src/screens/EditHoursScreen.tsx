@@ -25,6 +25,7 @@ type EditHoursScreenProps = {
 export function EditHoursScreen({ hoursId, job, onBack, onSaved }: EditHoursScreenProps) {
   const [hoursEntry, setHoursEntry] = useState<JobHoursEntry | null>(null);
   const [hours, setHours] = useState('');
+  const [hourlyRate, setHourlyRate] = useState('');
   const [workDate, setWorkDate] = useState('');
   const [workerName, setWorkerName] = useState('');
   const [note, setNote] = useState('');
@@ -45,6 +46,7 @@ export function EditHoursScreen({ hoursId, job, onBack, onSaved }: EditHoursScre
         if (isMounted) {
           setHoursEntry(nextHoursEntry);
           setHours(String(minutesToHours(nextHoursEntry.duration_minutes)));
+          setHourlyRate(formatEditableNumber(nextHoursEntry.hourly_rate));
           setWorkDate(nextHoursEntry.work_date);
           setWorkerName(nextHoursEntry.worker_name ?? '');
           setNote(nextHoursEntry.description ?? '');
@@ -71,9 +73,15 @@ export function EditHoursScreen({ hoursId, job, onBack, onSaved }: EditHoursScre
     setErrorMessage(null);
 
     const parsedHours = parsePositiveNumber(hours);
+    const parsedHourlyRate = parsePositiveNumber(hourlyRate);
 
     if (parsedHours === null) {
       setErrorMessage('Hours are required and must be greater than 0.');
+      return;
+    }
+
+    if (parsedHourlyRate === null) {
+      setErrorMessage('Hourly rate is required and must be greater than 0.');
       return;
     }
 
@@ -86,6 +94,7 @@ export function EditHoursScreen({ hoursId, job, onBack, onSaved }: EditHoursScre
 
     try {
       await updateJobHours(hoursId, {
+        hourlyRate: parsedHourlyRate,
         hours: parsedHours,
         note,
         workDate,
@@ -122,13 +131,6 @@ export function EditHoursScreen({ hoursId, job, onBack, onSaved }: EditHoursScre
               </View>
             ) : null}
 
-            {hoursEntry ? (
-              <View style={styles.rateSummary}>
-                <Text style={styles.rateLabel}>Hourly rate saved on this entry</Text>
-                <Text style={styles.rateValue}>${hoursEntry.hourly_rate.toFixed(2)}/hr</Text>
-              </View>
-            ) : null}
-
             <Field
               inputMode="decimal"
               label="Hours"
@@ -147,6 +149,13 @@ export function EditHoursScreen({ hoursId, job, onBack, onSaved }: EditHoursScre
               onChangeText={setWorkerName}
               placeholder="Optional"
               value={workerName}
+            />
+            <Field
+              inputMode="decimal"
+              label="Hourly rate"
+              onChangeText={setHourlyRate}
+              placeholder="0"
+              value={hourlyRate}
             />
             <Field label="Note" onChangeText={setNote} placeholder="Optional" value={note} />
 
@@ -203,6 +212,14 @@ function isIsoDate(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
+function formatEditableNumber(value: number | null): string {
+  if (value == null) {
+    return '';
+  }
+
+  return Number.isInteger(value) ? String(value) : String(value);
+}
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -257,24 +274,6 @@ const styles = StyleSheet.create({
     color: '#64748B',
     fontSize: 14,
     fontWeight: '700',
-  },
-  rateSummary: {
-    backgroundColor: '#F6F5F2',
-    borderColor: '#E2E0DA',
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 12,
-  },
-  rateLabel: {
-    color: '#64748B',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  rateValue: {
-    color: '#1F2933',
-    fontSize: 18,
-    fontWeight: '800',
-    marginTop: 3,
   },
   field: {
     gap: 6,

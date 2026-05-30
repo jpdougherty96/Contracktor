@@ -4,8 +4,10 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getCurrentAuthState, signOut } from '@/src/lib/auth';
+import { AddExpenseMethodScreen } from '@/src/screens/AddExpenseMethodScreen';
 import { AddHoursHubScreen } from '@/src/screens/AddHoursHubScreen';
 import { AddHoursScreen } from '@/src/screens/AddHoursScreen';
+import { AddManualExpenseScreen } from '@/src/screens/AddManualExpenseScreen';
 import { AddNoteScreen } from '@/src/screens/AddNoteScreen';
 import { AddPaymentScreen } from '@/src/screens/AddPaymentScreen';
 import { AddReceiptScreen } from '@/src/screens/AddReceiptScreen';
@@ -23,6 +25,7 @@ import { JobReportScreen } from '@/src/screens/JobReportScreen';
 import { JobPickerScreen } from '@/src/screens/JobPickerScreen';
 import { JobsListScreen } from '@/src/screens/JobsListScreen';
 import { ReceiptReviewScreen } from '@/src/screens/ReceiptReviewScreen';
+import { ToolsInventoryScreen } from '@/src/screens/ToolsInventoryScreen';
 import type { Job } from '@/src/types/job';
 
 type Screen =
@@ -30,8 +33,10 @@ type Screen =
   | 'jobs'
   | 'dashboard'
   | 'addUpdate'
+  | 'addExpenseMethod'
   | 'addHoursHub'
   | 'addHours'
+  | 'addManualExpense'
   | 'addNote'
   | 'addPayment'
   | 'addReceipt'
@@ -43,10 +48,12 @@ type Screen =
   | 'invoiceDraft'
   | 'jobReport'
   | 'reviewReceipt'
+  | 'selectJobsForReceiptEdit'
   | 'selectJobForExpense'
   | 'selectJobForHours'
   | 'selectJobForNote'
-  | 'selectJobForPayment';
+  | 'selectJobForPayment'
+  | 'toolsInventory';
 
 export default function HomeScreen() {
   const [session, setSession] = useState<Session | null>(null);
@@ -59,6 +66,9 @@ export default function HomeScreen() {
   const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(null);
   const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
   const [selectedReceiptJobs, setSelectedReceiptJobs] = useState<Job[]>([]);
+  const [isSelectedReceiptInventoryMode, setIsSelectedReceiptInventoryMode] = useState(false);
+  const [receiptEditInitialInventorySelected, setReceiptEditInitialInventorySelected] = useState(false);
+  const [receiptEditInitialJobIds, setReceiptEditInitialJobIds] = useState<string[]>([]);
   const [addBackScreen, setAddBackScreen] = useState<Screen>('home');
   const [addCompleteScreen, setAddCompleteScreen] = useState<Screen>('home');
   const [createBackScreen, setCreateBackScreen] = useState<Screen>('home');
@@ -114,6 +124,7 @@ export default function HomeScreen() {
       setSelectedPaymentId(null);
       setSelectedReceiptId(null);
       setSelectedReceiptJobs([]);
+      setIsSelectedReceiptInventoryMode(false);
       setScreen('home');
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Unable to log out.');
@@ -131,7 +142,10 @@ export default function HomeScreen() {
   if (screen === 'home') {
     return (
       <HomeActionsScreen
-        onAddExpense={() => setScreen('selectJobForExpense')}
+        onAddExpense={() => {
+          setIsSelectedReceiptInventoryMode(false);
+          setScreen('selectJobForExpense');
+        }}
         onAddHours={() => setScreen('addHoursHub')}
         onAddJob={() => {
           setCreateBackScreen('home');
@@ -140,6 +154,7 @@ export default function HomeScreen() {
         onAddNote={() => setScreen('selectJobForNote')}
         onAddPayment={() => setScreen('selectJobForPayment')}
         onGoToJobs={() => setScreen('jobs')}
+        onGoToToolsInventory={() => setScreen('toolsInventory')}
         onLogout={handleLogout}
         userEmail={session.user.email}
       />
@@ -151,9 +166,13 @@ export default function HomeScreen() {
       <JobPickerScreen
         actionLabel={getJobPickerActionLabel(screen)}
         emptyDetail={getJobPickerEmptyDetail(screen)}
-        includeInventoryOption={screen === 'selectJobForExpense'}
-        multiSelect={screen === 'selectJobForExpense'}
-        onBack={() => setScreen('home')}
+        includeInventoryOption={screen === 'selectJobForExpense' || screen === 'selectJobsForReceiptEdit'}
+        initialInventorySelected={
+          screen === 'selectJobsForReceiptEdit' ? receiptEditInitialInventorySelected : false
+        }
+        initialSelectedJobIds={screen === 'selectJobsForReceiptEdit' ? receiptEditInitialJobIds : []}
+        multiSelect={screen === 'selectJobForExpense' || screen === 'selectJobsForReceiptEdit'}
+        onBack={() => setScreen(screen === 'selectJobsForReceiptEdit' ? 'reviewReceipt' : 'home')}
         onCreateJob={() => {
           setCreateBackScreen(screen);
           setScreen('createJob');
@@ -162,21 +181,37 @@ export default function HomeScreen() {
           setSelectedJob(job);
           if (screen === 'selectJobForExpense') {
             setSelectedReceiptJobs([job]);
+            setIsSelectedReceiptInventoryMode(false);
           }
           setAddBackScreen(screen);
           setAddCompleteScreen('home');
           setScreen(getAddScreenForPicker(screen));
         }}
-        onSelectJobs={(jobs) => {
-          if (jobs.length === 0) {
+        onSelectJobs={(jobs, includesInventory = false) => {
+          if (jobs.length === 0 && !includesInventory) {
             return;
           }
 
-          setSelectedJob(jobs[0]);
+          setSelectedJob(jobs[0] ?? null);
           setSelectedReceiptJobs(jobs);
+          setIsSelectedReceiptInventoryMode(includesInventory);
+
+          if (screen === 'selectJobsForReceiptEdit') {
+            setScreen('reviewReceipt');
+            return;
+          }
+
           setAddBackScreen(screen);
-          setAddCompleteScreen('home');
-          setScreen('addReceipt');
+          setAddCompleteScreen(includesInventory ? 'toolsInventory' : 'home');
+          setScreen('addExpenseMethod');
+        }}
+        onSelectInventory={() => {
+          setSelectedJob(null);
+          setSelectedReceiptJobs([]);
+          setIsSelectedReceiptInventoryMode(true);
+          setAddBackScreen(screen);
+          setAddCompleteScreen('toolsInventory');
+          setScreen('addExpenseMethod');
         }}
         refreshKey={jobsRefreshKey}
         title={getJobPickerTitle(screen)}
@@ -208,6 +243,7 @@ export default function HomeScreen() {
         onReviewReceipt={(receiptId) => {
           setSelectedReceiptId(receiptId);
           setSelectedReceiptJobs([selectedJob]);
+          setIsSelectedReceiptInventoryMode(false);
           setScreen('reviewReceipt');
         }}
         refreshKey={dashboardRefreshKey}
@@ -234,6 +270,32 @@ export default function HomeScreen() {
           setScreen('addHours');
         }}
         refreshKey={dashboardRefreshKey}
+      />
+    );
+  }
+
+  if (screen === 'toolsInventory') {
+    return (
+      <ToolsInventoryScreen
+        onAddManualExpense={() => {
+          setSelectedJob(null);
+          setIsSelectedReceiptInventoryMode(true);
+          setAddBackScreen('toolsInventory');
+          setAddCompleteScreen('toolsInventory');
+          setScreen('addExpenseMethod');
+        }}
+        onBack={() => setScreen('home')}
+      />
+    );
+  }
+
+  if (screen === 'addExpenseMethod' && (selectedJob || isSelectedReceiptInventoryMode)) {
+    return (
+      <AddExpenseMethodScreen
+        contextLabel={isSelectedReceiptInventoryMode ? 'Tools / Inventory' : selectedJob?.name ?? 'Job expense'}
+        onBack={() => setScreen(addBackScreen)}
+        onManualExpense={() => setScreen('addManualExpense')}
+        onReceipt={() => setScreen('addReceipt')}
       />
     );
   }
@@ -295,19 +357,28 @@ export default function HomeScreen() {
     );
   }
 
-  if (screen === 'reviewReceipt' && selectedJob && selectedReceiptId) {
+  if (screen === 'reviewReceipt' && selectedReceiptId && (selectedJob || isSelectedReceiptInventoryMode)) {
+    const isInventoryOnlyReceipt = isSelectedReceiptInventoryMode && !selectedJob;
+
     return (
       <ReceiptReviewScreen
+        includeInventoryDestination={isSelectedReceiptInventoryMode}
+        inventoryMode={isInventoryOnlyReceipt}
         job={selectedJob}
-        jobs={selectedReceiptJobs.length > 0 ? selectedReceiptJobs : [selectedJob]}
-        onBack={() => setScreen('dashboard')}
+        jobs={isInventoryOnlyReceipt ? [] : selectedJob && selectedReceiptJobs.length > 0 ? selectedReceiptJobs : selectedJob ? [selectedJob] : []}
+        onBack={() => setScreen(isInventoryOnlyReceipt ? 'addReceipt' : 'dashboard')}
         onReviewReceipt={(receiptId) => {
           setSelectedReceiptId(receiptId);
           setScreen('reviewReceipt');
         }}
+        onEditReceiptJobs={(initialJobIds, initialInventorySelected) => {
+          setReceiptEditInitialJobIds(initialJobIds);
+          setReceiptEditInitialInventorySelected(initialInventorySelected);
+          setScreen('selectJobsForReceiptEdit');
+        }}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setScreen('dashboard');
+          setScreen(isInventoryOnlyReceipt ? 'toolsInventory' : 'dashboard');
         }}
         receiptId={selectedReceiptId}
       />
@@ -318,6 +389,13 @@ export default function HomeScreen() {
     return (
       <AddUpdateScreen
         job={selectedJob}
+        onAddExpense={() => {
+          setSelectedReceiptJobs([selectedJob]);
+          setIsSelectedReceiptInventoryMode(false);
+          setAddBackScreen('addUpdate');
+          setAddCompleteScreen('dashboard');
+          setScreen('addExpenseMethod');
+        }}
         onAddHours={() => {
           setAddBackScreen('addUpdate');
           setAddCompleteScreen('dashboard');
@@ -333,24 +411,22 @@ export default function HomeScreen() {
           setAddCompleteScreen('dashboard');
           setScreen('addPayment');
         }}
-        onAddReceipt={() => {
-          setSelectedReceiptJobs([selectedJob]);
-          setAddBackScreen('addUpdate');
-          setAddCompleteScreen('dashboard');
-          setScreen('addReceipt');
-        }}
         onBack={() => setScreen('dashboard')}
       />
     );
   }
 
-  if (screen === 'addReceipt' && selectedJob) {
+  if (screen === 'addReceipt' && (selectedJob || isSelectedReceiptInventoryMode)) {
+    const isInventoryOnlyReceipt = isSelectedReceiptInventoryMode && !selectedJob;
+
     return (
       <AddReceiptScreen
         backLabel={getAddBackLabel(addBackScreen)}
         doneLabel={getAddDoneLabel(addCompleteScreen)}
+        includeInventoryDestination={isSelectedReceiptInventoryMode}
+        inventoryMode={isInventoryOnlyReceipt}
         job={selectedJob}
-        jobs={selectedReceiptJobs.length > 0 ? selectedReceiptJobs : [selectedJob]}
+        jobs={isInventoryOnlyReceipt ? [] : selectedJob && selectedReceiptJobs.length > 0 ? selectedReceiptJobs : selectedJob ? [selectedJob] : []}
         onBack={() => setScreen(addBackScreen)}
         onDone={() => {
           setDashboardRefreshKey((key) => key + 1);
@@ -360,6 +436,23 @@ export default function HomeScreen() {
           setSelectedReceiptId(receiptId);
           setDashboardRefreshKey((key) => key + 1);
           setScreen('reviewReceipt');
+        }}
+      />
+    );
+  }
+
+  if (screen === 'addManualExpense' && (selectedJob || isSelectedReceiptInventoryMode)) {
+    const isInventoryOnlyExpense = isSelectedReceiptInventoryMode && !selectedJob;
+
+    return (
+      <AddManualExpenseScreen
+        backLabel={getAddBackLabel(addBackScreen)}
+        inventoryMode={isInventoryOnlyExpense}
+        job={selectedJob}
+        onBack={() => setScreen(addBackScreen)}
+        onCreated={() => {
+          setDashboardRefreshKey((key) => key + 1);
+          setScreen(addCompleteScreen);
         }}
       />
     );
@@ -441,12 +534,14 @@ export default function HomeScreen() {
 function isJobPickerScreen(
   screen: Screen
 ): screen is
+  | 'selectJobsForReceiptEdit'
   | 'selectJobForExpense'
   | 'selectJobForHours'
   | 'selectJobForNote'
   | 'selectJobForPayment' {
   return (
     screen === 'selectJobForExpense' ||
+    screen === 'selectJobsForReceiptEdit' ||
     screen === 'selectJobForHours' ||
     screen === 'selectJobForNote' ||
     screen === 'selectJobForPayment'
@@ -456,6 +551,10 @@ function isJobPickerScreen(
 function getJobPickerActionLabel(screen: Screen): string {
   if (screen === 'selectJobForExpense') {
     return 'Choose one or more jobs this receipt may apply to.';
+  }
+
+  if (screen === 'selectJobsForReceiptEdit') {
+    return 'Choose the jobs or Tools / Inventory destinations this receipt should allow.';
   }
 
   if (screen === 'selectJobForHours') {
@@ -471,7 +570,11 @@ function getJobPickerActionLabel(screen: Screen): string {
 
 function getJobPickerTitle(screen: Screen): string {
   if (screen === 'selectJobForExpense') {
-    return 'Add receipt';
+    return 'Add expense';
+  }
+
+  if (screen === 'selectJobsForReceiptEdit') {
+    return 'Receipt destinations';
   }
 
   if (screen === 'selectJobForHours') {
@@ -487,7 +590,11 @@ function getJobPickerTitle(screen: Screen): string {
 
 function getJobPickerEmptyDetail(screen: Screen): string {
   if (screen === 'selectJobForExpense') {
-    return 'Create a job before adding job expenses. Tools / Inventory support needs the non-job expense table first.';
+    return 'Create a job before adding job expenses. Tools / Inventory purchases can be reviewed from the home screen.';
+  }
+
+  if (screen === 'selectJobsForReceiptEdit') {
+    return 'Create a job before assigning receipt lines to a job.';
   }
 
   return 'Create a job before adding this update.';
@@ -496,12 +603,13 @@ function getJobPickerEmptyDetail(screen: Screen): string {
 function getAddScreenForPicker(
   screen:
     | 'selectJobForExpense'
+    | 'selectJobsForReceiptEdit'
     | 'selectJobForHours'
     | 'selectJobForNote'
     | 'selectJobForPayment'
 ): Screen {
-  if (screen === 'selectJobForExpense') {
-    return 'addReceipt';
+  if (screen === 'selectJobForExpense' || screen === 'selectJobsForReceiptEdit') {
+    return 'addExpenseMethod';
   }
 
   if (screen === 'selectJobForHours') {
@@ -528,12 +636,20 @@ function getAddBackLabel(screen: Screen): string {
     return 'Back to updates';
   }
 
+  if (screen === 'toolsInventory') {
+    return 'Back to Tools / Inventory';
+  }
+
   return 'Back home';
 }
 
 function getAddDoneLabel(screen: Screen): string {
   if (screen === 'dashboard') {
     return 'Back to dashboard';
+  }
+
+  if (screen === 'toolsInventory') {
+    return 'Back to Tools / Inventory';
   }
 
   return 'Back home';

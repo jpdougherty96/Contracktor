@@ -112,7 +112,7 @@ Deno.serve(async (req) => {
       extractionStatus === 'accepted' && normalized.line_items.length > 0
         ? 'needs_review'
         : extractionStatus;
-    const errorMessage = getReceiptErrorMessage(status);
+    const errorMessage = getReceiptErrorMessage(status, normalized);
 
     const { data: updatedReceipt, error: updateError } = await supabase
       .from('receipts')
@@ -184,7 +184,7 @@ async function extractWithOpenAI(
           content: [
             {
               text:
-                'You are extracting data from a contractor receipt photo. Return only valid JSON. Extract vendor, receipt_date in YYYY-MM-DD if visible, subtotal, tax, total, likely receipt category, confidence from 0 to 1, notes, and visible purchased line items. For line items, preserve original_text exactly as visible, write a cleaned_name that expands abbreviations when clear, and avoid card, authorization, survey, cashier, transaction number, address, phone, return policy, and other non-purchase noise. Do not invent invisible items. Do not bake tax into item prices. Category must be one of: materials, tools, fuel, subcontractor, permit, other. Line item category must be one of: material, tool, inventory, rental, permit, subcontractor, fuel, other, or null. Line type must be item, tax, fee, or discount. If the receipt date is not visible, set receipt_date to null and include the exact phrase "date not visible" in notes.',
+                'You are extracting data from a contractor receipt photo. Return only valid JSON. Extract vendor, receipt_date in YYYY-MM-DD if visible, subtotal, tax, total, likely receipt category, confidence from 0 to 1, notes, and visible purchased line items. For line_items, include purchased products/services only. Never include subtotal, taxes, taxes and fees, total, payment, card, authorization, survey, cashier, transaction number, address, phone, return policy, or other non-purchase/summary rows as line_items. Preserve original_text exactly as visible, write a cleaned_name that expands abbreviations when clear, and do not invent invisible items. Do not bake tax into item prices. The sum of item line totals must never exceed the visible receipt total; if a quantity/unit price is visible, use the extended line amount printed at the right, not quantity times a misread unit price. Category must be one of: materials, tools, fuel, subcontractor, permit, other. Line item category must be one of: material, tool, inventory, rental, permit, subcontractor, fuel, other, or null. Line type must be item for purchased rows; use tax, fee, or discount only if such a row is unavoidable, and those rows will be ignored by conTRACKtor. If the receipt date is not visible, set receipt_date to null and include the exact phrase "date not visible" in notes.',
               type: 'input_text',
             },
             {
@@ -356,20 +356,28 @@ function getReceiptStatus(extraction: ReturnType<typeof normalizeExtraction>) {
       (lineItem) =>
         lineItem.confidence === null || lineItem.confidence >= lineItemConfidenceThreshold
     ) &&
-    receiptMathReconciles(extraction);
+    receiptMathReconciles(extraction) &&
+    lineItemsDoNotExceedReceiptTotal(extraction);
 
   return hasRequiredFields && extraction.confidence >= confidenceThreshold
     ? 'accepted'
     : 'needs_review';
 }
 
-function getReceiptErrorMessage(status: string): string | null {
+function getReceiptErrorMessage(
+  status: string,
+  extraction?: ReturnType<typeof normalizeExtraction>
+): string | null {
   if (status === 'accepted') {
     return null;
   }
 
   if (status === 'error') {
     return "We couldn't read the vendor, date, and total from this receipt. Please retake a clearer photo.";
+  }
+
+  if (extraction && !lineItemsDoNotExceedReceiptTotal(extraction)) {
+    return 'Parsed line items add up to more than the receipt total. Review the receipt lines before saving.';
   }
 
   return 'Some receipt details need review before this can be accepted.';
@@ -385,6 +393,19 @@ function receiptMathReconciles(extraction: ReturnType<typeof normalizeExtraction
   }
 
   return Math.abs(extraction.subtotal + extraction.tax - extraction.total) <= receiptMathTolerance;
+}
+
+function lineItemsDoNotExceedReceiptTotal(extraction: ReturnType<typeof normalizeExtraction>): boolean {
+  if (typeof extraction.total !== 'number' || extraction.line_items.length === 0) {
+    return true;
+  }
+
+  const itemTotal = extraction.line_items
+    .filter((lineItem) => lineItem.line_type === 'item')
+    .reduce((sum, lineItem) => sum + lineItem.line_total, 0);
+  const tax = typeof extraction.tax === 'number' ? extraction.tax : 0;
+
+  return itemTotal + tax <= extraction.total + receiptMathTolerance;
 }
 
 function getFallbackDate(notes: string | null): string | null {
@@ -452,6 +473,11 @@ function normalizeLineItem(value: unknown, fallbackLineNumber: number) {
   const lineType = typeof item.line_type === 'string' && isLineType(item.line_type)
     ? item.line_type
     : 'item';
+
+  if (lineType !== 'item' || isReceiptSummaryLine(cleanedName) || isReceiptSummaryLine(originalText)) {
+    return null;
+  }
+
   const category = typeof item.category === 'string' && isLineItemCategory(item.category)
     ? item.category
     : null;
@@ -473,6 +499,23 @@ function normalizeLineItem(value: unknown, fallbackLineNumber: number) {
     quantity: toMoney(item.quantity),
     unit_price: toMoney(item.unit_price),
   };
+}
+
+function isReceiptSummaryLine(value: string): boolean {
+  const normalized = value.toLowerCase().replace(/[^a-z]+/g, ' ').trim();
+
+  return (
+    normalized === 'subtotal' ||
+    normalized === 'total' ||
+    normalized === 'tax' ||
+    normalized === 'taxes' ||
+    normalized === 'taxes and fees' ||
+    normalized === 'fees' ||
+    normalized.startsWith('payment method') ||
+    normalized.startsWith('payment methods') ||
+    normalized.includes('menard card') ||
+    normalized.includes('card')
+  );
 }
 
 async function replaceDraftLineItems(

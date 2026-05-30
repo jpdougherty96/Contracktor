@@ -118,7 +118,7 @@ export function InvoiceDraftScreen({ job, onBack }: InvoiceDraftScreenProps) {
     setMessage(null);
 
     try {
-      const fileBaseName = `${job.name} invoice`;
+      const fileBaseName = `${job.name} Invoice`;
       const html = buildPrintableInvoiceHtml(invoice.html, fileBaseName);
 
       if (Platform.OS === 'web') {
@@ -251,6 +251,13 @@ function printHtmlFromIframe(html: string): void {
   }
 
   const iframe = documentRef.createElement('iframe');
+  const previousTitle = documentRef.title;
+  const printTitle = html.match(/<title>(.*?)<\/title>/i)?.[1]?.trim();
+
+  if (printTitle) {
+    documentRef.title = printTitle;
+  }
+
   iframe.style.height = '0';
   iframe.style.position = 'fixed';
   iframe.style.right = '0';
@@ -273,6 +280,7 @@ function printHtmlFromIframe(html: string): void {
   frameWindow.focus();
   frameWindow.print();
   window.setTimeout(() => {
+    documentRef.title = previousTitle;
     documentRef.body.removeChild(iframe);
   }, 1000);
 }

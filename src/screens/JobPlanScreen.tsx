@@ -15,6 +15,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { fetchJobPlan, saveJobPlan } from '@/src/lib/jobPlans';
 import type { Job } from '@/src/types/job';
 
+// Deferred Phase 1 code: the standalone Job Plan workflow is not routed in
+// the active app. Job setup now owns budgets, quote, crew, and rates.
 type JobPlanScreenProps = {
   job: Job;
   onBack: () => void;

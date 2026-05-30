@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -11,7 +11,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import {
+  createCrewKey,
+  JobCrewEditor,
+  type CrewFormMember,
+} from '@/src/components/JobCrewEditor';
+import { fetchJobCrewMembers, replaceJobCrewMembers } from '@/src/lib/jobCrew';
 import { updateJob } from '@/src/lib/jobs';
+import { fetchCurrentProfile } from '@/src/lib/profiles';
 import type { Job, JobType } from '@/src/types/job';
 
 const jobStatuses = ['active', 'paused', 'completed', 'archived'];
@@ -39,9 +46,61 @@ export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
   const [estimatedOtherCost, setEstimatedOtherCost] = useState(
     formatEditableNumber(getEstimatedOtherCost(job))
   );
+  const [crewMembers, setCrewMembers] = useState<CrewFormMember[]>([
+    { hourlyRate: '', key: createCrewKey(), name: '' },
+  ]);
   const [status, setStatus] = useState(job.status || 'active');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadCrew = async () => {
+      try {
+        const [members, profile] = await Promise.all([
+          fetchJobCrewMembers(job.id),
+          fetchCurrentProfile().catch(() => ({ defaultHourlyRate: null, displayName: null })),
+        ]);
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (members.length > 0) {
+          setCrewMembers(
+            members.map((member) => ({
+              hourlyRate: formatEditableNumber(member.hourly_rate),
+              key: member.id,
+              name: member.name,
+            }))
+          );
+          return;
+        }
+
+        setCrewMembers([
+          {
+            hourlyRate:
+              profile.defaultHourlyRate == null
+                ? formatEditableNumber(job.hourlyRate)
+                : formatEditableNumber(profile.defaultHourlyRate),
+            key: createCrewKey(),
+            name: profile.displayName ?? '',
+          },
+        ]);
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(error instanceof Error ? error.message : 'Unable to load job crew.');
+        }
+      }
+    };
+
+    loadCrew();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [job.id, job.hourlyRate]);
 
   const handleSubmit = async () => {
     setErrorMessage(null);
@@ -52,6 +111,7 @@ export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
     const parsedLaborHours = parseOptionalNumber(estimatedLaborHours);
     const parsedMaterialCost = parseOptionalNumber(estimatedMaterialCost);
     const parsedOtherCost = parseOptionalNumber(estimatedOtherCost);
+    const parsedCrewMembers = parseCrewMembers(crewMembers);
 
     if (!name.trim()) {
       setErrorMessage('Job name is required.');
@@ -77,6 +137,11 @@ export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
       return;
     }
 
+    if (parsedCrewMembers === undefined) {
+      setErrorMessage('Crew member names and rates must be valid when provided.');
+      return;
+    }
+
     setIsSaving(true);
 
     try {
@@ -94,6 +159,7 @@ export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
         quoteAmount: parsedQuoteAmount ?? 0,
         status,
       });
+      await replaceJobCrewMembers(job.id, parsedCrewMembers);
 
       onSaved(updatedJob);
     } catch (error) {
@@ -224,6 +290,7 @@ export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
               onChangeText={setEstimatedOtherCost}
               placeholder="Optional"
             />
+            <JobCrewEditor members={crewMembers} onChangeMembers={setCrewMembers} />
 
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
@@ -320,6 +387,32 @@ function parseOptionalNumber(value: string): number | null | undefined {
   const parsed = Number(trimmed);
 
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function parseCrewMembers(
+  members: CrewFormMember[]
+): { hourlyRate: number; name: string }[] | undefined {
+  const parsedMembers: { hourlyRate: number; name: string }[] = [];
+
+  for (const member of members) {
+    const name = member.name.trim();
+    const rate = parseOptionalNumber(member.hourlyRate);
+
+    if (!name && !member.hourlyRate.trim()) {
+      continue;
+    }
+
+    if (!name || rate === undefined) {
+      return undefined;
+    }
+
+    parsedMembers.push({
+      hourlyRate: rate ?? 0,
+      name,
+    });
+  }
+
+  return parsedMembers;
 }
 
 function formatStatus(value: string): string {

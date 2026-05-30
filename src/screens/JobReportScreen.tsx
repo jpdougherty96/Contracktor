@@ -20,6 +20,23 @@ type JobReportScreenProps = {
   onBack: () => void;
 };
 
+type ReceiptExpenseGroup = {
+  categoryTotals: { amount: number; category: string }[];
+  date: string;
+  expenses: JobReportExpense[];
+  id: string;
+  total: number;
+  vendor: string;
+};
+
+type ReceiptPhotoItem = {
+  amount: number;
+  date: string;
+  id: string;
+  imageUrl: string;
+  vendor: string;
+};
+
 const emptyReport: JobReportData = {
   expenses: [],
   hours: [],
@@ -71,11 +88,11 @@ export function JobReportScreen({ job, onBack }: JobReportScreenProps) {
     setMessage(null);
 
     try {
-      const fileBaseName = `${job.name} report`;
+      const fileBaseName = `${job.name} Report`;
       const documentHtml = buildPrintableReportHtml(html, fileBaseName);
 
       if (Platform.OS === 'web') {
-        printHtmlFromIframe(documentHtml);
+        downloadReportPdf(job, report, summary, fileBaseName);
         return;
       }
 
@@ -90,6 +107,39 @@ export function JobReportScreen({ job, onBack }: JobReportScreenProps) {
     }
   };
 
+  const handleExportReceiptPhotos = async () => {
+    setMessage(null);
+
+    try {
+      const receiptPhotos = getReceiptPhotoItems(report.expenses);
+
+      if (receiptPhotos.length === 0) {
+        setMessage('No receipt photos to export.');
+        return;
+      }
+
+      const fileBaseName = `${job.name} Receipt Photos`;
+      const receiptPhotosHtml = buildPrintableReceiptPhotosHtml(
+        buildReceiptPhotosHtml(job, receiptPhotos),
+        fileBaseName
+      );
+
+      if (Platform.OS === 'web') {
+        printHtmlFromIframe(receiptPhotosHtml);
+        return;
+      }
+
+      const sharedUri = await createAndSharePdf({
+        dialogTitle: 'Share receipt photos PDF',
+        fileBaseName,
+        html: receiptPhotosHtml,
+      });
+      setMessage(`Receipt photos ready: ${sharedUri}`);
+    } catch {
+      setMessage('Unable to export receipt photos.');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
@@ -99,6 +149,9 @@ export function JobReportScreen({ job, onBack }: JobReportScreenProps) {
           </Pressable>
           <Pressable style={styles.primaryButton} onPress={handleExport}>
             <Text style={styles.primaryButtonText}>Export PDF</Text>
+          </Pressable>
+          <Pressable style={styles.secondaryButton} onPress={handleExportReceiptPhotos}>
+            <Text style={styles.secondaryButtonText}>Export receipt photos</Text>
           </Pressable>
         </View>
 
@@ -118,13 +171,11 @@ export function JobReportScreen({ job, onBack }: JobReportScreenProps) {
             <Text style={styles.reportGenerated}>Generated {formatDate(new Date())}</Text>
           </View>
 
-          <Section title="From">
-            <InfoRow label="Prepared by" value="conTRACKtor user" />
-          </Section>
+          <SummarySection job={job} summary={summary} />
 
           <Section title="Job info">
             <InfoRow label="Client" value={job.clientName} />
-            <InfoRow label="Location" value={job.location ?? '—'} />
+            <InfoRow label="Location" value={formatLocation(job.location)} />
             <InfoRow
               label="Job type"
               value={job.jobType === 'time_and_materials' ? 'Time & materials' : 'Fixed bid'}
@@ -138,7 +189,7 @@ export function JobReportScreen({ job, onBack }: JobReportScreenProps) {
               <InfoRow label="Quote amount" value={formatCurrency(job.quoteAmount)} />
             ) : null}
             <InfoRow label="Material budget" value={formatOptionalCurrency(job.estimatedMaterialCost)} />
-            <InfoRow label="Labor hour budget" value={formatOptionalNumber(job.estimatedLaborHours)} />
+            <InfoRow label="Labor hour budget" value={formatOptionalLaborBudget(job.estimatedLaborHours)} />
             <InfoRow label="Hourly rate" value={formatOptionalCurrency(job.hourlyRate)} />
             <InfoRow
               label="Other estimated costs"
@@ -146,32 +197,10 @@ export function JobReportScreen({ job, onBack }: JobReportScreenProps) {
             />
           </Section>
 
-          <Section title="Summary">
-            <InfoRow label="Receipts / expenses" value={formatCurrency(summary.totalReceipts)} />
-            <InfoRow label="Total labor time" value={formatLaborTime(summary.totalLaborMinutes)} />
-            <InfoRow label="Total labor value" value={formatCurrency(summary.totalLaborValue)} />
-            <InfoRow label="Payments received" value={formatCurrency(summary.totalPayments)} />
-            <InfoRow
-              label={job.jobType === 'fixed_bid' ? 'Contract balance' : 'Billable amount'}
-              value={formatCurrency(summary.balance)}
-            />
-          </Section>
+          <ReceiptSection expenses={report.expenses} />
 
           <DataSection
-            emptyText="No expenses logged."
-            items={report.expenses.map((expense) => ({
-              detail: `${expense.vendor ?? 'No vendor'} · ${formatExpenseType(expense.expense_type)} · ${
-                expense.receiptStatus ?? expense.status
-              }`,
-              meta: expense.receiptImageUrl ? 'Receipt file available in PDF link' : undefined,
-              title: `${formatDate(expense.expense_date)} · ${expense.description}`,
-              value: formatCurrency(expense.total_amount),
-            }))}
-            title="Receipts / expenses"
-          />
-
-          <DataSection
-            emptyText="No labor logged."
+            emptyText="None logged."
             items={report.hours.map((entry) => ({
               detail: `${formatLaborTime(entry.duration_minutes)} at ${formatCurrency(
                 entry.hourly_rate
@@ -183,7 +212,7 @@ export function JobReportScreen({ job, onBack }: JobReportScreenProps) {
           />
 
           <DataSection
-            emptyText="No payments logged."
+            emptyText="None logged."
             items={report.payments.map((payment) => ({
               detail: [payment.method, payment.note].filter(Boolean).join(' · ') || undefined,
               title: formatDate(payment.payment_date),
@@ -193,7 +222,7 @@ export function JobReportScreen({ job, onBack }: JobReportScreenProps) {
           />
 
           <DataSection
-            emptyText="No notes logged."
+            emptyText="None logged."
             items={report.notes.map((note) => ({
               detail: note.note,
               meta:
@@ -224,6 +253,69 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <View style={styles.infoRow}>
       <Text style={styles.infoLabel}>{label}</Text>
       <Text style={styles.infoValue}>{value}</Text>
+    </View>
+  );
+}
+
+function SummarySection({
+  job,
+  summary,
+}: {
+  job: Job;
+  summary: ReturnType<typeof getReportSummary>;
+}) {
+  const rows = [
+    ['Receipts / expenses', formatCurrency(summary.totalReceipts)],
+    ['Total labor time', formatLaborTime(summary.totalLaborMinutes)],
+    ['Total labor value', formatCurrency(summary.totalLaborValue)],
+    ['Payments received', formatCurrency(summary.totalPayments)],
+    [getBalanceLabel(job), formatCurrency(summary.balance)],
+  ] as const;
+
+  return (
+    <View style={styles.summarySection}>
+      <Text style={styles.sectionTitle}>Summary</Text>
+      <View style={styles.summaryGrid}>
+        {rows.map(([label, value]) => (
+          <View key={label} style={styles.summaryItem}>
+            <Text style={styles.summaryLabel}>{label}</Text>
+            <Text style={styles.summaryValue}>{value}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function ReceiptSection({ expenses }: { expenses: JobReportExpense[] }) {
+  const hasReceiptFiles = expenses.some((expense) => expense.receiptImageUrl);
+  const groups = groupExpensesByDateAndVendor(expenses);
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Receipts / expenses</Text>
+      {hasReceiptFiles ? <Text style={styles.sectionNote}>Receipt files available in conTRACKtor.</Text> : null}
+      {groups.length === 0 ? <Text style={styles.emptyText}>None logged.</Text> : null}
+      {groups.map((group) => (
+        <View key={group.id} style={styles.receiptGroup}>
+          <View style={styles.receiptGroupHeader}>
+            <View style={styles.receiptGroupText}>
+              <Text style={styles.receiptTitle}>
+                {formatDate(group.date)} · {group.vendor}
+              </Text>
+              <Text style={styles.receiptCategoryTotals}>{formatCategoryTotals(group.categoryTotals)}</Text>
+            </View>
+            <Text style={styles.receiptAmount}>Total: {formatCurrency(group.total)}</Text>
+          </View>
+          {group.expenses.map((expense) => (
+            <Text key={expense.id} style={styles.receiptLineItem}>
+              - {expense.description} · {formatExpenseType(expense.expense_type)} ·{' '}
+              {formatCurrency(expense.total_amount)}
+              {expense.source_type === 'manual' ? ' · No receipt attached' : ''}
+            </Text>
+          ))}
+        </View>
+      ))}
     </View>
   );
 }
@@ -290,10 +382,10 @@ function buildReportHtml(job: Job, report: JobReportData, summary: ReturnType<ty
           <p>Generated ${escapeHtml(formatDate(new Date()))}</p>
         </div>
       </header>
-      ${buildInfoTable('From', [['Prepared by', 'conTRACKtor user']])}
+      ${buildSummaryTable(job, summary)}
       ${buildInfoTable('Job info', [
         ['Client', job.clientName],
-        ['Location', job.location ?? '—'],
+        ['Location', formatLocation(job.location)],
         ['Job type', job.jobType === 'time_and_materials' ? 'Time & materials' : 'Fixed bid'],
         ['Status', formatStatus(job.status)],
         ['Created', formatDate(job.createdAt)],
@@ -301,22 +393,39 @@ function buildReportHtml(job: Job, report: JobReportData, summary: ReturnType<ty
       ${buildInfoTable('Budget / quote', [
         ...(job.jobType === 'fixed_bid' ? ([['Quote amount', formatCurrency(job.quoteAmount)]] as [string, string][]) : []),
         ['Material budget', formatOptionalCurrency(job.estimatedMaterialCost)],
-        ['Labor hour budget', formatOptionalNumber(job.estimatedLaborHours)],
+        ['Labor hour budget', formatOptionalLaborBudget(job.estimatedLaborHours)],
         ['Hourly rate', formatOptionalCurrency(job.hourlyRate)],
         ['Other estimated costs', formatOptionalCurrency(getOtherEstimatedCost(job))],
-      ])}
-      ${buildInfoTable('Summary', [
-        ['Receipts / expenses', formatCurrency(summary.totalReceipts)],
-        ['Total labor time', formatLaborTime(summary.totalLaborMinutes)],
-        ['Total labor value', formatCurrency(summary.totalLaborValue)],
-        ['Payments received', formatCurrency(summary.totalPayments)],
-        [job.jobType === 'fixed_bid' ? 'Contract balance' : 'Billable amount', formatCurrency(summary.balance)],
       ])}
       ${buildExpenseTable(report.expenses)}
       ${buildLaborTable(report.hours)}
       ${buildPaymentTable(report.payments)}
       ${buildNotesTable(report.notes)}
+      <footer>Generated by conTRACKtor · ${escapeHtml(formatDate(new Date()))}</footer>
     </main>
+  `;
+}
+
+function buildSummaryTable(job: Job, summary: ReturnType<typeof getReportSummary>) {
+  return `
+    <section>
+      <h2>Summary</h2>
+      <table class="summary-table">
+        ${[
+          ['Receipts / expenses', formatCurrency(summary.totalReceipts)],
+          ['Total labor time', formatLaborTime(summary.totalLaborMinutes)],
+          ['Total labor value', formatCurrency(summary.totalLaborValue)],
+          ['Payments received', formatCurrency(summary.totalPayments)],
+          [getBalanceLabel(job), formatCurrency(summary.balance)],
+        ]
+          .map(
+            ([label, value]) => `
+              <tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>
+            `
+          )
+          .join('')}
+      </table>
+    </section>
   `;
 }
 
@@ -336,18 +445,45 @@ function buildInfoTable(title: string, rows: [string, string][]) {
 }
 
 function buildExpenseTable(expenses: JobReportExpense[]) {
-  return buildDetailTable(
-    'Receipts / expenses',
-    ['Date', 'Vendor / Description', 'Category', 'Status', 'Amount', 'File'],
-    expenses.map((expense) => [
-      escapeHtml(formatDate(expense.expense_date)),
-      escapeHtml(`${expense.vendor ?? 'No vendor'} · ${expense.description}`),
-      escapeHtml(formatExpenseType(expense.expense_type)),
-      escapeHtml(expense.receiptStatus ?? expense.status),
-      escapeHtml(formatCurrency(expense.total_amount)),
-      expense.receiptImageUrl ? `<a href="${escapeHtml(expense.receiptImageUrl)}">Receipt</a>` : '—',
-    ])
-  );
+  const hasReceiptFiles = expenses.some((expense) => expense.receiptImageUrl);
+  const groups = groupExpensesByDateAndVendor(expenses);
+
+  return `
+    <section>
+      <h2>Receipts / expenses</h2>
+      ${hasReceiptFiles ? '<p class="section-note">Receipt files available in conTRACKtor.</p>' : ''}
+      ${
+        groups.length === 0
+          ? '<p class="empty">None logged.</p>'
+          : groups
+              .map(
+                (group) => `
+                  <div class="receipt-group">
+                    <div class="receipt-group-header">
+                      <div>
+                        <strong>${escapeHtml(formatDate(group.date))} · ${escapeHtml(group.vendor)}</strong>
+                        <span>${escapeHtml(formatCategoryTotals(group.categoryTotals))}</span>
+                      </div>
+                      <strong>Total: ${escapeHtml(formatCurrency(group.total))}</strong>
+                    </div>
+                    <ul>
+                      ${group.expenses
+                        .map(
+                          (expense) => `
+                            <li>${escapeHtml(expense.description)} · ${escapeHtml(
+                              formatExpenseType(expense.expense_type)
+                            )} · ${escapeHtml(formatCurrency(expense.total_amount))}${expense.source_type === 'manual' ? ' · No receipt attached' : ''}</li>
+                          `
+                        )
+                        .join('')}
+                    </ul>
+                  </div>
+                `
+              )
+              .join('')
+      }
+    </section>
+  `;
 }
 
 function buildLaborTable(hours: JobReportHours[]) {
@@ -491,6 +627,24 @@ function buildPrintableReportHtml(reportHtml: string, fileBaseName: string): str
             color: #667382;
             font-weight: 800;
           }
+          .summary-table {
+            background: #f8f4eb;
+            border: 1px solid #e2dacb;
+            border-radius: 10px;
+            border-collapse: separate;
+            border-spacing: 0;
+            overflow: hidden;
+          }
+          .summary-table th,
+          .summary-table td {
+            font-size: 15px;
+            padding: 12px 14px;
+          }
+          .summary-table td {
+            font-size: 16px;
+            font-weight: 900;
+            text-align: right;
+          }
           a {
             color: #294b38;
             font-weight: 700;
@@ -498,6 +652,69 @@ function buildPrintableReportHtml(reportHtml: string, fileBaseName: string): str
           .empty {
             color: #667382;
             font-weight: 700;
+          }
+          .section-note {
+            color: #667382;
+            font-size: 12px;
+            font-weight: 700;
+            margin: -4px 0 10px;
+          }
+          .compact-detail td:first-child {
+            width: auto;
+          }
+          .compact-detail td:last-child {
+            font-weight: 900;
+            text-align: right;
+            white-space: nowrap;
+            width: 110px;
+          }
+          .compact-detail strong,
+          .compact-detail span {
+            display: block;
+          }
+          .compact-detail span {
+            color: #667382;
+            font-size: 12px;
+            font-weight: 700;
+            margin-top: 3px;
+          }
+          .receipt-group {
+            border-top: 1px solid #ece6da;
+            padding: 10px 0 8px;
+          }
+          .receipt-group-header {
+            align-items: flex-start;
+            display: flex;
+            gap: 18px;
+            justify-content: space-between;
+          }
+          .receipt-group-header span {
+            color: #667382;
+            display: block;
+            font-size: 12px;
+            font-weight: 700;
+            margin-top: 3px;
+          }
+          .receipt-group ul {
+            color: #202629;
+            font-size: 12px;
+            line-height: 1.35;
+            margin: 7px 0 0;
+            padding-left: 18px;
+          }
+          .receipt-group li {
+            margin: 0 0 3px;
+          }
+          footer {
+            border-top: 1px solid #ece6da;
+            color: #667382;
+            font-size: 12px;
+            font-weight: 700;
+            margin-top: 28px;
+            padding-top: 12px;
+          }
+          @page {
+            margin: 0;
           }
           @media print {
             body {
@@ -517,6 +734,136 @@ function buildPrintableReportHtml(reportHtml: string, fileBaseName: string): str
   `;
 }
 
+function buildReceiptPhotosHtml(job: Job, receiptPhotos: ReceiptPhotoItem[]): string {
+  return `
+    <main class="receipt-photos">
+      <header>
+        <p class="eyebrow">Receipt photos</p>
+        <h1>${escapeHtml(job.name)}</h1>
+        <p>Generated ${escapeHtml(formatDate(new Date()))}</p>
+      </header>
+      ${receiptPhotos
+        .map(
+          (receiptPhoto) => `
+            <section class="receipt-photo">
+              <h2>${escapeHtml(formatDate(receiptPhoto.date))} · ${escapeHtml(
+                receiptPhoto.vendor
+              )} · ${escapeHtml(formatCurrency(receiptPhoto.amount))}</h2>
+              <img src="${escapeHtml(receiptPhoto.imageUrl)}" alt="Receipt from ${escapeHtml(
+                receiptPhoto.vendor
+              )}" />
+            </section>
+          `
+        )
+        .join('')}
+      <footer>Generated by conTRACKtor · ${escapeHtml(formatDate(new Date()))}</footer>
+    </main>
+  `;
+}
+
+function buildPrintableReceiptPhotosHtml(receiptPhotosHtml: string, fileBaseName: string): string {
+  return `
+    <!doctype html>
+    <html>
+      <head>
+        <title>${escapeHtml(sanitizePdfFileName(fileBaseName))}</title>
+        <style>
+          body {
+            background: #ffffff;
+            color: #202629;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            margin: 0;
+            padding: 32px;
+          }
+          .receipt-photos {
+            margin: 0 auto;
+            max-width: 760px;
+          }
+          header {
+            margin-bottom: 28px;
+          }
+          .eyebrow {
+            color: #667382;
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 0;
+            margin: 0 0 6px;
+            text-transform: uppercase;
+          }
+          h1 {
+            font-size: 34px;
+            margin: 0 0 4px;
+          }
+          h2 {
+            border-bottom: 1px solid #ece6da;
+            font-size: 16px;
+            margin: 0 0 14px;
+            padding-bottom: 8px;
+          }
+          p {
+            color: #667382;
+            font-weight: 700;
+            margin: 0;
+          }
+          .receipt-photo {
+            break-inside: avoid;
+            margin-bottom: 28px;
+            page-break-inside: avoid;
+          }
+          img {
+            border: 1px solid #d8d2c6;
+            display: block;
+            height: auto;
+            max-height: 860px;
+            max-width: 100%;
+            object-fit: contain;
+            width: 100%;
+          }
+          footer {
+            border-top: 1px solid #ece6da;
+            color: #667382;
+            font-size: 12px;
+            font-weight: 700;
+            margin-top: 28px;
+            padding-top: 12px;
+          }
+        </style>
+      </head>
+      <body>${receiptPhotosHtml}</body>
+    </html>
+  `;
+}
+
+function downloadReportPdf(
+  job: Job,
+  report: JobReportData,
+  summary: ReturnType<typeof getReportSummary>,
+  fileBaseName: string
+): void {
+  const documentRef = globalThis.document;
+
+  if (!documentRef) {
+    throw new Error('Document is unavailable.');
+  }
+
+  const pdfBytes = buildReportPdf(job, report, summary);
+  const pdfBuffer = new ArrayBuffer(pdfBytes.byteLength);
+  new Uint8Array(pdfBuffer).set(pdfBytes);
+  const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const anchor = documentRef.createElement('a');
+
+  anchor.href = url;
+  anchor.download = `${sanitizePdfFileName(fileBaseName)}.pdf`;
+  documentRef.body.appendChild(anchor);
+  anchor.click();
+  documentRef.body.removeChild(anchor);
+
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 1000);
+}
+
 function printHtmlFromIframe(html: string): void {
   const documentRef = globalThis.document;
 
@@ -525,6 +872,13 @@ function printHtmlFromIframe(html: string): void {
   }
 
   const iframe = documentRef.createElement('iframe');
+  const previousTitle = documentRef.title;
+  const printTitle = html.match(/<title>(.*?)<\/title>/i)?.[1]?.trim();
+
+  if (printTitle) {
+    documentRef.title = printTitle;
+  }
+
   iframe.style.height = '0';
   iframe.style.position = 'fixed';
   iframe.style.right = '0';
@@ -546,8 +900,247 @@ function printHtmlFromIframe(html: string): void {
   frameWindow.focus();
   frameWindow.print();
   window.setTimeout(() => {
+    documentRef.title = previousTitle;
     documentRef.body.removeChild(iframe);
   }, 1000);
+}
+
+function buildReportPdf(
+  job: Job,
+  report: JobReportData,
+  summary: ReturnType<typeof getReportSummary>
+): Uint8Array {
+  const pageWidth = 612;
+  const pageHeight = 792;
+  const margin = 54;
+  const contentWidth = pageWidth - margin * 2;
+  const bottomMargin = 58;
+  const generatedDate = formatDate(new Date());
+  const pages: string[][] = [];
+  let commands: string[] = [];
+  let y = pageHeight - margin;
+
+  const pushPage = (includeFooter = false) => {
+    if (commands.length > 0) {
+      if (includeFooter) {
+        commands.push(setStrokeColor('#ece6da'), `0.7 w`, `${margin} 42 m ${pageWidth - margin} 42 l S`);
+        addRawText(`Generated by conTRACKtor | ${generatedDate}`, margin, 28, 9, '#667382');
+      }
+      pages.push(commands);
+    }
+
+    commands = [];
+    y = pageHeight - margin;
+  };
+
+  const ensureSpace = (height: number) => {
+    if (y - height < bottomMargin) {
+      pushPage();
+    }
+  };
+
+  const addRawText = (
+    text: string,
+    x: number,
+    textY: number,
+    size: number,
+    color = '#202629',
+    font = 'F1'
+  ) => {
+    commands.push(
+      `${setFillColor(color)} BT /${font} ${size} Tf ${formatPdfNumber(x)} ${formatPdfNumber(
+        textY
+      )} Td (${escapePdfText(text)}) Tj ET`
+    );
+  };
+
+  const addText = (
+    text: string,
+    options: { color?: string; font?: string; maxWidth?: number; size?: number; x?: number } = {}
+  ) => {
+    const size = options.size ?? 11;
+    const x = options.x ?? margin;
+    const lines = wrapPdfText(text, options.maxWidth ?? contentWidth, size);
+    ensureSpace(lines.length * (size + 4));
+
+    lines.forEach((line) => {
+      addRawText(line, x, y, size, options.color, options.font);
+      y -= size + 4;
+    });
+  };
+
+  const addSectionTitle = (title: string) => {
+    ensureSpace(34);
+    y -= 18;
+    addRawText(title.toUpperCase(), margin, y, 14, '#202629', 'F2');
+    y -= 10;
+    commands.push(setStrokeColor('#e2dacb'), `0.7 w`, `${margin} ${y} m ${pageWidth - margin} ${y} l S`);
+    y -= 18;
+  };
+
+  const addKeyValueRows = (rows: [string, string][], isSummary = false) => {
+    rows.forEach(([label, value]) => {
+      ensureSpace(isSummary ? 34 : 24);
+      if (isSummary) {
+        commands.push(setFillColor('#f8f4eb'), `${margin} ${y - 20} ${contentWidth} 28 re f`);
+      }
+      addRawText(label, margin + 8, y - 10, isSummary ? 11 : 10, '#202629', 'F2');
+      addRawText(
+        value,
+        pageWidth - margin - estimatePdfTextWidth(value, isSummary ? 12 : 10),
+        y - 10,
+        isSummary ? 12 : 10,
+        '#202629',
+        isSummary ? 'F2' : 'F1'
+      );
+      y -= isSummary ? 30 : 24;
+    });
+  };
+
+  const addDetailRows = (
+    title: string,
+    rows: { amount?: string; detail?: string; meta?: string; title: string }[]
+  ) => {
+    addSectionTitle(title);
+
+    if (rows.length === 0) {
+      addText('None logged.', { color: '#667382', font: 'F2', size: 10 });
+      return;
+    }
+
+    rows.forEach((row) => {
+      ensureSpace(56);
+      addRawText(row.title, margin, y, 10, '#202629', 'F2');
+      if (row.amount) {
+        addRawText(row.amount, pageWidth - margin - estimatePdfTextWidth(row.amount, 10), y, 10, '#202629', 'F2');
+      }
+      y -= 15;
+      if (row.detail) {
+        addText(row.detail, { color: '#667382', maxWidth: contentWidth - 80, size: 9 });
+      }
+      if (row.meta) {
+        addText(row.meta, { color: '#294b38', maxWidth: contentWidth - 80, size: 9 });
+      }
+      commands.push(setStrokeColor('#ece6da'), `0.5 w`, `${margin} ${y - 2} m ${pageWidth - margin} ${y - 2} l S`);
+      y -= 14;
+    });
+  };
+
+  const addReceiptRows = (expenses: JobReportExpense[]) => {
+    const groups = groupExpensesByDateAndVendor(expenses);
+
+    addSectionTitle('Receipts / expenses');
+
+    if (expenses.some((expense) => expense.receiptImageUrl)) {
+      addText('Receipt files available in conTRACKtor.', { color: '#667382', font: 'F2', size: 9 });
+      y -= 4;
+    }
+
+    if (groups.length === 0) {
+      addText('None logged.', { color: '#667382', font: 'F2', size: 10 });
+      return;
+    }
+
+    groups.forEach((group) => {
+      const total = `Total ${formatCurrency(group.total)}`;
+      ensureSpace(54 + group.expenses.length * 13);
+      addRawText(`${formatDate(group.date)} | ${group.vendor}`, margin, y, 10, '#202629', 'F2');
+      addRawText(total, pageWidth - margin - estimatePdfTextWidth(total, 10), y, 10, '#202629', 'F2');
+      y -= 13;
+      addText(formatCategoryTotals(group.categoryTotals), {
+        color: '#667382',
+        font: 'F2',
+        maxWidth: contentWidth - 90,
+        size: 9,
+      });
+      y -= 2;
+
+      group.expenses.forEach((expense) => {
+        addText(
+          `- ${expense.description} | ${formatExpenseType(expense.expense_type)} | ${formatCurrency(
+            expense.total_amount
+          )}${expense.source_type === 'manual' ? ' | No receipt attached' : ''}`,
+          { color: '#202629', maxWidth: contentWidth - 18, size: 9, x: margin + 10 }
+        );
+      });
+
+      commands.push(setStrokeColor('#ece6da'), `0.5 w`, `${margin} ${y - 2} m ${pageWidth - margin} ${y - 2} l S`);
+      y -= 10;
+    });
+  };
+
+  addText('JOB REPORT', { color: '#202629', font: 'F2', size: 12 });
+  y -= 8;
+  addText(job.name, { color: '#202629', font: 'F2', size: 28 });
+  addText(`Generated ${generatedDate}`, { color: '#667382', size: 12 });
+
+  addSectionTitle('Summary');
+  addKeyValueRows(
+    [
+      ['Receipts / expenses', formatCurrency(summary.totalReceipts)],
+      ['Total labor time', formatLaborTime(summary.totalLaborMinutes)],
+      ['Total labor value', formatCurrency(summary.totalLaborValue)],
+      ['Payments received', formatCurrency(summary.totalPayments)],
+      [getBalanceLabel(job), formatCurrency(summary.balance)],
+    ],
+    true
+  );
+
+  addSectionTitle('Job info');
+  addKeyValueRows([
+    ['Client', job.clientName],
+    ['Location', formatLocation(job.location)],
+    ['Job type', job.jobType === 'time_and_materials' ? 'Time & materials' : 'Fixed bid'],
+    ['Status', formatStatus(job.status)],
+    ['Created', formatDate(job.createdAt)],
+  ]);
+
+  addSectionTitle('Budget / quote');
+  addKeyValueRows([
+    ...(job.jobType === 'fixed_bid' ? ([['Quote amount', formatCurrency(job.quoteAmount)]] as [string, string][]) : []),
+    ['Material budget', formatOptionalCurrency(job.estimatedMaterialCost)],
+    ['Labor hour budget', formatOptionalLaborBudget(job.estimatedLaborHours)],
+    ['Hourly rate', formatOptionalCurrency(job.hourlyRate)],
+    ['Other estimated costs', formatOptionalCurrency(getOtherEstimatedCost(job))],
+  ]);
+
+  addReceiptRows(report.expenses);
+
+  addDetailRows(
+    'Labor',
+    report.hours.map((entry) => ({
+      amount: formatCurrency((entry.duration_minutes / 60) * entry.hourly_rate),
+      detail: `${formatLaborTime(entry.duration_minutes)} at ${formatCurrency(entry.hourly_rate)}/hr${
+        entry.description ? ` · ${entry.description}` : ''
+      }`,
+      title: `${formatDate(entry.work_date)} · ${entry.worker_name ?? 'Labor'}`,
+    }))
+  );
+
+  addDetailRows(
+    'Payments',
+    report.payments.map((payment) => ({
+      amount: formatCurrency(payment.amount),
+      detail: [payment.method, payment.note].filter(Boolean).join(' · ') || undefined,
+      title: formatDate(payment.payment_date),
+    }))
+  );
+
+  addDetailRows(
+    'Notes',
+    report.notes.map((note) => ({
+      detail: note.note,
+      meta:
+        note.photos.length > 0
+          ? `${note.photos.length} photo${note.photos.length === 1 ? '' : 's'} attached`
+          : undefined,
+      title: formatDate(note.created_at),
+    }))
+  );
+
+  pushPage(true);
+
+  return writePdf(pages, pageWidth, pageHeight);
 }
 
 function getOtherEstimatedCost(job: Job): number | null {
@@ -558,12 +1151,117 @@ function getOtherEstimatedCost(job: Job): number | null {
   return (job.estimatedSubCost ?? 0) + (job.estimatedMiscCost ?? 0);
 }
 
+function groupExpensesByDateAndVendor(expenses: JobReportExpense[]): ReceiptExpenseGroup[] {
+  const groups = new Map<string, ReceiptExpenseGroup>();
+
+  expenses.forEach((expense) => {
+    const date = expense.expense_date;
+    const vendor = expense.vendor?.trim() || (expense.source_type === 'manual' ? 'Manual expense' : 'No vendor');
+    const key = `${date}::${vendor.toLocaleLowerCase()}`;
+    const existingGroup = groups.get(key);
+
+    if (existingGroup) {
+      existingGroup.expenses.push(expense);
+      existingGroup.total += expense.total_amount;
+      return;
+    }
+
+    groups.set(key, {
+      categoryTotals: [],
+      date,
+      expenses: [expense],
+      id: key,
+      total: expense.total_amount,
+      vendor,
+    });
+  });
+
+  return Array.from(groups.values()).map((group) => {
+    const categoryTotals = new Map<string, number>();
+
+    group.expenses.forEach((expense) => {
+      const category = formatExpenseType(expense.expense_type);
+      categoryTotals.set(category, (categoryTotals.get(category) ?? 0) + expense.total_amount);
+    });
+
+    return {
+      ...group,
+      categoryTotals: Array.from(categoryTotals.entries()).map(([category, amount]) => ({
+        amount,
+        category,
+      })),
+      total: roundCurrency(group.total),
+    };
+  });
+}
+
+function getReceiptPhotoItems(expenses: JobReportExpense[]): ReceiptPhotoItem[] {
+  const receiptPhotos = new Map<string, ReceiptPhotoItem>();
+
+  expenses.forEach((expense) => {
+    if (!expense.receiptImageUrl) {
+      return;
+    }
+
+    const id = expense.receipt_id ?? expense.receiptImageUrl;
+    const existingReceiptPhoto = receiptPhotos.get(id);
+
+    if (existingReceiptPhoto) {
+      existingReceiptPhoto.amount += expense.total_amount;
+      return;
+    }
+
+    receiptPhotos.set(id, {
+      amount: expense.total_amount,
+      date: expense.expense_date,
+      id,
+      imageUrl: expense.receiptImageUrl,
+      vendor: expense.vendor?.trim() || 'No vendor',
+    });
+  });
+
+  return Array.from(receiptPhotos.values()).map((receiptPhoto) => ({
+    ...receiptPhoto,
+    amount: roundCurrency(receiptPhoto.amount),
+  }));
+}
+
+function formatCategoryTotals(categoryTotals: ReceiptExpenseGroup['categoryTotals']): string {
+  return categoryTotals
+    .map(({ amount, category }) => `${category} ${formatCurrency(amount)}`)
+    .join(' · ');
+}
+
+function roundCurrency(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function getBalanceLabel(job: Job): string {
+  return job.jobType === 'fixed_bid' ? 'Balance due' : 'Billable amount';
+}
+
+function formatLocation(value: string | null | undefined): string {
+  if (!value) {
+    return '—';
+  }
+
+  const normalized = value
+    .replace(/\s*,\s*/g, ', ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  return normalized.replace(
+    /\b(Ave|Avenue|St|Street|Rd|Road|Dr|Drive|Ln|Lane|Blvd|Boulevard|Ct|Court|Way|Pkwy|Parkway|Hwy|Highway|Trail)\s+([^,]+,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?)$/i,
+    '$1, $2'
+  );
+}
+
 function formatOptionalCurrency(value: number | null | undefined): string {
   return value == null ? '—' : formatCurrency(value);
 }
 
-function formatOptionalNumber(value: number | null | undefined): string {
-  return value == null ? '—' : formatNumber(value);
+function formatOptionalLaborBudget(value: number | null | undefined): string {
+  return value == null ? '—' : `${formatNumber(value)} hrs`;
 }
 
 function formatLaborTime(totalMinutes: number): string {
@@ -634,6 +1332,122 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+function writePdf(pages: string[][], pageWidth: number, pageHeight: number): Uint8Array {
+  const objects: string[] = [];
+  const pageObjectIds: number[] = [];
+  const fontRegularId = 3;
+  const fontBoldId = 4;
+
+  objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+  objects[fontRegularId] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>';
+  objects[fontBoldId] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>';
+
+  pages.forEach((pageCommands, index) => {
+    const pageId = 5 + index * 2;
+    const contentId = pageId + 1;
+    const content = pageCommands.join('\n');
+    pageObjectIds.push(pageId);
+    objects[pageId] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontRegularId} 0 R /F2 ${fontBoldId} 0 R >> >> /Contents ${contentId} 0 R >>`;
+    objects[contentId] = `<< /Length ${content.length} >>\nstream\n${content}\nendstream`;
+  });
+
+  objects[2] = `<< /Type /Pages /Kids [${pageObjectIds
+    .map((id) => `${id} 0 R`)
+    .join(' ')}] /Count ${pageObjectIds.length} >>`;
+
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+
+  for (let id = 1; id < objects.length; id += 1) {
+    if (!objects[id]) {
+      continue;
+    }
+
+    offsets[id] = pdf.length;
+    pdf += `${id} 0 obj\n${objects[id]}\nendobj\n`;
+  }
+
+  const xrefStart = pdf.length;
+  pdf += `xref\n0 ${objects.length}\n0000000000 65535 f \n`;
+
+  for (let id = 1; id < objects.length; id += 1) {
+    pdf += `${String(offsets[id] ?? 0).padStart(10, '0')} 00000 n \n`;
+  }
+
+  pdf += `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+
+  return new TextEncoder().encode(pdf);
+}
+
+function wrapPdfText(text: string, maxWidth: number, size: number): string[] {
+  const words = sanitizePdfText(text).split(/\s+/).filter(Boolean);
+  const maxCharacters = Math.max(12, Math.floor(maxWidth / (size * 0.52)));
+  const lines: string[] = [];
+  let currentLine = '';
+
+  words.forEach((word) => {
+    const nextLine = currentLine ? `${currentLine} ${word}` : word;
+
+    if (nextLine.length <= maxCharacters) {
+      currentLine = nextLine;
+      return;
+    }
+
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+
+    currentLine = word;
+  });
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  return lines.length > 0 ? lines : [''];
+}
+
+function estimatePdfTextWidth(text: string, size: number): number {
+  return sanitizePdfText(text).length * size * 0.52;
+}
+
+function escapePdfText(value: string): string {
+  return sanitizePdfText(value).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+}
+
+function sanitizePdfText(value: string): string {
+  return value
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/·/g, '|')
+    .replace(/—/g, '-')
+    .replace(/–/g, '-')
+    .replace(/[^\x20-\x7E]/g, '');
+}
+
+function setFillColor(hex: string): string {
+  const [red, green, blue] = hexToRgb(hex);
+  return `${red} ${green} ${blue} rg`;
+}
+
+function setStrokeColor(hex: string): string {
+  const [red, green, blue] = hexToRgb(hex);
+  return `${red} ${green} ${blue} RG`;
+}
+
+function hexToRgb(hex: string): [string, string, string] {
+  const normalized = hex.replace('#', '');
+  const red = parseInt(normalized.slice(0, 2), 16) / 255;
+  const green = parseInt(normalized.slice(2, 4), 16) / 255;
+  const blue = parseInt(normalized.slice(4, 6), 16) / 255;
+
+  return [formatPdfNumber(red), formatPdfNumber(green), formatPdfNumber(blue)];
+}
+
+function formatPdfNumber(value: number): string {
+  return Number(value.toFixed(3)).toString();
+}
+
 const styles = StyleSheet.create({
   safeArea: {
     backgroundColor: colors.appBackground,
@@ -664,6 +1478,21 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     ...buttonStyles.primary.text,
+  },
+  secondaryButton: {
+    alignItems: 'center',
+    backgroundColor: colors.cardBackground,
+    borderColor: colors.primaryGreen,
+    borderRadius: radii.button,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: 18,
+  },
+  secondaryButtonText: {
+    color: colors.primaryGreen,
+    fontSize: 16,
+    fontWeight: '900',
   },
   header: {
     marginBottom: 16,
@@ -725,10 +1554,49 @@ const styles = StyleSheet.create({
   section: {
     gap: 8,
   },
+  summarySection: {
+    gap: 10,
+  },
+  summaryGrid: {
+    backgroundColor: '#F8F4EB',
+    borderColor: colors.standardBorder,
+    borderRadius: 10,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  summaryItem: {
+    alignItems: 'flex-start',
+    borderTopColor: '#ECE6DA',
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+  summaryLabel: {
+    color: colors.mutedText,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  summaryValue: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
   sectionTitle: {
     color: colors.text,
     fontSize: 19,
     fontWeight: '900',
+  },
+  sectionNote: {
+    color: colors.mutedText,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
   },
   infoRow: {
     alignItems: 'flex-start',
@@ -793,5 +1661,45 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 14,
     fontWeight: '900',
+  },
+  receiptGroup: {
+    borderTopColor: '#ECE6DA',
+    borderTopWidth: 1,
+    gap: 6,
+    paddingTop: 10,
+  },
+  receiptGroupHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'space-between',
+  },
+  receiptGroupText: {
+    flex: 1,
+    gap: 2,
+  },
+  receiptTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+    lineHeight: 19,
+  },
+  receiptCategoryTotals: {
+    color: colors.mutedText,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17,
+  },
+  receiptAmount: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  receiptLineItem: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+    paddingLeft: 6,
   },
 });

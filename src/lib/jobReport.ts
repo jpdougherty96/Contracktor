@@ -3,7 +3,14 @@ import type { Tables } from '@/src/types/database';
 
 export type JobReportExpense = Pick<
   Tables<'expenses'>,
-  'id' | 'description' | 'expense_date' | 'expense_type' | 'status' | 'total_amount' | 'receipt_id'
+  | 'id'
+  | 'description'
+  | 'expense_date'
+  | 'expense_type'
+  | 'source_type'
+  | 'status'
+  | 'total_amount'
+  | 'receipt_id'
 > & {
   receiptImageUrl: string | null;
   receiptStatus: string | null;
@@ -37,7 +44,14 @@ export type JobReportData = {
 
 type ExpenseRow = Pick<
   Tables<'expenses'>,
-  'id' | 'description' | 'expense_date' | 'expense_type' | 'status' | 'total_amount' | 'receipt_id'
+  | 'id'
+  | 'description'
+  | 'expense_date'
+  | 'expense_type'
+  | 'source_type'
+  | 'status'
+  | 'total_amount'
+  | 'receipt_id'
 > & {
   receipts:
     | Pick<Tables<'receipts'>, 'vendor' | 'status' | 'storage_path'>
@@ -66,7 +80,7 @@ export async function fetchJobReportData(jobId: string): Promise<JobReportData> 
       supabase
         .from('expenses')
         .select(
-          'id, description, expense_date, expense_type, status, total_amount, receipt_id, receipts(vendor, status, storage_path)'
+          'id, description, expense_date, expense_type, source_type, status, total_amount, receipt_id, receipts(vendor, status, storage_path)'
         )
         .eq('job_id', jobId)
         .eq('owner_id', userData.user.id)
@@ -149,6 +163,7 @@ export async function fetchJobReportData(jobId: string): Promise<JobReportData> 
           ? await createSignedUrl('receipts', receipt.storage_path)
           : null,
         receiptStatus: receipt?.status ?? null,
+        source_type: expense.source_type,
         status: expense.status,
         total_amount: expense.total_amount,
         vendor: receipt?.vendor ?? null,

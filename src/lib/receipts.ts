@@ -43,6 +43,7 @@ export const receiptCategories: ReceiptCategory[] = [
 ];
 
 const duplicateAmountTolerance = 0.05;
+const receiptTotalTolerance = 0.05;
 
 export type UpdateReceiptInput = {
   category: ReceiptCategory;
@@ -67,7 +68,7 @@ export async function createReceiptImageSignedUrl(storagePath: string): Promise<
 }
 
 export async function uploadReceiptPhoto(
-  jobId: string,
+  jobId: string | null,
   imageAsset: ImagePickerAsset
 ): Promise<{
   originalFilename: string;
@@ -90,7 +91,8 @@ export async function uploadReceiptPhoto(
   const contentType = imageAsset.mimeType ?? 'image/jpeg';
   const extension = getFileExtension(contentType);
   const originalFilename = imageAsset.fileName ?? `receipt-${Date.now()}.${extension}`;
-  const storagePath = `${userData.user.id}/${jobId}/${Date.now()}-${sanitizeFilename(
+  const storageScope = jobId ?? 'tools-inventory';
+  const storagePath = `${userData.user.id}/${storageScope}/${Date.now()}-${sanitizeFilename(
     originalFilename
   )}`;
   const fileBody = base64ToArrayBuffer(imageAsset.base64);
@@ -111,7 +113,7 @@ export async function uploadReceiptPhoto(
 }
 
 export async function createProcessingReceipt(
-  jobId: string,
+  jobId: string | null,
   storagePath: string,
   originalFilename?: string
 ): Promise<Tables<'receipts'>> {
@@ -637,6 +639,14 @@ export async function confirmReceiptLineAssignments(
     }
   }
 
+  const assignedTotal = calculateAssignedReceiptTotal(receipt, lineItems, assignments);
+
+  if (typeof receipt.total === 'number' && assignedTotal > receipt.total + receiptTotalTolerance) {
+    throw new Error(
+      `Assigned receipt lines add up to ${formatMoney(assignedTotal)}, which is more than the receipt total of ${formatMoney(receipt.total)}. Review the parsed line items before saving.`
+    );
+  }
+
   await deleteReceiptExpenses(receiptId, userData.user.id, lineItems.map((lineItem) => lineItem.id));
 
   for (const assignment of assignments) {
@@ -888,8 +898,30 @@ function calculateLineAllocatedTax(
   return roundMoney(receiptTax * (lineItem.line_total / taxableSubtotal));
 }
 
+function calculateAssignedReceiptTotal(
+  receipt: Tables<'receipts'>,
+  lineItems: Tables<'receipt_line_items'>[],
+  assignments: ReceiptLineAssignmentInput[]
+): number {
+  return roundMoney(
+    assignments.reduce((sum, assignment) => {
+      if (assignment.assignmentType === 'ignore') {
+        return sum;
+      }
+
+      const lineItem = lineItems.find((item) => item.id === assignment.lineItemId);
+
+      if (!lineItem || shouldSkipLineExpense(lineItem)) {
+        return sum;
+      }
+
+      return sum + lineItem.line_total + calculateLineAllocatedTax(lineItem, lineItems, receipt.tax);
+    }, 0)
+  );
+}
+
 function shouldSkipLineExpense(lineItem: Tables<'receipt_line_items'>): boolean {
-  return lineItem.line_type === 'tax' || lineItem.line_type === 'discount';
+  return lineItem.line_type === 'tax' || lineItem.line_type === 'fee' || lineItem.line_type === 'discount';
 }
 
 function getLineExpenseType(

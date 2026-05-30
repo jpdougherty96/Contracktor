@@ -15,6 +15,7 @@ drop table if exists public.job_hours cascade;
 drop table if exists public.time_entries cascade;
 drop table if exists public.job_notes cascade;
 drop table if exists public.job_plans cascade;
+drop table if exists public.job_crew_members cascade;
 drop table if exists public.job_contacts cascade;
 drop table if exists public.contacts cascade;
 drop table if exists public.jobs cascade;
@@ -137,6 +138,67 @@ on public.jobs
 to authenticated;
 
 create index jobs_owner_status_idx on public.jobs (owner_id, status);
+
+create table public.job_crew_members (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references public.profiles(id) on delete cascade,
+  job_id uuid not null references public.jobs(id) on delete cascade,
+  name text not null,
+  hourly_rate numeric not null default 0,
+  active boolean not null default true,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  constraint job_crew_members_name_check
+    check (length(trim(name)) > 0),
+  constraint job_crew_members_hourly_rate_check
+    check (hourly_rate >= 0)
+);
+
+alter table public.job_crew_members enable row level security;
+
+create policy "Users can read their own job crew members"
+on public.job_crew_members
+for select
+to authenticated
+using (auth.uid() = owner_id);
+
+create policy "Users can create valid job crew members"
+on public.job_crew_members
+for insert
+to authenticated
+with check (
+  auth.uid() = owner_id
+  and exists (
+    select 1 from public.jobs j
+    where j.id = job_id and j.owner_id = auth.uid()
+  )
+);
+
+create policy "Users can update valid job crew members"
+on public.job_crew_members
+for update
+to authenticated
+using (auth.uid() = owner_id)
+with check (
+  auth.uid() = owner_id
+  and exists (
+    select 1 from public.jobs j
+    where j.id = job_id and j.owner_id = auth.uid()
+  )
+);
+
+create policy "Users can delete their own job crew members"
+on public.job_crew_members
+for delete
+to authenticated
+using (auth.uid() = owner_id);
+
+grant select, insert, update, delete
+on public.job_crew_members
+to authenticated;
+
+create index job_crew_members_job_active_idx
+on public.job_crew_members (job_id, active, name);
 
 create table public.job_contacts (
   id uuid primary key default gen_random_uuid(),
@@ -1027,6 +1089,45 @@ left join expenses_by_job e on e.job_id = j.id and e.owner_id = j.owner_id;
 grant select
 on public.job_financial_snapshots
 to authenticated;
+
+create or replace view public.tools_inventory_expenses
+with (security_invoker = true)
+as
+select
+  e.id,
+  e.owner_id,
+  e.receipt_id,
+  e.receipt_line_item_id,
+  e.description,
+  e.expense_date,
+  e.expense_type,
+  e.source_type,
+  e.pre_tax_amount,
+  e.tax_amount,
+  e.total_amount,
+  e.billable,
+  e.status,
+  e.notes,
+  e.created_at,
+  e.updated_at,
+  r.vendor as receipt_vendor,
+  r.receipt_date,
+  r.storage_path as receipt_storage_path
+from public.expenses e
+left join public.receipts r on r.id = e.receipt_id and r.owner_id = e.owner_id
+where e.job_id is null
+  and e.expense_type in ('tool', 'inventory')
+  and e.status <> 'ignored';
+
+grant select
+on public.tools_inventory_expenses
+to authenticated;
+
+create index if not exists expenses_owner_tools_inventory_idx
+on public.expenses (owner_id, expense_date desc)
+where job_id is null
+  and expense_type in ('tool', 'inventory')
+  and status <> 'ignored';
 
 insert into storage.buckets (id, name, public)
 values ('receipts', 'receipts', false)

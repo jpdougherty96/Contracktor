@@ -12,6 +12,7 @@ export type CreateJobHoursInput = {
 };
 
 export type UpdateJobHoursInput = {
+  hourlyRate: number;
   hours: number;
   note?: string;
   workDate: string;
@@ -102,6 +103,7 @@ export async function updateJobHours(
     .update({
       description: input.note?.trim() || null,
       duration_minutes: hoursToMinutes(input.hours),
+      hourly_rate: input.hourlyRate,
       status: 'reviewed',
       updated_at: new Date().toISOString(),
       work_date: input.workDate,

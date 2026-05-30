@@ -10,7 +10,7 @@ export type JobActivityItem = {
   paymentId?: string;
   receiptId?: string;
   label: string;
-  type: 'hours' | 'note' | 'payment' | 'receipt';
+  type: 'expense' | 'hours' | 'note' | 'payment' | 'receipt';
 };
 
 export async function fetchJobActivity(jobId: string): Promise<JobActivityItem[]> {
@@ -40,10 +40,9 @@ export async function fetchJobActivity(jobId: string): Promise<JobActivityItem[]
       .order('payment_date', { ascending: false }),
     supabase
       .from('expenses')
-      .select('id, receipt_id, description, expense_date, expense_type, total_amount, created_at, receipts(id, vendor, receipt_date, total, status)')
+      .select('id, receipt_id, description, expense_date, expense_type, source_type, total_amount, created_at, receipts(id, vendor, receipt_date, total, status)')
       .eq('job_id', jobId)
       .eq('owner_id', userData.user.id)
-      .not('receipt_id', 'is', null)
       .neq('status', 'ignored')
       .order('expense_date', { ascending: false }),
     supabase
@@ -151,6 +150,18 @@ export async function fetchJobActivity(jobId: string): Promise<JobActivityItem[]
     })
   );
 
+  const manualExpenseItems: JobActivityItem[] = (expensesResult.data ?? [])
+    .filter((expense) => !expense.receipt_id)
+    .map((expense) => ({
+      date: expense.expense_date ?? expense.created_at,
+      detail: `${formatExpenseType(expense.expense_type)} - ${formatCurrency(expense.total_amount, {
+        showCents: true,
+      })}${expense.description ? ` - ${expense.description}` : ''}`,
+      id: `expense-manual-${expense.id}`,
+      label: 'Manual expense',
+      type: 'expense',
+    }));
+
   const draftReceiptItems: JobActivityItem[] = (receiptsResult.data ?? []).map((receipt) => ({
     date: receipt.receipt_date ?? receipt.created_at,
     detail: `${receipt.vendor ?? 'Receipt'} - ${
@@ -173,7 +184,14 @@ export async function fetchJobActivity(jobId: string): Promise<JobActivityItem[]
     type: 'note',
   }));
 
-  return [...hourItems, ...paymentItems, ...expenseReceiptItems, ...draftReceiptItems, ...noteItems]
+  return [
+    ...hourItems,
+    ...paymentItems,
+    ...expenseReceiptItems,
+    ...manualExpenseItems,
+    ...draftReceiptItems,
+    ...noteItems,
+  ]
     .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
     .filter(dedupeActivityReceiptItems())
     .slice(0, 12);
@@ -200,4 +218,16 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat('en-US', {
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function formatExpenseType(value: string | null): string {
+  if (!value) {
+    return 'Expense';
+  }
+
+  return value
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }

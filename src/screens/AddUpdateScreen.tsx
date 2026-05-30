@@ -9,22 +9,22 @@ type AddUpdateScreenProps = {
   onAddHours: () => void;
   onAddNote: () => void;
   onAddPayment: () => void;
-  onAddReceipt: () => void;
+  onAddExpense: () => void;
 };
 
-const updateOptions = ['Add receipt', 'Add hours', 'Add payment', 'Add note'];
+const updateOptions = ['Add expense', 'Add hours', 'Add payment', 'Add note'];
 
 export function AddUpdateScreen({
   job,
   onBack,
+  onAddExpense,
   onAddHours,
   onAddNote,
   onAddPayment,
-  onAddReceipt,
 }: AddUpdateScreenProps) {
   const handleOptionPress = (option: string) => {
-    if (option === 'Add receipt') {
-      onAddReceipt();
+    if (option === 'Add expense') {
+      onAddExpense();
       return;
     }
 

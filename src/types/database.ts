@@ -344,6 +344,61 @@ export type Database = {
           },
         ]
       }
+      job_crew_members: {
+        Row: {
+          active: boolean
+          created_at: string | null
+          hourly_rate: number
+          id: string
+          job_id: string
+          name: string
+          owner_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string | null
+          hourly_rate?: number
+          id?: string
+          job_id: string
+          name: string
+          owner_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          active?: boolean
+          created_at?: string | null
+          hourly_rate?: number
+          id?: string
+          job_id?: string
+          name?: string
+          owner_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_crew_members_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "job_financial_snapshots"
+            referencedColumns: ["job_id"]
+          },
+          {
+            foreignKeyName: "job_crew_members_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_crew_members_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       job_contacts: {
         Row: {
           contact_id: string
@@ -957,6 +1012,52 @@ export type Database = {
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tools_inventory_expenses: {
+        Row: {
+          billable: boolean | null
+          created_at: string | null
+          description: string | null
+          expense_date: string | null
+          expense_type: string | null
+          id: string | null
+          notes: string | null
+          owner_id: string | null
+          pre_tax_amount: number | null
+          receipt_date: string | null
+          receipt_id: string | null
+          receipt_line_item_id: string | null
+          receipt_storage_path: string | null
+          receipt_vendor: string | null
+          source_type: string | null
+          status: string | null
+          tax_amount: number | null
+          total_amount: number | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expenses_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expenses_receipt_id_fkey"
+            columns: ["receipt_id"]
+            isOneToOne: false
+            referencedRelation: "receipts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expenses_receipt_line_item_id_fkey"
+            columns: ["receipt_line_item_id"]
+            isOneToOne: false
+            referencedRelation: "receipt_line_items"
             referencedColumns: ["id"]
           },
         ]

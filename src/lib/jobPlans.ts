@@ -1,6 +1,8 @@
 import { supabase } from '@/src/lib/supabase';
 import type { Tables } from '@/src/types/database';
 
+// Deferred Phase 1 code: kept for the old standalone Job Plan workflow, which
+// is intentionally not routed in the active app.
 export type JobPlan = Tables<'job_plans'>;
 
 export type SaveJobPlanInput = {

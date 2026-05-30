@@ -16,11 +16,14 @@ type JobPickerScreenProps = {
   backLabel?: string;
   emptyDetail?: string;
   includeInventoryOption?: boolean;
+  initialInventorySelected?: boolean;
+  initialSelectedJobIds?: string[];
   multiSelect?: boolean;
   onBack: () => void;
   onCreateJob: () => void;
+  onSelectInventory?: () => void;
   onSelectJob: (job: Job) => void;
-  onSelectJobs?: (jobs: Job[]) => void;
+  onSelectJobs?: (jobs: Job[], includesInventory?: boolean) => void;
   refreshKey?: number;
   title?: string;
 };
@@ -30,9 +33,12 @@ export function JobPickerScreen({
   backLabel = 'Back home',
   emptyDetail = 'Create a job before adding updates against it.',
   includeInventoryOption = false,
+  initialInventorySelected = false,
+  initialSelectedJobIds = [],
   multiSelect = false,
   onBack,
   onCreateJob,
+  onSelectInventory,
   onSelectJob,
   onSelectJobs,
   refreshKey = 0,
@@ -40,6 +46,7 @@ export function JobPickerScreen({
 }: JobPickerScreenProps) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+  const [isInventorySelected, setIsInventorySelected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -47,6 +54,7 @@ export function JobPickerScreen({
     () => jobs.filter((job) => !['completed', 'closed'].includes(job.status.toLowerCase())),
     [jobs]
   );
+  const initialSelectedJobIdsKey = initialSelectedJobIds.join('|');
 
   const loadJobs = useCallback(async () => {
     setIsLoading(true);
@@ -65,7 +73,17 @@ export function JobPickerScreen({
     loadJobs();
   }, [loadJobs, refreshKey]);
 
+  useEffect(() => {
+    if (!multiSelect) {
+      return;
+    }
+
+    setSelectedJobIds(initialSelectedJobIdsKey ? initialSelectedJobIdsKey.split('|') : []);
+    setIsInventorySelected(initialInventorySelected);
+  }, [initialInventorySelected, initialSelectedJobIdsKey, multiSelect]);
+
   const selectedJobs = openJobs.filter((job) => selectedJobIds.includes(job.id));
+  const hasSelection = isInventorySelected || selectedJobs.length > 0;
 
   const toggleSelectedJob = (job: Job) => {
     setSelectedJobIds((current) =>
@@ -75,9 +93,35 @@ export function JobPickerScreen({
     );
   };
 
+  const handleInventoryPress = () => {
+    if (!multiSelect) {
+      onSelectInventory?.();
+      return;
+    }
+
+    setIsInventorySelected((current) => !current);
+  };
+
+  const handleContinue = () => {
+    if (multiSelect) {
+      onSelectJobs?.(selectedJobs, isInventorySelected);
+      return;
+    }
+
+    if (isInventorySelected) {
+      onSelectInventory?.();
+    }
+  };
+  const continueLabel = getContinueLabel(isInventorySelected, selectedJobs.length);
+  const shouldShowFloatingContinue = multiSelect && !isLoading && !errorMessage;
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.container,
+          shouldShowFloatingContinue && styles.containerWithFloatingButton,
+        ]}>
         <Pressable style={styles.backButton} onPress={onBack}>
           <Text style={styles.backButtonText}>{backLabel}</Text>
         </Pressable>
@@ -92,26 +136,29 @@ export function JobPickerScreen({
           <StatePanel title="Unable to load jobs" detail={errorMessage} onRetry={loadJobs} />
         ) : null}
         {!isLoading && !errorMessage && openJobs.length === 0 ? (
-          <StatePanel
-            title="No open jobs"
-            detail={emptyDetail}
-            onCreateJob={onCreateJob}
-          />
+          <>
+            {includeInventoryOption ? (
+              <InventoryOption
+                isSelected={isInventorySelected}
+                multiSelect={multiSelect}
+                onPress={handleInventoryPress}
+              />
+            ) : null}
+            <StatePanel
+              title="No open jobs"
+              detail={emptyDetail}
+              onCreateJob={onCreateJob}
+            />
+          </>
         ) : null}
         {!isLoading && !errorMessage && openJobs.length > 0 ? (
           <View style={styles.list}>
             {includeInventoryOption ? (
-              <View style={styles.disabledCard}>
-                <View style={styles.cardTitleGroup}>
-                  <Text style={styles.jobName}>Tools / Inventory</Text>
-                  <Text style={styles.clientName}>
-                    Track purchases that should not hit a customer job.
-                  </Text>
-                </View>
-                <Text style={styles.disabledNote}>
-                  This needs the non-job expense table before receipts can be saved here.
-                </Text>
-              </View>
+              <InventoryOption
+                isSelected={isInventorySelected}
+                multiSelect={multiSelect}
+                onPress={handleInventoryPress}
+              />
             ) : null}
             {openJobs.map((job) => {
               const snapshot = hasFinancialActivity(job)
@@ -159,23 +206,19 @@ export function JobPickerScreen({
                 </Pressable>
               );
             })}
-            {multiSelect ? (
-              <Pressable
-                disabled={selectedJobs.length === 0}
-                onPress={() => onSelectJobs?.(selectedJobs)}
-                style={[
-                  styles.continueButton,
-                  selectedJobs.length === 0 && styles.disabledButton,
-                ]}>
-                <Text style={styles.continueButtonText}>
-                  Continue with {selectedJobs.length || 'selected'}{' '}
-                  {selectedJobs.length === 1 ? 'job' : 'jobs'}
-                </Text>
-              </Pressable>
-            ) : null}
           </View>
         ) : null}
       </ScrollView>
+      {shouldShowFloatingContinue ? (
+        <View style={styles.floatingBar}>
+          <Pressable
+            disabled={!hasSelection}
+            onPress={handleContinue}
+            style={[styles.continueButton, !hasSelection && styles.disabledButton]}>
+            <Text style={styles.continueButtonText}>{continueLabel}</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -209,8 +252,55 @@ function StatePanel({
   );
 }
 
+function InventoryOption({
+  isSelected,
+  multiSelect,
+  onPress,
+}: {
+  isSelected: boolean;
+  multiSelect: boolean;
+  onPress?: () => void;
+}) {
+  return (
+    <Pressable disabled={!onPress} onPress={onPress} style={[styles.card, isSelected && styles.selectedCard]}>
+      <View style={styles.cardHeader}>
+        <View style={styles.cardTitleGroup}>
+          <Text style={styles.jobName}>Tools / Inventory</Text>
+          <Text style={styles.clientName}>
+            Track purchases that should not hit a customer job.
+          </Text>
+        </View>
+        <View style={[styles.selectBadge, isSelected && styles.selectedBadge]}>
+          <Text style={[styles.selectBadgeText, isSelected && styles.selectedBadgeText]}>
+            {isSelected ? 'Selected' : multiSelect ? 'Select' : 'Open'}
+          </Text>
+        </View>
+      </View>
+      <Text style={styles.disabledNote}>
+        Receipt costs saved here stay out of job materials totals.
+      </Text>
+    </Pressable>
+  );
+}
+
 function hasFinancialActivity(job: Job): boolean {
   return job.receipts.length > 0 || job.hours.length > 0 || job.payments.length > 0;
+}
+
+function getContinueLabel(isInventorySelected: boolean, selectedJobCount: number): string {
+  if (isInventorySelected && selectedJobCount > 0) {
+    return `Continue with Tools / Inventory + ${selectedJobCount} ${
+      selectedJobCount === 1 ? 'job' : 'jobs'
+    }`;
+  }
+
+  if (isInventorySelected) {
+    return 'Continue with Tools / Inventory';
+  }
+
+  return `Continue with ${selectedJobCount || 'selected'} ${
+    selectedJobCount === 1 ? 'job' : 'jobs'
+  }`;
 }
 
 const styles = StyleSheet.create({
@@ -221,6 +311,9 @@ const styles = StyleSheet.create({
   container: {
     padding: 20,
     paddingBottom: 36,
+  },
+  containerWithFloatingButton: {
+    paddingBottom: 112,
   },
   backButton: {
     alignSelf: 'flex-start',
@@ -260,14 +353,6 @@ const styles = StyleSheet.create({
   selectedCard: {
     borderColor: '#335C43',
     borderWidth: 2,
-  },
-  disabledCard: {
-    backgroundColor: '#F1EFEA',
-    borderColor: '#D8D3CA',
-    borderRadius: 8,
-    borderWidth: 1,
-    opacity: 0.85,
-    padding: 16,
   },
   selectBadge: {
     borderColor: '#C9C3B8',
@@ -388,9 +473,10 @@ const styles = StyleSheet.create({
   continueButton: {
     alignItems: 'center',
     backgroundColor: '#335C43',
-    borderRadius: 8,
+    borderRadius: 12,
     justifyContent: 'center',
     minHeight: 56,
+    paddingHorizontal: 14,
   },
   disabledButton: {
     opacity: 0.55,
@@ -399,5 +485,17 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 17,
     fontWeight: '900',
+    textAlign: 'center',
+  },
+  floatingBar: {
+    backgroundColor: '#F6F5F2',
+    borderTopColor: '#D8D3CA',
+    borderTopWidth: 1,
+    bottom: 0,
+    left: 0,
+    padding: 16,
+    paddingBottom: 20,
+    position: 'absolute',
+    right: 0,
   },
 });

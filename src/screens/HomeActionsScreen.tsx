@@ -12,6 +12,7 @@ type HomeActionsScreenProps = {
   onAddNote: () => void;
   onAddPayment: () => void;
   onGoToJobs: () => void;
+  onGoToToolsInventory: () => void;
   onLogout?: () => void;
   userEmail?: string;
 };
@@ -24,10 +25,10 @@ const primaryActions = [
     label: 'Job dashboard',
   },
   {
-    description: 'Scan a receipt and attach it to a job.',
+    description: 'Scan a receipt or enter an expense manually.',
     icon: 'file-text',
     key: 'expense',
-    label: 'Add receipt',
+    label: 'Add expense',
   },
   {
     description: 'Log labor against an active job.',
@@ -48,6 +49,12 @@ const primaryActions = [
     label: 'Add note',
   },
   {
+    description: 'Review non-job tool and inventory purchases.',
+    icon: 'archive',
+    key: 'toolsInventory',
+    label: 'Tools / Inventory',
+  },
+  {
     description: 'Start tracking a new project.',
     icon: 'plus',
     key: 'job',
@@ -62,6 +69,7 @@ export function HomeActionsScreen({
   onAddNote,
   onAddPayment,
   onGoToJobs,
+  onGoToToolsInventory,
   onLogout,
   userEmail,
 }: HomeActionsScreenProps) {
@@ -90,6 +98,11 @@ export function HomeActionsScreen({
 
     if (key === 'job') {
       onAddJob();
+      return;
+    }
+
+    if (key === 'toolsInventory') {
+      onGoToToolsInventory();
       return;
     }
 

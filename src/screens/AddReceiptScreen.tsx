@@ -1,8 +1,9 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { WebCameraCapture } from '@/src/components/WebCameraCapture';
 import {
   acceptExtractedReceipt,
   createProcessingReceipt,
@@ -15,7 +16,9 @@ import type { Job } from '@/src/types/job';
 type AddReceiptScreenProps = {
   backLabel?: string;
   doneLabel?: string;
-  job: Job;
+  includeInventoryDestination?: boolean;
+  inventoryMode?: boolean;
+  job?: Job | null;
   jobs?: Job[];
   onBack: () => void;
   onDone: () => void;
@@ -30,6 +33,8 @@ const unclearReceiptMessage =
 export function AddReceiptScreen({
   backLabel = 'Back to updates',
   doneLabel = 'Back to dashboard',
+  includeInventoryDestination = false,
+  inventoryMode = false,
   job,
   jobs,
   onBack,
@@ -39,18 +44,21 @@ export function AddReceiptScreen({
   const [step, setStep] = useState<ReceiptStep>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const receiptJobs = jobs && jobs.length > 0 ? jobs : [job];
+  const [isWebCameraOpen, setIsWebCameraOpen] = useState(false);
+  const receiptJobs = jobs && jobs.length > 0 ? jobs : job ? [job] : [];
 
   const isBusy = step === 'uploading' || step === 'extracting';
+  const isWeb = Platform.OS === 'web';
 
   const processReceiptAsset = async (asset: ImagePicker.ImagePickerAsset) => {
     try {
       setStep('uploading');
-      setMessage('Uploading receipt photo...');
+      setMessage('Uploading receipt...');
 
-      const upload = await uploadReceiptPhoto(job.id, asset);
+      const contextJobId = inventoryMode ? null : job?.id;
+      const upload = await uploadReceiptPhoto(contextJobId ?? null, asset);
       const receipt = await createProcessingReceipt(
-        job.id,
+        contextJobId ?? null,
         upload.storagePath,
         upload.originalFilename
       );
@@ -72,7 +80,7 @@ export function AddReceiptScreen({
         return;
       }
 
-      if (receiptJobs.length > 1) {
+      if (inventoryMode || includeInventoryDestination || receiptJobs.length > 1) {
         onReviewReceipt(extraction.receipt.id);
         return;
       }
@@ -104,6 +112,11 @@ export function AddReceiptScreen({
     setMessage(null);
     setErrorMessage(null);
 
+    if (isWeb) {
+      setIsWebCameraOpen(true);
+      return;
+    }
+
     const permission = await ImagePicker.requestCameraPermissionsAsync();
 
     if (!permission.granted) {
@@ -114,6 +127,7 @@ export function AddReceiptScreen({
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: false,
       base64: true,
+      mediaTypes: ['images'],
       quality: 0.8,
     });
 
@@ -131,6 +145,7 @@ export function AddReceiptScreen({
     const result = await ImagePicker.launchImageLibraryAsync({
       allowsMultipleSelection: false,
       base64: true,
+      mediaTypes: ['images'],
       quality: 0.8,
     });
 
@@ -143,40 +158,78 @@ export function AddReceiptScreen({
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
+      <View style={[styles.container, isWeb && styles.webContainer]}>
         <Pressable style={styles.backButton} onPress={onBack} disabled={isBusy}>
           <Text style={styles.backButtonText}>{backLabel}</Text>
         </Pressable>
 
         <View style={styles.header}>
           <Text style={styles.title}>Add receipt</Text>
-          <Text style={styles.subtitle}>{formatReceiptJobs(receiptJobs)}</Text>
+          <Text style={styles.subtitle}>
+            {inventoryMode ? 'Tools / Inventory' : formatReceiptJobs(receiptJobs)}
+          </Text>
         </View>
 
         <View style={styles.panel}>
-          <Text style={styles.panelTitle}>Receipt photo</Text>
+          <Text style={styles.panelTitle}>{isWeb ? 'Receipt file' : 'Receipt photo'}</Text>
           <Text style={styles.panelText}>
-            Take a clear photo of the full receipt. The app will upload it and start extraction.
+            {isWeb
+              ? 'Upload a clear receipt image from this computer, or use a connected camera.'
+              : 'Take a clear photo of the full receipt. The app will upload it and start extraction.'}
           </Text>
 
           {message ? <Text style={styles.messageText}>{message}</Text> : null}
           {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
-          <Pressable
-            disabled={isBusy}
-            onPress={handleTakePhoto}
-            style={[styles.primaryButton, isBusy && styles.disabledButton]}>
-            <Text style={styles.primaryButtonText}>
-              {isBusy ? 'Working...' : step === 'complete' ? 'Retake receipt photo' : 'Take receipt photo'}
-            </Text>
-          </Pressable>
+          {isWebCameraOpen ? (
+            <WebCameraCapture
+              isBusy={isBusy}
+              onCancel={() => setIsWebCameraOpen(false)}
+              onCapture={(asset) => {
+                setIsWebCameraOpen(false);
+                void processReceiptAsset(asset);
+              }}
+              onError={setErrorMessage}
+            />
+          ) : null}
 
-          <Pressable
-            disabled={isBusy}
-            onPress={handleChoosePhoto}
-            style={[styles.uploadButton, isBusy && styles.disabledButton]}>
-            <Text style={styles.uploadButtonText}>Upload existing photo</Text>
-          </Pressable>
+          <View style={styles.actionStack}>
+            {isWeb ? (
+              <>
+                <Pressable
+                  disabled={isBusy}
+                  onPress={handleChoosePhoto}
+                  style={[styles.primaryButton, isBusy && styles.disabledButton]}>
+                  <Text style={styles.primaryButtonText}>
+                    {isBusy ? 'Working...' : step === 'complete' ? 'Upload another receipt' : 'Upload receipt'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  disabled={isBusy}
+                  onPress={handleTakePhoto}
+                  style={[styles.secondaryActionButton, isBusy && styles.disabledButton]}>
+                  <Text style={styles.secondaryActionButtonText}>Take photo</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Pressable
+                  disabled={isBusy}
+                  onPress={handleTakePhoto}
+                  style={[styles.primaryButton, isBusy && styles.disabledButton]}>
+                  <Text style={styles.primaryButtonText}>
+                    {isBusy ? 'Working...' : step === 'complete' ? 'Retake receipt photo' : 'Take receipt photo'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  disabled={isBusy}
+                  onPress={handleChoosePhoto}
+                  style={[styles.secondaryActionButton, isBusy && styles.disabledButton]}>
+                  <Text style={styles.secondaryActionButtonText}>Upload existing photo</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
 
           {step === 'complete' ? (
             <Pressable style={styles.secondaryButton} onPress={onDone}>
@@ -190,6 +243,10 @@ export function AddReceiptScreen({
 }
 
 function formatReceiptJobs(jobs: Job[]): string {
+  if (jobs.length === 0) {
+    return 'Tools / Inventory';
+  }
+
   if (jobs.length === 1) {
     return jobs[0].name;
   }
@@ -205,6 +262,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
+  },
+  webContainer: {
+    alignSelf: 'center',
+    maxWidth: 720,
+    width: '100%',
   },
   backButton: {
     alignSelf: 'flex-start',
@@ -274,6 +336,9 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
   },
+  actionStack: {
+    gap: 10,
+  },
   secondaryButton: {
     alignItems: 'center',
     borderColor: '#C9C3B8',
@@ -287,14 +352,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
-  uploadButton: {
+  secondaryActionButton: {
     alignItems: 'center',
+    borderColor: '#C9C3B8',
+    borderRadius: 8,
+    borderWidth: 1,
     justifyContent: 'center',
-    minHeight: 40,
+    minHeight: 48,
   },
-  uploadButtonText: {
+  secondaryActionButtonText: {
     color: '#335C43',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '800',
   },
 });

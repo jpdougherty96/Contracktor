@@ -39,18 +39,24 @@ type LineAssignmentState = {
 };
 
 type ReceiptReviewScreenProps = {
-  job: Job;
+  includeInventoryDestination?: boolean;
+  inventoryMode?: boolean;
+  job?: Job | null;
   jobs?: Job[];
   onBack: () => void;
+  onEditReceiptJobs?: (initialJobIds: string[], initialInventorySelected: boolean) => void;
   onReviewReceipt: (receiptId: string) => void;
   onSaved: () => void;
   receiptId: string;
 };
 
 export function ReceiptReviewScreen({
+  includeInventoryDestination = false,
+  inventoryMode = false,
   job,
   jobs: contextJobs,
   onBack,
+  onEditReceiptJobs,
   onReviewReceipt,
   onSaved,
   receiptId,
@@ -78,9 +84,25 @@ export function ReceiptReviewScreen({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const requiresRetake = receipt?.status === 'error' || receipt?.review_status === 'error';
   const hasLineItems = lineItems.length > 0;
-  const selectedReceiptJobs = contextJobs && contextJobs.length > 0 ? contextJobs : [job];
+  const lineItemsTotal = receipt ? getLineItemsTotal(lineItems, receipt.tax) : 0;
+  const lineItemsExceedReceiptTotal =
+    hasLineItems &&
+    typeof receipt?.total === 'number' &&
+    lineItemsTotal > receipt.total + 0.05;
+  const assignedLineItemsTotal = receipt
+    ? getAssignedLineItemsTotal(lineItems, lineAssignments, receipt.tax)
+    : 0;
+  const assignedLineItemsExceedReceiptTotal =
+    hasLineItems &&
+    typeof receipt?.total === 'number' &&
+    assignedLineItemsTotal > receipt.total + 0.05;
+  const selectedReceiptJobs =
+    contextJobs && contextJobs.length > 0 ? contextJobs : job && !inventoryMode ? [job] : [];
   const isSingleJobLineReceipt = selectedReceiptJobs.length === 1 && hasLineItems;
-  const requiresLineItems = selectedReceiptJobs.length > 1 && !hasLineItems;
+  const requiresLineItems =
+    (selectedReceiptJobs.length > 1 ||
+      (includeInventoryDestination && selectedReceiptJobs.length > 0)) &&
+    !hasLineItems;
   const areLineItemsFinalized =
     hasLineItems &&
     lineItems.every((lineItem) =>
@@ -92,9 +114,15 @@ export function ReceiptReviewScreen({
     !requiresLineItems &&
     (!hasLineItems || areLineItemsFinalized);
   const canEditLineAssignments = hasLineItems && isSavedReceipt;
+  const canEditReceiptDestinations = hasLineItems && Boolean(onEditReceiptJobs);
   const shouldShowLineEditor =
     hasLineItems &&
-    (!isSingleJobLineReceipt || isReviewingSingleJobLines || isEditingLineAssignments);
+    (inventoryMode ||
+      includeInventoryDestination ||
+      lineItemsExceedReceiptTotal ||
+      !isSingleJobLineReceipt ||
+      isReviewingSingleJobLines ||
+      isEditingLineAssignments);
   const canSaveLineAssignments =
     hasLineItems && (!isSavedReceipt || isEditingLineAssignments || isSingleJobLineReceipt);
 
@@ -112,9 +140,9 @@ export function ReceiptReviewScreen({
           fetchReceiptLineItems(receiptId),
           shouldFetchJobs ? fetchJobs() : Promise.resolve(contextJobs),
         ]);
-        const assignmentJobs = nextJobs.length > 0 ? nextJobs : [job];
+        const assignmentJobs = inventoryMode ? [] : nextJobs.length > 0 ? nextJobs : job ? [job] : [];
         const needsLineItemReset =
-          assignmentJobs.length > 1 &&
+          (assignmentJobs.length > 1 || (includeInventoryDestination && assignmentJobs.length > 0)) &&
           nextLineItems.length === 0 &&
           nextReceipt.status === 'accepted';
         const displayReceipt = needsLineItemReset
@@ -127,7 +155,9 @@ export function ReceiptReviewScreen({
           setReceipt(displayReceipt);
           setLineItems(nextLineItems);
           setJobs(assignmentJobs);
-          setLineAssignments(getInitialLineAssignments(nextLineItems, displayReceipt, job.id));
+          setLineAssignments(
+            getInitialLineAssignments(nextLineItems, displayReceipt, job?.id ?? null, inventoryMode)
+          );
           setVendor(displayReceipt.vendor ?? '');
           setReceiptDate(displayReceipt.receipt_date ?? getTodayDate());
           setSubtotal(formatEditableMoney(displayReceipt.subtotal));
@@ -135,7 +165,11 @@ export function ReceiptReviewScreen({
           setTotal(formatEditableMoney(displayReceipt.total));
           setJobCostAmount(formatEditableMoney(displayReceipt.total));
           setCategory(
-            isReceiptCategory(displayReceipt.category) ? displayReceipt.category : 'other'
+            isReceiptCategory(displayReceipt.category)
+              ? displayReceipt.category
+              : inventoryMode
+                ? 'tools'
+                : 'other'
           );
           setPotentialDuplicates([]);
 
@@ -199,7 +233,7 @@ export function ReceiptReviewScreen({
     return () => {
       isMounted = false;
     };
-  }, [contextJobs, job, receiptId]);
+  }, [contextJobs, includeInventoryDestination, inventoryMode, job, receiptId]);
 
   const handleSave = async () => {
     setErrorMessage(null);
@@ -217,6 +251,17 @@ export function ReceiptReviewScreen({
     }
 
     if (hasLineItems) {
+      if (assignedLineItemsExceedReceiptTotal && typeof receipt?.total === 'number') {
+        setErrorMessage(
+          `Assigned receipt lines add up to ${formatCurrency(assignedLineItemsTotal, {
+            showCents: true,
+          })}, which is more than the receipt total of ${formatCurrency(receipt.total, {
+            showCents: true,
+          })}. Review the parsed line items before saving.`
+        );
+        return;
+      }
+
       setIsSaving(true);
 
       try {
@@ -269,12 +314,20 @@ export function ReceiptReviewScreen({
     }
 
     if (parsedJobCostAmount === null || parsedJobCostAmount < 0) {
-      setErrorMessage('Amount applied to this job is required and cannot be negative.');
+      setErrorMessage(
+        inventoryMode
+          ? 'Amount saved to Tools / Inventory is required and cannot be negative.'
+          : 'Amount applied to this job is required and cannot be negative.'
+      );
       return;
     }
 
     if (parsedJobCostAmount > parsedTotal) {
-      setErrorMessage('Amount applied to this job cannot be more than the receipt total.');
+      setErrorMessage(
+        inventoryMode
+          ? 'Amount saved to Tools / Inventory cannot be more than the receipt total.'
+          : 'Amount applied to this job cannot be more than the receipt total.'
+      );
       return;
     }
 
@@ -351,12 +404,14 @@ export function ReceiptReviewScreen({
         style={styles.keyboardView}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
           <Pressable style={styles.backButton} onPress={onBack}>
-            <Text style={styles.backButtonText}>Back to job</Text>
+            <Text style={styles.backButtonText}>
+              {inventoryMode ? 'Back to receipt' : 'Back to job'}
+            </Text>
           </Pressable>
 
           <View style={styles.header}>
             <Text style={styles.title}>Review receipt</Text>
-            <Text style={styles.subtitle}>{job.name}</Text>
+            <Text style={styles.subtitle}>{inventoryMode ? 'Tools / Inventory' : job?.name}</Text>
           </View>
 
           <View style={styles.form}>
@@ -484,6 +539,18 @@ export function ReceiptReviewScreen({
                   </View>
                 ) : null}
 
+                {lineItemsExceedReceiptTotal && receipt?.total ? (
+                  <View style={styles.warningPanel}>
+                    <Text style={styles.warningTitle}>Line items need review</Text>
+                    <Text style={styles.warningText}>
+                      Parsed lines add up to{' '}
+                      {formatCurrency(lineItemsTotal, { showCents: true })}, but the receipt total is{' '}
+                      {formatCurrency(receipt.total, { showCents: true })}. conTRACKtor will not save
+                      more than the receipt total.
+                    </Text>
+                  </View>
+                ) : null}
+
                 {hasLineItems && isSingleJobLineReceipt && !shouldShowLineEditor ? (
                   <View style={styles.quickConfirmPanel}>
                     <View style={styles.quickConfirmText}>
@@ -493,7 +560,7 @@ export function ReceiptReviewScreen({
                       </Text>
                     </View>
                     <Text style={styles.quickConfirmAmount}>
-                      {formatCurrency(getLineItemsTotal(lineItems, receipt.tax), {
+                      {formatCurrency(lineItemsTotal, {
                         showCents: true,
                       })}
                     </Text>
@@ -572,13 +639,15 @@ export function ReceiptReviewScreen({
                     />
                     <Field
                       inputMode="decimal"
-                      label="Amount applied to this job"
+                      label={inventoryMode ? 'Amount saved to Tools / Inventory' : 'Amount applied to this job'}
                       onChangeText={setJobCostAmount}
                       placeholder="0.00"
                       value={jobCostAmount}
                     />
                     <Text style={styles.helpText}>
-                      Use this when one receipt includes tools, overhead, or materials for more than one job.
+                      {inventoryMode
+                        ? 'Use this when a receipt should stay out of customer job costs.'
+                        : 'Use this when one receipt includes tools, overhead, or materials for more than one job.'}
                     </Text>
 
                     <View style={styles.field}>
@@ -614,13 +683,37 @@ export function ReceiptReviewScreen({
               <View style={styles.savedPanel}>
                 <Text style={styles.savedTitle}>Receipt saved</Text>
                 <Text style={styles.savedText}>
-                  This receipt is already included in this job&apos;s costs.
+                  {inventoryMode
+                    ? 'This receipt is already saved to Tools / Inventory.'
+                    : "This receipt is already included in this job's costs."}
                 </Text>
                 {canEditLineAssignments ? (
                   <Pressable
-                    onPress={() => setIsEditingLineAssignments(true)}
+                    onPress={() => {
+                      if (onEditReceiptJobs && receipt) {
+                        onEditReceiptJobs(
+                          getReceiptAssignedJobIds(lineItems, receipt),
+                          getReceiptHasInventoryDestination(lineItems, inventoryMode)
+                        );
+                        return;
+                      }
+
+                      setIsEditingLineAssignments(true);
+                    }}
                     style={styles.savedEditButton}>
                     <Text style={styles.savedEditButtonText}>Edit line assignments</Text>
+                  </Pressable>
+                ) : null}
+                {canEditReceiptDestinations ? (
+                  <Pressable
+                    onPress={() => {
+                      onEditReceiptJobs?.(
+                        getReceiptAssignedJobIds(lineItems, receipt),
+                        getReceiptHasInventoryDestination(lineItems, inventoryMode)
+                      );
+                    }}
+                    style={styles.savedSecondaryButton}>
+                    <Text style={styles.savedSecondaryButtonText}>Change jobs / destinations</Text>
                   </Pressable>
                 ) : null}
               </View>
@@ -737,6 +830,7 @@ function LineItemCard({
     assignedJobId: lineItem.assigned_job_id,
     assignmentType: lineItem.assignment_type as ReceiptLineAssignmentType,
   };
+  const canAssignToJob = jobs.length > 0;
 
   return (
     <View style={styles.lineItemCard}>
@@ -760,27 +854,29 @@ function LineItemCard({
       </Text>
 
       <View style={styles.assignmentGrid}>
-        <Pressable
-          disabled={readOnly}
-          onPress={() =>
-            onChange({
-              assignedJobId: currentAssignment.assignedJobId ?? jobs[0]?.id ?? null,
-              assignmentType: 'job',
-            })
-          }
-          style={[
-            styles.assignmentButton,
-            currentAssignment.assignmentType === 'job' && styles.selectedAssignmentButton,
-            readOnly && styles.readOnlyButton,
-          ]}>
-          <Text
+        {canAssignToJob ? (
+          <Pressable
+            disabled={readOnly}
+            onPress={() =>
+              onChange({
+                assignedJobId: currentAssignment.assignedJobId ?? jobs[0]?.id ?? null,
+                assignmentType: 'job',
+              })
+            }
             style={[
-              styles.assignmentButtonText,
-              currentAssignment.assignmentType === 'job' && styles.selectedAssignmentButtonText,
+              styles.assignmentButton,
+              currentAssignment.assignmentType === 'job' && styles.selectedAssignmentButton,
+              readOnly && styles.readOnlyButton,
             ]}>
-            Job
-          </Text>
-        </Pressable>
+            <Text
+              style={[
+                styles.assignmentButtonText,
+                currentAssignment.assignmentType === 'job' && styles.selectedAssignmentButtonText,
+              ]}>
+              Job
+            </Text>
+          </Pressable>
+        ) : null}
         <Pressable
           disabled={readOnly}
           onPress={() => onChange({ assignedJobId: null, assignmentType: 'tools_inventory' })}
@@ -887,11 +983,12 @@ function isReceiptCategory(value: string | null): value is ReceiptCategory {
 function getInitialLineAssignments(
   lineItems: Tables<'receipt_line_items'>[],
   receipt: Tables<'receipts'>,
-  fallbackJobId: string
+  fallbackJobId: string | null,
+  inventoryMode = false
 ): Record<string, LineAssignmentState> {
   return Object.fromEntries(
     lineItems.map((lineItem) => {
-      if (lineItem.line_type === 'tax' || lineItem.line_type === 'discount') {
+      if (isNonPurchaseLineItem(lineItem)) {
         return [
           lineItem.id,
           {
@@ -901,11 +998,13 @@ function getInitialLineAssignments(
         ];
       }
 
-      const assignmentType = isReceiptLineAssignmentType(lineItem.assignment_type)
+      const assignmentType = inventoryMode
+        ? 'tools_inventory'
+        : isReceiptLineAssignmentType(lineItem.assignment_type)
         ? lineItem.assignment_type
         : 'job';
       const assignedJobId =
-        assignmentType === 'job'
+        assignmentType === 'job' && fallbackJobId
           ? lineItem.assigned_job_id ?? receipt.scan_context_job_id ?? fallbackJobId
           : null;
 
@@ -935,6 +1034,62 @@ function getLineItemsTotal(
   return itemTotal + (receiptTax ?? 0);
 }
 
+function getAssignedLineItemsTotal(
+  lineItems: Tables<'receipt_line_items'>[],
+  assignments: Record<string, LineAssignmentState>,
+  receiptTax: number | null
+): number {
+  const taxableSubtotal = lineItems
+    .filter((lineItem) => lineItem.line_type === 'item')
+    .reduce((sum, lineItem) => sum + lineItem.line_total, 0);
+
+  return lineItems.reduce((sum, lineItem) => {
+    const assignment = assignments[lineItem.id];
+
+    if (assignment?.assignmentType === 'ignore' || isNonPurchaseLineItem(lineItem)) {
+      return sum;
+    }
+
+    const allocatedTax =
+      receiptTax && taxableSubtotal > 0 && lineItem.line_type === 'item'
+        ? receiptTax * (lineItem.line_total / taxableSubtotal)
+        : 0;
+
+    return sum + lineItem.line_total + allocatedTax;
+  }, 0);
+}
+
+function isNonPurchaseLineItem(lineItem: Tables<'receipt_line_items'>): boolean {
+  return (
+    lineItem.line_type === 'tax' ||
+    lineItem.line_type === 'fee' ||
+    lineItem.line_type === 'discount'
+  );
+}
+
+function getReceiptAssignedJobIds(
+  lineItems: Tables<'receipt_line_items'>[],
+  receipt: Tables<'receipts'>
+): string[] {
+  return Array.from(
+    new Set(
+      [
+        receipt.scan_context_job_id,
+        ...lineItems
+          .filter((lineItem) => lineItem.assignment_type === 'job')
+          .map((lineItem) => lineItem.assigned_job_id),
+      ].filter((jobId): jobId is string => Boolean(jobId))
+    )
+  );
+}
+
+function getReceiptHasInventoryDestination(
+  lineItems: Tables<'receipt_line_items'>[],
+  inventoryMode: boolean
+): boolean {
+  return inventoryMode || lineItems.some((lineItem) => lineItem.assignment_type === 'tools_inventory');
+}
+
 function formatCategory(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
@@ -955,8 +1110,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   container: {
+    alignSelf: 'center',
+    maxWidth: 980,
     padding: 20,
     paddingBottom: 36,
+    width: '100%',
   },
   backButton: {
     alignSelf: 'flex-start',
@@ -1026,7 +1184,7 @@ const styles = StyleSheet.create({
     borderColor: '#E2E0DA',
     borderRadius: 8,
     borderWidth: 1,
-    height: 360,
+    height: Platform.select({ default: 360, web: 520 }),
   },
   imageMessage: {
     color: '#64748B',
@@ -1052,6 +1210,24 @@ const styles = StyleSheet.create({
     color: '#1F2933',
     fontSize: 18,
     fontWeight: '900',
+  },
+  warningPanel: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FDBA74',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 6,
+    padding: 12,
+  },
+  warningTitle: {
+    color: '#9A3412',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  warningText: {
+    color: '#7C2D12',
+    fontSize: 13,
+    lineHeight: 19,
   },
   quickConfirmPanel: {
     backgroundColor: '#F8FAF8',
@@ -1337,6 +1513,20 @@ const styles = StyleSheet.create({
   },
   savedEditButtonText: {
     color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  savedSecondaryButton: {
+    alignItems: 'center',
+    borderColor: '#166534',
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    marginTop: 6,
+    minHeight: 44,
+  },
+  savedSecondaryButtonText: {
+    color: '#166534',
     fontSize: 15,
     fontWeight: '900',
   },

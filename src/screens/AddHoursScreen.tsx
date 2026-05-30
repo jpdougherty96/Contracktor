@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -11,8 +11,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { fetchJobCrewMembers } from '@/src/lib/jobCrew';
 import { createJobHours } from '@/src/lib/jobHours';
-import { fetchCurrentProfileDisplayName } from '@/src/lib/profiles';
+import { fetchCurrentProfile } from '@/src/lib/profiles';
 import type { Job } from '@/src/types/job';
 
 type AddHoursScreenProps = {
@@ -20,6 +21,12 @@ type AddHoursScreenProps = {
   job: Job;
   onBack: () => void;
   onCreated: () => void;
+};
+
+type CrewOption = {
+  hourlyRate: number | null;
+  id: string;
+  name: string;
 };
 
 export function AddHoursScreen({
@@ -31,44 +38,82 @@ export function AddHoursScreen({
   const [hours, setHours] = useState('');
   const [workDate, setWorkDate] = useState(getTodayDate());
   const [workerName, setWorkerName] = useState('');
+  const [hourlyRate, setHourlyRate] = useState(formatEditableNumber(job.hourlyRate));
+  const [crewOptions, setCrewOptions] = useState<CrewOption[]>([]);
+  const [selectedCrewOptionId, setSelectedCrewOptionId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
+  const applyCrewOption = useCallback(
+    (option: CrewOption) => {
+      setSelectedCrewOptionId(option.id);
+      setWorkerName(option.name);
+      setHourlyRate(formatEditableNumber(option.hourlyRate ?? job.hourlyRate));
+    },
+    [job.hourlyRate]
+  );
+
   useEffect(() => {
     let isMounted = true;
 
-    const loadDefaultWorkerName = async () => {
+    const loadCrewOptions = async () => {
       try {
-        const displayName = await fetchCurrentProfileDisplayName();
+        const [crewMembers, profile] = await Promise.all([
+          fetchJobCrewMembers(job.id),
+          fetchCurrentProfile().catch(() => ({ defaultHourlyRate: null, displayName: null })),
+        ]);
 
-        if (isMounted && displayName) {
-          setWorkerName((currentWorkerName) => currentWorkerName || displayName);
+        const options: CrewOption[] = crewMembers.map((member) => ({
+          hourlyRate: member.hourly_rate,
+          id: member.id,
+          name: member.name,
+        }));
+
+        if (options.length === 0 && profile.displayName) {
+          options.push({
+            hourlyRate: profile.defaultHourlyRate ?? job.hourlyRate ?? null,
+            id: 'current-user',
+            name: profile.displayName,
+          });
+        }
+
+        if (isMounted) {
+          setCrewOptions(options);
+
+          const defaultOption =
+            options.find((option) => option.name.trim() === profile.displayName?.trim()) ?? options[0];
+          if (defaultOption) {
+            applyCrewOption(defaultOption);
+          } else if (profile.displayName) {
+            setWorkerName((currentWorkerName) => currentWorkerName || profile.displayName || '');
+          }
         }
       } catch {
-        // Worker name is editable, so a missing profile should not block adding hours.
+        // Worker name and rate are editable, so missing crew data should not block adding hours.
       }
     };
 
-    loadDefaultWorkerName();
+    loadCrewOptions();
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [applyCrewOption, job.id, job.hourlyRate]);
 
   const handleSubmit = async () => {
     setErrorMessage(null);
 
     const parsedHours = parsePositiveNumber(hours);
+    const parsedHourlyRate = parsePositiveNumber(hourlyRate);
 
     if (parsedHours === null) {
       setErrorMessage('Hours are required and must be greater than 0.');
       return;
     }
 
-    if (!job.hourlyRate || job.hourlyRate <= 0) {
-      setErrorMessage('Set the hourly rate for this job before adding hours.');
+    if (parsedHourlyRate === null) {
+      setErrorMessage('Hourly rate is required and must be greater than 0.');
       return;
     }
 
@@ -81,7 +126,7 @@ export function AddHoursScreen({
 
     try {
       await createJobHours(job.id, {
-        hourlyRate: job.hourlyRate,
+        hourlyRate: parsedHourlyRate,
         hours: parsedHours,
         note,
         workDate,
@@ -111,10 +156,37 @@ export function AddHoursScreen({
           </View>
 
           <View style={styles.form}>
-            <View style={styles.rateSummary}>
-              <Text style={styles.rateLabel}>Hourly rate for this job</Text>
-              <Text style={styles.rateValue}>${job.hourlyRate?.toFixed(2) ?? 'Not set'}/hr</Text>
-            </View>
+            {crewOptions.length > 0 ? (
+              <View style={styles.field}>
+                <Text style={styles.label}>Worker</Text>
+                <View style={styles.crewGrid}>
+                  {crewOptions.map((option) => (
+                    <Pressable
+                      key={option.id}
+                      onPress={() => applyCrewOption(option)}
+                      style={[
+                        styles.crewOption,
+                        selectedCrewOptionId === option.id && styles.selectedCrewOption,
+                      ]}>
+                      <Text
+                        style={[
+                          styles.crewOptionName,
+                          selectedCrewOptionId === option.id && styles.selectedCrewOptionText,
+                        ]}>
+                        {option.name}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.crewOptionRate,
+                          selectedCrewOptionId === option.id && styles.selectedCrewOptionText,
+                        ]}>
+                        {option.hourlyRate == null ? 'Rate not set' : `${formatCurrency(option.hourlyRate)}/hr`}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            ) : null}
             <Field
               inputMode="decimal"
               label="Hours"
@@ -133,6 +205,13 @@ export function AddHoursScreen({
               onChangeText={setWorkerName}
               placeholder="Optional"
               value={workerName}
+            />
+            <Field
+              inputMode="decimal"
+              label="Hourly rate"
+              onChangeText={setHourlyRate}
+              placeholder="0"
+              value={hourlyRate}
             />
             <Field label="Note" onChangeText={setNote} placeholder="Optional" value={note} />
 
@@ -183,6 +262,19 @@ function parsePositiveNumber(value: string): number | null {
   const parsed = Number(value.replace(/[$,]/g, '').trim());
 
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function formatEditableNumber(value: number | null | undefined): string {
+  return value === null || value === undefined ? '' : String(value);
+}
+
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    currency: 'USD',
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+    style: 'currency',
+  }).format(value);
 }
 
 function getTodayDate(): string {
@@ -272,6 +364,34 @@ const styles = StyleSheet.create({
     fontSize: 16,
     minHeight: 52,
     paddingHorizontal: 14,
+  },
+  crewGrid: {
+    gap: 8,
+  },
+  crewOption: {
+    borderColor: '#C9C3B8',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 3,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  selectedCrewOption: {
+    backgroundColor: '#335C43',
+    borderColor: '#335C43',
+  },
+  crewOptionName: {
+    color: '#1F2933',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  crewOptionRate: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  selectedCrewOptionText: {
+    color: '#FFFFFF',
   },
   errorText: {
     color: '#B91C1C',
