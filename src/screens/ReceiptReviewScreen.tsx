@@ -359,9 +359,20 @@ export function ReceiptReviewScreen({
   };
 
   const confirmDeleteReceipt = (targetReceiptId: string, isCurrentReceipt: boolean) => {
+    const message =
+      'This removes the receipt record, parsed lines, related expenses, and stored image. Use this only for duplicates.';
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Delete receipt?\n\n${message}`)) {
+        void handleDeleteReceipt(targetReceiptId, isCurrentReceipt);
+      }
+
+      return;
+    }
+
     Alert.alert(
       'Delete receipt?',
-      'This removes the receipt record, parsed lines, related expenses, and stored image. Use this only for duplicates.',
+      message,
       [
         { style: 'cancel', text: 'Cancel' },
         {
