@@ -15,8 +15,20 @@ const lineTypes = ['item', 'tax', 'fee', 'discount'] as const;
 const confidenceThreshold = 0.75;
 const lineItemConfidenceThreshold = 0.6;
 const receiptMathTolerance = 0.05;
+const corsHeaders = {
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Origin': '*',
+};
 
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      headers: corsHeaders,
+      status: 204,
+    });
+  }
+
   if (req.method !== 'POST') {
     return jsonResponse({ error: 'Method not allowed' }, 405);
   }
@@ -700,6 +712,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     headers: {
+      ...corsHeaders,
       'Content-Type': 'application/json',
     },
     status,

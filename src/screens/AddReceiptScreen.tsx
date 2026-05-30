@@ -49,6 +49,7 @@ export function AddReceiptScreen({
 
   const isBusy = step === 'uploading' || step === 'extracting';
   const isWeb = Platform.OS === 'web';
+  const prefersNativeWebCamera = isWeb && isMobileWebBrowser();
 
   const processReceiptAsset = async (asset: ImagePicker.ImagePickerAsset) => {
     try {
@@ -113,6 +114,16 @@ export function AddReceiptScreen({
     setErrorMessage(null);
 
     if (isWeb) {
+      if (prefersNativeWebCamera) {
+        const asset = await pickWebReceiptImage({ capture: true });
+
+        if (asset) {
+          await processReceiptAsset(asset);
+        }
+
+        return;
+      }
+
       setIsWebCameraOpen(true);
       return;
     }
@@ -141,6 +152,16 @@ export function AddReceiptScreen({
   const handleChoosePhoto = async () => {
     setMessage(null);
     setErrorMessage(null);
+
+    if (isWeb) {
+      const asset = await pickWebReceiptImage({ capture: false });
+
+      if (asset) {
+        await processReceiptAsset(asset);
+      }
+
+      return;
+    }
 
     const result = await ImagePicker.launchImageLibraryAsync({
       allowsMultipleSelection: false,
@@ -173,7 +194,9 @@ export function AddReceiptScreen({
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>{isWeb ? 'Receipt file' : 'Receipt photo'}</Text>
           <Text style={styles.panelText}>
-            {isWeb
+            {prefersNativeWebCamera
+              ? 'Take a clear receipt photo with your phone camera, or upload an existing image.'
+              : isWeb
               ? 'Upload a clear receipt image from this computer, or use a connected camera.'
               : 'Take a clear photo of the full receipt. The app will upload it and start extraction.'}
           </Text>
@@ -195,22 +218,41 @@ export function AddReceiptScreen({
 
           <View style={styles.actionStack}>
             {isWeb ? (
-              <>
-                <Pressable
-                  disabled={isBusy}
-                  onPress={handleChoosePhoto}
-                  style={[styles.primaryButton, isBusy && styles.disabledButton]}>
-                  <Text style={styles.primaryButtonText}>
-                    {isBusy ? 'Working...' : step === 'complete' ? 'Upload another receipt' : 'Upload receipt'}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  disabled={isBusy}
-                  onPress={handleTakePhoto}
-                  style={[styles.secondaryActionButton, isBusy && styles.disabledButton]}>
-                  <Text style={styles.secondaryActionButtonText}>Take photo</Text>
-                </Pressable>
-              </>
+              prefersNativeWebCamera ? (
+                <>
+                  <Pressable
+                    disabled={isBusy}
+                    onPress={handleTakePhoto}
+                    style={[styles.primaryButton, isBusy && styles.disabledButton]}>
+                    <Text style={styles.primaryButtonText}>
+                      {isBusy ? 'Working...' : step === 'complete' ? 'Take another photo' : 'Take receipt photo'}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={isBusy}
+                    onPress={handleChoosePhoto}
+                    style={[styles.secondaryActionButton, isBusy && styles.disabledButton]}>
+                    <Text style={styles.secondaryActionButtonText}>Upload existing photo</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Pressable
+                    disabled={isBusy}
+                    onPress={handleChoosePhoto}
+                    style={[styles.primaryButton, isBusy && styles.disabledButton]}>
+                    <Text style={styles.primaryButtonText}>
+                      {isBusy ? 'Working...' : step === 'complete' ? 'Upload another receipt' : 'Upload receipt'}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={isBusy}
+                    onPress={handleTakePhoto}
+                    style={[styles.secondaryActionButton, isBusy && styles.disabledButton]}>
+                    <Text style={styles.secondaryActionButtonText}>Take photo</Text>
+                  </Pressable>
+                </>
+              )
             ) : (
               <>
                 <Pressable
@@ -252,6 +294,104 @@ function formatReceiptJobs(jobs: Job[]): string {
   }
 
   return `${jobs.length} jobs selected`;
+}
+
+function isMobileWebBrowser(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+function pickWebReceiptImage({ capture }: { capture: boolean }): Promise<ImagePicker.ImagePickerAsset | null> {
+  return new Promise((resolve, reject) => {
+    if (typeof document === 'undefined') {
+      resolve(null);
+      return;
+    }
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+
+    if (capture) {
+      input.setAttribute('capture', 'environment');
+    }
+
+    input.style.display = 'none';
+
+    const cleanup = () => {
+      input.remove();
+    };
+
+    input.onchange = async () => {
+      const file = input.files?.[0] ?? null;
+
+      if (!file) {
+        cleanup();
+        resolve(null);
+        return;
+      }
+
+      try {
+        const asset = await fileToImagePickerAsset(file);
+        cleanup();
+        resolve(asset);
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
+    };
+
+    document.body.appendChild(input);
+    input.click();
+  });
+}
+
+async function fileToImagePickerAsset(file: File): Promise<ImagePicker.ImagePickerAsset> {
+  const dataUrl = await readFileAsDataUrl(file);
+  const base64 = dataUrl.split(',')[1];
+
+  if (!base64) {
+    throw new Error('Unable to prepare receipt image.');
+  }
+
+  const dimensions = await readImageDimensions(dataUrl);
+
+  return {
+    base64,
+    fileName: file.name || `receipt-${Date.now()}.jpg`,
+    fileSize: file.size,
+    height: dimensions.height,
+    mimeType: file.type || 'image/jpeg',
+    uri: dataUrl,
+    width: dimensions.width,
+  } as ImagePicker.ImagePickerAsset;
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Unable to read receipt image.'));
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Unable to read receipt image.'));
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function readImageDimensions(uri: string): Promise<{ height: number; width: number }> {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => resolve({ height: image.naturalHeight, width: image.naturalWidth });
+    image.onerror = () => resolve({ height: 0, width: 0 });
+    image.src = uri;
+  });
 }
 
 const styles = StyleSheet.create({
