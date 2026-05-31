@@ -12,8 +12,8 @@
       "bundleIdentifier": "app.contracktor.mobile",
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "Contracktor uses the camera to capture receipt and job note photos.",
-        "NSPhotoLibraryUsageDescription": "Contracktor uses your photo library so you can upload receipt and job note photos.",
+        "NSCameraUsageDescription": "conTRACKtor uses the camera to capture receipt and job note photos.",
+        "NSPhotoLibraryUsageDescription": "conTRACKtor uses your photo library so you can upload receipt and job note photos.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -43,8 +43,8 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Contracktor uses the camera to capture receipt and job note photos.",
-          "photosPermission": "Contracktor uses your photo library so you can upload receipt and job note photos."
+          "cameraPermission": "conTRACKtor uses the camera to capture receipt and job note photos.",
+          "photosPermission": "conTRACKtor uses your photo library so you can upload receipt and job note photos."
         }
       ],
       [

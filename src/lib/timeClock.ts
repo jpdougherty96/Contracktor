@@ -54,8 +54,8 @@ export async function startJobTimer(job: Job): Promise<ActiveTimeEntry> {
 
   const activeEntries = await fetchActiveTimeEntries();
 
-  if (activeEntries.length > 0) {
-    throw new Error('Stop the active timer before starting another one.');
+  for (const activeEntry of activeEntries) {
+    await stopActiveTimer(activeEntry);
   }
 
   const workerName = await fetchCurrentProfileDisplayName().catch(() => null);
@@ -84,19 +84,35 @@ export async function startJobTimer(job: Job): Promise<ActiveTimeEntry> {
 }
 
 export async function stopJobTimer(entry: ActiveTimeEntry, _job: Job): Promise<void> {
+  await stopActiveTimer(entry);
+}
+
+async function stopActiveTimer(entry: ActiveTimeEntry): Promise<void> {
   if (!entry.started_at) {
     throw new Error('Timer entry is missing a start time.');
   }
 
   const stoppedAt = new Date();
   const startedAt = new Date(entry.started_at);
-  const durationMinutes = Math.max(
-    1,
-    Math.round((stoppedAt.getTime() - startedAt.getTime()) / 60_000)
-  );
+  const elapsedSeconds = Math.max(0, (stoppedAt.getTime() - startedAt.getTime()) / 1000);
+  const durationMinutes = Math.round(elapsedSeconds / 60);
 
-  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
-    throw new Error('Timer duration must be greater than zero.');
+  if (!Number.isFinite(durationMinutes)) {
+    throw new Error('Timer duration must be valid.');
+  }
+
+  if (durationMinutes <= 0) {
+    const { error } = await supabase
+      .from('time_entries')
+      .delete()
+      .eq('id', entry.id)
+      .eq('owner_id', entry.owner_id);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return;
   }
 
   const { error } = await supabase

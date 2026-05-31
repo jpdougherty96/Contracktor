@@ -13,6 +13,7 @@ import { AddNoteScreen } from '@/src/screens/AddNoteScreen';
 import { AddPaymentScreen } from '@/src/screens/AddPaymentScreen';
 import { AddReceiptScreen } from '@/src/screens/AddReceiptScreen';
 import { AddUpdateScreen } from '@/src/screens/AddUpdateScreen';
+import { AccountSettingsScreen } from '@/src/screens/AccountSettingsScreen';
 import { ActivityScreen } from '@/src/screens/ActivityScreen';
 import { AuthScreen } from '@/src/screens/AuthScreen';
 import { CreateJobScreen } from '@/src/screens/CreateJobScreen';
@@ -33,6 +34,7 @@ import type { Job } from '@/src/types/job';
 
 type Screen =
   | 'home'
+  | 'accountSettings'
   | 'activity'
   | 'jobs'
   | 'dashboard'
@@ -77,6 +79,7 @@ export default function HomeScreen() {
   const [addBackScreen, setAddBackScreen] = useState<Screen>('home');
   const [addCompleteScreen, setAddCompleteScreen] = useState<Screen>('home');
   const [createBackScreen, setCreateBackScreen] = useState<Screen>('home');
+  const [editBackScreen, setEditBackScreen] = useState<Screen>('dashboard');
   const [receiptReviewBackScreen, setReceiptReviewBackScreen] = useState<Screen>('dashboard');
   const [needsReviewCount, setNeedsReviewCount] = useState(0);
   const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
@@ -191,18 +194,21 @@ export default function HomeScreen() {
 
     if (item.hoursId && item.job) {
       setSelectedHoursId(item.hoursId);
+      setEditBackScreen('activity');
       setScreen('editHours');
       return;
     }
 
     if (item.noteId && item.job) {
       setSelectedNoteId(item.noteId);
+      setEditBackScreen('activity');
       setScreen('editNote');
       return;
     }
 
     if (item.paymentId && item.job) {
       setSelectedPaymentId(item.paymentId);
+      setEditBackScreen('activity');
       setScreen('editPayment');
       return;
     }
@@ -227,6 +233,15 @@ export default function HomeScreen() {
 
   if (screen === 'updatePassword') {
     return <UpdatePasswordScreen onSaved={() => setScreen('home')} />;
+  }
+
+  if (screen === 'accountSettings') {
+    return (
+      <AccountSettingsScreen
+        onBack={() => setScreen('home')}
+        onSaved={() => setDashboardRefreshKey((key) => key + 1)}
+      />
+    );
   }
 
   if (screen === 'activity') {
@@ -254,6 +269,7 @@ export default function HomeScreen() {
         }}
         onAddNote={() => setScreen('selectJobForNote')}
         onAddPayment={() => setScreen('selectJobForPayment')}
+        onAccountSettings={() => setScreen('accountSettings')}
         onGoToActivity={() => setScreen('activity')}
         onGoToJobs={() => setScreen('jobs')}
         onGoToToolsInventory={() => setScreen('toolsInventory')}
@@ -332,14 +348,17 @@ export default function HomeScreen() {
         onExportReport={() => setScreen('jobReport')}
         onEditHours={(hoursId) => {
           setSelectedHoursId(hoursId);
+          setEditBackScreen('dashboard');
           setScreen('editHours');
         }}
         onEditNote={(noteId) => {
           setSelectedNoteId(noteId);
+          setEditBackScreen('dashboard');
           setScreen('editNote');
         }}
         onEditPayment={(paymentId) => {
           setSelectedPaymentId(paymentId);
+          setEditBackScreen('dashboard');
           setScreen('editPayment');
         }}
         onReviewReceipt={(receiptId) => {
@@ -408,10 +427,15 @@ export default function HomeScreen() {
       <EditHoursScreen
         hoursId={selectedHoursId}
         job={selectedJob}
-        onBack={() => setScreen('dashboard')}
+        onBack={() => setScreen(editBackScreen)}
+        onDeleted={() => {
+          setSelectedHoursId(null);
+          setDashboardRefreshKey((key) => key + 1);
+          setScreen(editBackScreen);
+        }}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setScreen('dashboard');
+          setScreen(editBackScreen);
         }}
       />
     );
@@ -422,10 +446,10 @@ export default function HomeScreen() {
       <EditNoteScreen
         job={selectedJob}
         noteId={selectedNoteId}
-        onBack={() => setScreen('dashboard')}
+        onBack={() => setScreen(editBackScreen)}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setScreen('dashboard');
+          setScreen(editBackScreen);
         }}
       />
     );
@@ -435,10 +459,10 @@ export default function HomeScreen() {
     return (
       <EditPaymentScreen
         job={selectedJob}
-        onBack={() => setScreen('dashboard')}
+        onBack={() => setScreen(editBackScreen)}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setScreen('dashboard');
+          setScreen(editBackScreen);
         }}
         paymentId={selectedPaymentId}
       />
@@ -778,7 +802,7 @@ function LoadingScreen() {
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.loadingContainer}>
         <ActivityIndicator color="#335C43" />
-        <Text style={styles.loadingText}>Loading Contracktor...</Text>
+        <Text style={styles.loadingText}>Loading conTRACKtor...</Text>
       </View>
     </SafeAreaView>
   );

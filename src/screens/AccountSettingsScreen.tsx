@@ -1,0 +1,338 @@
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import {
+  fetchAccountProfile,
+  updateAccountProfile,
+  type AccountProfile,
+} from '@/src/lib/profiles';
+import { colors } from '@/src/styles/theme';
+
+type AccountSettingsScreenProps = {
+  onBack: () => void;
+  onSaved: () => void;
+};
+
+export function AccountSettingsScreen({ onBack, onSaved }: AccountSettingsScreenProps) {
+  const [profile, setProfile] = useState<AccountProfile | null>(null);
+  const [fullName, setFullName] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [defaultHourlyRate, setDefaultHourlyRate] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadProfile = async () => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const nextProfile = await fetchAccountProfile();
+
+        if (isMounted) {
+          setProfile(nextProfile);
+          setFullName(nextProfile.fullName ?? '');
+          setCompanyName(nextProfile.companyName ?? '');
+          setDefaultHourlyRate(
+            nextProfile.defaultHourlyRate !== null ? String(nextProfile.defaultHourlyRate) : ''
+          );
+        }
+      } catch (profileError) {
+        if (isMounted) {
+          setError(profileError instanceof Error ? profileError.message : 'Unable to load account settings.');
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    loadProfile();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleSave = async () => {
+    setError(null);
+    setMessage(null);
+
+    const parsedRate = parseOptionalCurrency(defaultHourlyRate);
+
+    if (parsedRate === undefined) {
+      setError('Enter a valid default hourly rate.');
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const nextProfile = await updateAccountProfile({
+        companyName,
+        defaultHourlyRate: parsedRate,
+        fullName,
+      });
+
+      setProfile(nextProfile);
+      setFullName(nextProfile.fullName ?? '');
+      setCompanyName(nextProfile.companyName ?? '');
+      setDefaultHourlyRate(
+        nextProfile.defaultHourlyRate !== null ? String(nextProfile.defaultHourlyRate) : ''
+      );
+      setMessage('Account settings saved.');
+      onSaved();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Unable to save account settings.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.keyboardView}>
+        <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+          <View style={styles.content}>
+            <Pressable onPress={onBack}>
+              <Text style={styles.backLink}>Back home</Text>
+            </Pressable>
+
+            <View style={styles.header}>
+              <Text style={styles.title}>Account settings</Text>
+              <Text style={styles.subtitle}>Update the details conTRACKtor uses around the app.</Text>
+            </View>
+
+            <View style={styles.card}>
+              {isLoading ? (
+                <View style={styles.loadingState}>
+                  <ActivityIndicator color={colors.primaryGreen} />
+                  <Text style={styles.loadingText}>Loading account settings...</Text>
+                </View>
+              ) : (
+                <>
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.label}>Email</Text>
+                    <View style={styles.readOnlyField}>
+                      <Text style={styles.readOnlyText}>{profile?.email ?? 'No email found'}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.label}>Full name</Text>
+                    <TextInput
+                      autoCapitalize="words"
+                      autoComplete="name"
+                      onChangeText={setFullName}
+                      placeholder="John Dougherty"
+                      placeholderTextColor="#8A94A6"
+                      style={styles.input}
+                      value={fullName}
+                    />
+                  </View>
+
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.label}>Company name</Text>
+                    <TextInput
+                      autoCapitalize="words"
+                      onChangeText={setCompanyName}
+                      placeholder="Dougherty Construction"
+                      placeholderTextColor="#8A94A6"
+                      style={styles.input}
+                      value={companyName}
+                    />
+                  </View>
+
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.label}>Default hourly rate</Text>
+                    <TextInput
+                      inputMode="decimal"
+                      keyboardType="decimal-pad"
+                      onChangeText={setDefaultHourlyRate}
+                      placeholder="75.00"
+                      placeholderTextColor="#8A94A6"
+                      style={styles.input}
+                      value={defaultHourlyRate}
+                    />
+                  </View>
+
+                  {error ? <Text style={styles.errorText}>{error}</Text> : null}
+                  {message ? <Text style={styles.messageText}>{message}</Text> : null}
+
+                  <Pressable
+                    disabled={isSaving}
+                    onPress={handleSave}
+                    style={[styles.saveButton, isSaving && styles.disabledButton]}>
+                    {isSaving ? (
+                      <ActivityIndicator color={colors.warmWhite} />
+                    ) : (
+                      <Text style={styles.saveButtonText}>Save changes</Text>
+                    )}
+                  </Pressable>
+                </>
+              )}
+            </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+function parseOptionalCurrency(value: string): number | null | undefined {
+  const cleaned = value.replace(/[$,\s]/g, '');
+
+  if (!cleaned) {
+    return null;
+  }
+
+  const parsed = Number(cleaned);
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return undefined;
+  }
+
+  return Math.round(parsed * 100) / 100;
+}
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: colors.appBackground,
+  },
+  keyboardView: {
+    flex: 1,
+  },
+  container: {
+    flexGrow: 1,
+    paddingBottom: 32,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  content: {
+    alignSelf: 'center',
+    maxWidth: 720,
+    paddingHorizontal: 4,
+    paddingTop: 12,
+    width: '100%',
+  },
+  backLink: {
+    color: colors.primaryGreen,
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: 26,
+  },
+  header: {
+    marginBottom: 22,
+  },
+  title: {
+    color: colors.text,
+    fontSize: 40,
+    fontWeight: '900',
+    lineHeight: 46,
+  },
+  subtitle: {
+    color: colors.mutedText,
+    fontSize: 17,
+    fontWeight: '700',
+    lineHeight: 24,
+    marginTop: 6,
+  },
+  card: {
+    backgroundColor: colors.cardBackground,
+    borderColor: colors.standardBorder,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 14,
+    padding: 16,
+  },
+  fieldGroup: {
+    gap: 6,
+  },
+  label: {
+    color: colors.mutedText,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  input: {
+    backgroundColor: colors.cardBackground,
+    borderColor: colors.strongBorder,
+    borderRadius: 10,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 17,
+    minHeight: 54,
+    paddingHorizontal: 14,
+  },
+  readOnlyField: {
+    backgroundColor: '#F3F0E8',
+    borderColor: colors.standardBorder,
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 54,
+    paddingHorizontal: 14,
+  },
+  readOnlyText: {
+    color: colors.mutedText,
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  saveButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primaryGreen,
+    borderRadius: 12,
+    justifyContent: 'center',
+    minHeight: 56,
+    marginTop: 4,
+  },
+  saveButtonText: {
+    color: colors.warmWhite,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  disabledButton: {
+    opacity: 0.7,
+  },
+  errorText: {
+    color: colors.danger,
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 20,
+  },
+  messageText: {
+    color: colors.primaryGreen,
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 20,
+  },
+  loadingState: {
+    alignItems: 'center',
+    gap: 10,
+    justifyContent: 'center',
+    minHeight: 180,
+  },
+  loadingText: {
+    color: colors.mutedText,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+});

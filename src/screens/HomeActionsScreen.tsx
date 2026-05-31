@@ -12,6 +12,7 @@ type HomeActionsScreenProps = {
   onAddJob: () => void;
   onAddNote: () => void;
   onAddPayment: () => void;
+  onAccountSettings?: () => void;
   onGoToActivity: () => void;
   onGoToJobs: () => void;
   onGoToToolsInventory: () => void;
@@ -77,6 +78,7 @@ export function HomeActionsScreen({
   onAddJob,
   onAddNote,
   onAddPayment,
+  onAccountSettings,
   onGoToActivity,
   onGoToJobs,
   onGoToToolsInventory,
@@ -148,6 +150,11 @@ export function HomeActionsScreen({
             {onLogout && isAccountOpen ? (
               <View style={styles.accountPanel}>
                 {userEmail ? <Text style={styles.accountEmail}>{userEmail}</Text> : null}
+                {onAccountSettings ? (
+                  <Pressable style={styles.accountMenuButton} onPress={onAccountSettings}>
+                    <Text style={styles.accountMenuButtonText}>Account settings</Text>
+                  </Pressable>
+                ) : null}
                 <Pressable style={styles.logoutButton} onPress={onLogout}>
                   <Text style={styles.logoutButtonText}>Log out</Text>
                 </Pressable>
@@ -253,6 +260,18 @@ const styles = StyleSheet.create({
     color: colors.mutedText,
     fontSize: 13,
     fontWeight: '700',
+  },
+  accountMenuButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primaryGreen,
+    borderRadius: 10,
+    justifyContent: 'center',
+    minHeight: 42,
+  },
+  accountMenuButtonText: {
+    color: colors.warmWhite,
+    fontSize: 14,
+    fontWeight: '800',
   },
   logoutButton: {
     alignItems: 'center',

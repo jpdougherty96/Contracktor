@@ -133,7 +133,7 @@ export function AuthScreen({ configError }: AuthScreenProps) {
         style={styles.keyboardView}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
-            <Text style={styles.appName}>Contracktor</Text>
+            <Text style={styles.appName}>conTRACKtor</Text>
             <Text style={styles.subtitle}>Track job money before it gets away from you.</Text>
           </View>
 

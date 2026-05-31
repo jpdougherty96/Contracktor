@@ -121,6 +121,28 @@ export async function updateJobHours(
   return data;
 }
 
+export async function deleteJobHours(hoursId: string): Promise<void> {
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw new Error(userError.message);
+  }
+
+  if (!userData.user) {
+    throw new Error('You must be logged in to delete hours.');
+  }
+
+  const { error } = await supabase
+    .from('time_entries')
+    .delete()
+    .eq('id', hoursId)
+    .eq('owner_id', userData.user.id);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 export function minutesToHours(minutes: number): number {
   return Math.round((minutes / 60) * 100) / 100;
 }

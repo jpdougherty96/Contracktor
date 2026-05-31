@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -12,17 +13,24 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { fetchJobHours, minutesToHours, updateJobHours, type JobHoursEntry } from '@/src/lib/jobHours';
+import {
+  deleteJobHours,
+  fetchJobHours,
+  minutesToHours,
+  updateJobHours,
+  type JobHoursEntry,
+} from '@/src/lib/jobHours';
 import type { Job } from '@/src/types/job';
 
 type EditHoursScreenProps = {
   hoursId: string;
   job: Job;
   onBack: () => void;
+  onDeleted: () => void;
   onSaved: () => void;
 };
 
-export function EditHoursScreen({ hoursId, job, onBack, onSaved }: EditHoursScreenProps) {
+export function EditHoursScreen({ hoursId, job, onBack, onDeleted, onSaved }: EditHoursScreenProps) {
   const [hoursEntry, setHoursEntry] = useState<JobHoursEntry | null>(null);
   const [hours, setHours] = useState('');
   const [hourlyRate, setHourlyRate] = useState('');
@@ -30,6 +38,7 @@ export function EditHoursScreen({ hoursId, job, onBack, onSaved }: EditHoursScre
   const [workerName, setWorkerName] = useState('');
   const [note, setNote] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -108,6 +117,40 @@ export function EditHoursScreen({ hoursId, job, onBack, onSaved }: EditHoursScre
     }
   };
 
+  const handleDelete = () => {
+    if (Platform.OS === 'web') {
+      const shouldDelete =
+        typeof window !== 'undefined'
+          ? window.confirm('Delete this hours entry? This cannot be undone.')
+          : false;
+
+      if (shouldDelete) {
+        deleteEntry();
+      }
+
+      return;
+    }
+
+    Alert.alert('Delete hours entry?', 'This cannot be undone.', [
+      { style: 'cancel', text: 'Cancel' },
+      { onPress: deleteEntry, style: 'destructive', text: 'Delete' },
+    ]);
+  };
+
+  const deleteEntry = async () => {
+    setErrorMessage(null);
+    setIsDeleting(true);
+
+    try {
+      await deleteJobHours(hoursId);
+      onDeleted();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to delete hours.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
@@ -162,10 +205,25 @@ export function EditHoursScreen({ hoursId, job, onBack, onSaved }: EditHoursScre
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
             <Pressable
-              disabled={isSaving || isLoading || !hoursEntry}
+              disabled={isSaving || isDeleting || isLoading || !hoursEntry}
               onPress={handleSubmit}
-              style={[styles.saveButton, (isSaving || isLoading || !hoursEntry) && styles.disabledButton]}>
+              style={[
+                styles.saveButton,
+                (isSaving || isDeleting || isLoading || !hoursEntry) && styles.disabledButton,
+              ]}>
               <Text style={styles.saveButtonText}>{isSaving ? 'Saving...' : 'Save hours'}</Text>
+            </Pressable>
+
+            <Pressable
+              disabled={isSaving || isDeleting || isLoading || !hoursEntry}
+              onPress={handleDelete}
+              style={[
+                styles.deleteButton,
+                (isSaving || isDeleting || isLoading || !hoursEntry) && styles.disabledButton,
+              ]}>
+              <Text style={styles.deleteButtonText}>
+                {isDeleting ? 'Deleting...' : 'Delete hours entry'}
+              </Text>
             </Pressable>
           </View>
         </ScrollView>
@@ -310,6 +368,19 @@ const styles = StyleSheet.create({
   saveButtonText: {
     color: '#FFFFFF',
     fontSize: 18,
+    fontWeight: '800',
+  },
+  deleteButton: {
+    alignItems: 'center',
+    borderColor: '#B91C1C',
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 50,
+  },
+  deleteButtonText: {
+    color: '#B91C1C',
+    fontSize: 16,
     fontWeight: '800',
   },
 });
