@@ -4,6 +4,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getCurrentAuthState, signOut } from '@/src/lib/auth';
+import { fetchGlobalActivity, type GlobalActivityItem } from '@/src/lib/globalActivity';
 import { AddExpenseMethodScreen } from '@/src/screens/AddExpenseMethodScreen';
 import { AddHoursHubScreen } from '@/src/screens/AddHoursHubScreen';
 import { AddHoursScreen } from '@/src/screens/AddHoursScreen';
@@ -12,6 +13,7 @@ import { AddNoteScreen } from '@/src/screens/AddNoteScreen';
 import { AddPaymentScreen } from '@/src/screens/AddPaymentScreen';
 import { AddReceiptScreen } from '@/src/screens/AddReceiptScreen';
 import { AddUpdateScreen } from '@/src/screens/AddUpdateScreen';
+import { ActivityScreen } from '@/src/screens/ActivityScreen';
 import { AuthScreen } from '@/src/screens/AuthScreen';
 import { CreateJobScreen } from '@/src/screens/CreateJobScreen';
 import { EditHoursScreen } from '@/src/screens/EditHoursScreen';
@@ -26,10 +28,12 @@ import { JobPickerScreen } from '@/src/screens/JobPickerScreen';
 import { JobsListScreen } from '@/src/screens/JobsListScreen';
 import { ReceiptReviewScreen } from '@/src/screens/ReceiptReviewScreen';
 import { ToolsInventoryScreen } from '@/src/screens/ToolsInventoryScreen';
+import { UpdatePasswordScreen } from '@/src/screens/UpdatePasswordScreen';
 import type { Job } from '@/src/types/job';
 
 type Screen =
   | 'home'
+  | 'activity'
   | 'jobs'
   | 'dashboard'
   | 'addUpdate'
@@ -53,7 +57,8 @@ type Screen =
   | 'selectJobForHours'
   | 'selectJobForNote'
   | 'selectJobForPayment'
-  | 'toolsInventory';
+  | 'toolsInventory'
+  | 'updatePassword';
 
 export default function HomeScreen() {
   const [session, setSession] = useState<Session | null>(null);
@@ -72,6 +77,8 @@ export default function HomeScreen() {
   const [addBackScreen, setAddBackScreen] = useState<Screen>('home');
   const [addCompleteScreen, setAddCompleteScreen] = useState<Screen>('home');
   const [createBackScreen, setCreateBackScreen] = useState<Screen>('home');
+  const [receiptReviewBackScreen, setReceiptReviewBackScreen] = useState<Screen>('dashboard');
+  const [needsReviewCount, setNeedsReviewCount] = useState(0);
   const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
 
@@ -86,12 +93,22 @@ export default function HomeScreen() {
         if (isMounted) {
           setSession(authState.session);
           setAuthError(null);
+
+          if (isPasswordRecoveryUrl()) {
+            setScreen('updatePassword');
+          }
         }
 
         const { supabase } = await import('@/src/lib/supabase');
-        const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+        const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
           setSession(nextSession);
           setAuthError(null);
+
+          if (event === 'PASSWORD_RECOVERY') {
+            setScreen('updatePassword');
+            return;
+          }
+
           setScreen('home');
         });
 
@@ -115,6 +132,35 @@ export default function HomeScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadNeedsReviewCount = async () => {
+      if (!session) {
+        setNeedsReviewCount(0);
+        return;
+      }
+
+      try {
+        const summary = await fetchGlobalActivity();
+
+        if (isMounted) {
+          setNeedsReviewCount(summary.needsReviewCount);
+        }
+      } catch {
+        if (isMounted) {
+          setNeedsReviewCount(0);
+        }
+      }
+    };
+
+    loadNeedsReviewCount();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [dashboardRefreshKey, jobsRefreshKey, session]);
+
   const handleLogout = async () => {
     try {
       await signOut();
@@ -131,6 +177,46 @@ export default function HomeScreen() {
     }
   };
 
+  const handleOpenActivityItem = (item: GlobalActivityItem) => {
+    setSelectedJob(item.job ?? null);
+
+    if (item.receiptId) {
+      setSelectedReceiptId(item.receiptId);
+      setSelectedReceiptJobs(item.job ? [item.job] : []);
+      setIsSelectedReceiptInventoryMode(!item.job);
+      setReceiptReviewBackScreen('activity');
+      setScreen('reviewReceipt');
+      return;
+    }
+
+    if (item.hoursId && item.job) {
+      setSelectedHoursId(item.hoursId);
+      setScreen('editHours');
+      return;
+    }
+
+    if (item.noteId && item.job) {
+      setSelectedNoteId(item.noteId);
+      setScreen('editNote');
+      return;
+    }
+
+    if (item.paymentId && item.job) {
+      setSelectedPaymentId(item.paymentId);
+      setScreen('editPayment');
+      return;
+    }
+
+    if (item.job) {
+      setScreen('dashboard');
+      return;
+    }
+
+    if (item.type === 'expense') {
+      setScreen('toolsInventory');
+    }
+  };
+
   if (isAuthLoading) {
     return <LoadingScreen />;
   }
@@ -139,9 +225,24 @@ export default function HomeScreen() {
     return <AuthScreen configError={authError} />;
   }
 
+  if (screen === 'updatePassword') {
+    return <UpdatePasswordScreen onSaved={() => setScreen('home')} />;
+  }
+
+  if (screen === 'activity') {
+    return (
+      <ActivityScreen
+        onBack={() => setScreen('home')}
+        onOpenItem={handleOpenActivityItem}
+        refreshKey={dashboardRefreshKey + jobsRefreshKey}
+      />
+    );
+  }
+
   if (screen === 'home') {
     return (
       <HomeActionsScreen
+        needsReviewCount={needsReviewCount}
         onAddExpense={() => {
           setIsSelectedReceiptInventoryMode(false);
           setScreen('selectJobForExpense');
@@ -153,6 +254,7 @@ export default function HomeScreen() {
         }}
         onAddNote={() => setScreen('selectJobForNote')}
         onAddPayment={() => setScreen('selectJobForPayment')}
+        onGoToActivity={() => setScreen('activity')}
         onGoToJobs={() => setScreen('jobs')}
         onGoToToolsInventory={() => setScreen('toolsInventory')}
         onLogout={handleLogout}
@@ -244,6 +346,7 @@ export default function HomeScreen() {
           setSelectedReceiptId(receiptId);
           setSelectedReceiptJobs([selectedJob]);
           setIsSelectedReceiptInventoryMode(false);
+          setReceiptReviewBackScreen('dashboard');
           setScreen('reviewReceipt');
         }}
         refreshKey={dashboardRefreshKey}
@@ -366,7 +469,7 @@ export default function HomeScreen() {
         inventoryMode={isInventoryOnlyReceipt}
         job={selectedJob}
         jobs={isInventoryOnlyReceipt ? [] : selectedJob && selectedReceiptJobs.length > 0 ? selectedReceiptJobs : selectedJob ? [selectedJob] : []}
-        onBack={() => setScreen(isInventoryOnlyReceipt ? 'addReceipt' : 'dashboard')}
+        onBack={() => setScreen(receiptReviewBackScreen)}
         onReviewReceipt={(receiptId) => {
           setSelectedReceiptId(receiptId);
           setScreen('reviewReceipt');
@@ -378,7 +481,13 @@ export default function HomeScreen() {
         }}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setScreen(isInventoryOnlyReceipt ? 'toolsInventory' : 'dashboard');
+          setScreen(
+            receiptReviewBackScreen === 'activity'
+              ? 'activity'
+              : isInventoryOnlyReceipt
+                ? 'toolsInventory'
+                : 'dashboard'
+          );
         }}
         receiptId={selectedReceiptId}
       />
@@ -434,6 +543,7 @@ export default function HomeScreen() {
         }}
         onReviewReceipt={(receiptId) => {
           setSelectedReceiptId(receiptId);
+          setReceiptReviewBackScreen('addReceipt');
           setDashboardRefreshKey((key) => key + 1);
           setScreen('reviewReceipt');
         }}
@@ -653,6 +763,14 @@ function getAddDoneLabel(screen: Screen): string {
   }
 
   return 'Back home';
+}
+
+function isPasswordRecoveryUrl(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.location.href.includes('type=recovery');
 }
 
 function LoadingScreen() {

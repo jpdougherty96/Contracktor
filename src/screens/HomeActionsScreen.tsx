@@ -6,11 +6,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/src/styles/theme';
 
 type HomeActionsScreenProps = {
+  needsReviewCount?: number;
   onAddExpense: () => void;
   onAddHours: () => void;
   onAddJob: () => void;
   onAddNote: () => void;
   onAddPayment: () => void;
+  onGoToActivity: () => void;
   onGoToJobs: () => void;
   onGoToToolsInventory: () => void;
   onLogout?: () => void;
@@ -23,6 +25,12 @@ const primaryActions = [
     icon: 'grid',
     key: 'dashboard',
     label: 'Job dashboard',
+  },
+  {
+    description: 'Review recent work and items that need attention.',
+    icon: 'activity',
+    key: 'activity',
+    label: 'Recent activity',
   },
   {
     description: 'Scan a receipt or enter an expense manually.',
@@ -63,11 +71,13 @@ const primaryActions = [
 ] as const;
 
 export function HomeActionsScreen({
+  needsReviewCount = 0,
   onAddExpense,
   onAddHours,
   onAddJob,
   onAddNote,
   onAddPayment,
+  onGoToActivity,
   onGoToJobs,
   onGoToToolsInventory,
   onLogout,
@@ -103,6 +113,11 @@ export function HomeActionsScreen({
 
     if (key === 'toolsInventory') {
       onGoToToolsInventory();
+      return;
+    }
+
+    if (key === 'activity') {
+      onGoToActivity();
       return;
     }
 
@@ -152,7 +167,14 @@ export function HomeActionsScreen({
                   <Feather color={colors.warmWhite} name={action.icon} size={28} />
                 </View>
                 <View style={styles.actionText}>
-                  <Text style={styles.actionLabel}>{action.label}</Text>
+                  <View style={styles.actionLabelRow}>
+                    <Text style={styles.actionLabel}>{action.label}</Text>
+                    {action.key === 'activity' && needsReviewCount > 0 ? (
+                      <View style={styles.reviewBadge}>
+                        <Text style={styles.reviewBadgeText}>{needsReviewCount}</Text>
+                      </View>
+                    ) : null}
+                  </View>
                   <Text style={styles.actionDescription}>{action.description}</Text>
                 </View>
               </Pressable>
@@ -279,6 +301,12 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4,
   },
+  actionLabelRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
   actionLabel: {
     color: colors.text,
     fontSize: 19,
@@ -290,5 +318,19 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     lineHeight: 20,
+  },
+  reviewBadge: {
+    alignItems: 'center',
+    backgroundColor: colors.danger,
+    borderRadius: 999,
+    justifyContent: 'center',
+    minHeight: 24,
+    minWidth: 24,
+    paddingHorizontal: 7,
+  },
+  reviewBadgeText: {
+    color: colors.warmWhite,
+    fontSize: 13,
+    fontWeight: '900',
   },
 });

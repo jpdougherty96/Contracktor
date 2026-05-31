@@ -41,7 +41,7 @@ const authStorage = {
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
-    detectSessionInUrl: false,
+    detectSessionInUrl: typeof window !== 'undefined',
     persistSession: true,
     storage: authStorage,
   },
