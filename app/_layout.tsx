@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { VercelAnalytics } from '@/src/components/VercelAnalytics';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -19,6 +20,7 @@ export default function RootLayout() {
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
       <StatusBar style="auto" />
+      <VercelAnalytics />
     </ThemeProvider>
   );
 }
