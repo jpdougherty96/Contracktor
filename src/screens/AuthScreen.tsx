@@ -45,7 +45,7 @@ export function AuthScreen({ configError }: AuthScreenProps) {
 
       if (isReset) {
         const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
-          redirectTo: getAuthRedirectUrl(),
+          redirectTo: getAuthRedirectUrl('passwordRecovery'),
         });
 
         if (error) {
@@ -251,12 +251,27 @@ function getLoginErrorMessage(message: string): string {
   return message;
 }
 
-function getAuthRedirectUrl(): string {
+function getAuthRedirectUrl(flow?: 'passwordRecovery'): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    return window.location.origin;
+    const url = new URL(window.location.origin);
+
+    if (flow === 'passwordRecovery') {
+      url.searchParams.set('authFlow', 'password-recovery');
+    }
+
+    return url.toString();
   }
 
-  return Linking.createURL('/');
+  return Linking.createURL(
+    '/',
+    flow === 'passwordRecovery'
+      ? {
+          queryParams: {
+            authFlow: 'password-recovery',
+          },
+        }
+      : undefined
+  );
 }
 
 const styles = StyleSheet.create({
