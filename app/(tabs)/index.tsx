@@ -1,5 +1,5 @@
 import type { Session } from '@supabase/supabase-js';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -84,6 +84,7 @@ export default function HomeScreen() {
   const [needsReviewCount, setNeedsReviewCount] = useState(0);
   const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
+  const isPasswordRecoveryFlowRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -91,13 +92,15 @@ export default function HomeScreen() {
 
     const loadSession = async () => {
       try {
+        const startsInPasswordRecoveryFlow = isPasswordRecoveryUrl();
+        isPasswordRecoveryFlowRef.current = startsInPasswordRecoveryFlow;
         const authState = await getCurrentAuthState();
 
         if (isMounted) {
           setSession(authState.session);
           setAuthError(null);
 
-          if (isPasswordRecoveryUrl()) {
+          if (startsInPasswordRecoveryFlow) {
             setScreen('updatePassword');
           }
         }
@@ -108,11 +111,25 @@ export default function HomeScreen() {
           setAuthError(null);
 
           if (event === 'PASSWORD_RECOVERY') {
+            isPasswordRecoveryFlowRef.current = true;
             setScreen('updatePassword');
             return;
           }
 
-          setScreen('home');
+          if (event === 'SIGNED_OUT') {
+            isPasswordRecoveryFlowRef.current = false;
+            setScreen('home');
+            return;
+          }
+
+          if (isPasswordRecoveryFlowRef.current && nextSession) {
+            setScreen('updatePassword');
+            return;
+          }
+
+          if (event === 'SIGNED_IN') {
+            setScreen('home');
+          }
         });
 
         unsubscribe = () => data.subscription.unsubscribe();
@@ -167,6 +184,7 @@ export default function HomeScreen() {
   const handleLogout = async () => {
     try {
       await signOut();
+      isPasswordRecoveryFlowRef.current = false;
       setSelectedJob(null);
       setSelectedHoursId(null);
       setSelectedNoteId(null);
@@ -232,7 +250,14 @@ export default function HomeScreen() {
   }
 
   if (screen === 'updatePassword') {
-    return <UpdatePasswordScreen onSaved={() => setScreen('home')} />;
+    return (
+      <UpdatePasswordScreen
+        onSaved={() => {
+          isPasswordRecoveryFlowRef.current = false;
+          setScreen('home');
+        }}
+      />
+    );
   }
 
   if (screen === 'accountSettings') {
