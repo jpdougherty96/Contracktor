@@ -819,7 +819,16 @@ function isPasswordRecoveryUrl(): boolean {
     return false;
   }
 
-  return window.location.href.includes('type=recovery');
+  const searchParams = new URLSearchParams(window.location.search);
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+
+  return (
+    searchParams.get('authFlow') === 'password-recovery' ||
+    hashParams.get('authFlow') === 'password-recovery' ||
+    searchParams.get('type') === 'recovery' ||
+    hashParams.get('type') === 'recovery' ||
+    window.location.href.includes('type=recovery')
+  );
 }
 
 function LoadingScreen() {
