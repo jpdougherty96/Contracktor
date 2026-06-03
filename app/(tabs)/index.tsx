@@ -5,6 +5,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getCurrentAuthState, signOut } from '@/src/lib/auth';
 import { fetchGlobalActivity, type GlobalActivityItem } from '@/src/lib/globalActivity';
+import {
+  clearPasswordRecoveryRequested,
+  hasPendingPasswordRecoveryRequest,
+} from '@/src/lib/passwordRecovery';
 import { AddExpenseMethodScreen } from '@/src/screens/AddExpenseMethodScreen';
 import { AddHoursHubScreen } from '@/src/screens/AddHoursHubScreen';
 import { AddHoursScreen } from '@/src/screens/AddHoursScreen';
@@ -92,7 +96,8 @@ export default function HomeScreen() {
 
     const loadSession = async () => {
       try {
-        const startsInPasswordRecoveryFlow = isPasswordRecoveryUrl();
+        const startsInPasswordRecoveryFlow =
+          isPasswordRecoveryUrl() || hasPendingPasswordRecoveryRequest();
         isPasswordRecoveryFlowRef.current = startsInPasswordRecoveryFlow;
         const authState = await getCurrentAuthState();
 
@@ -118,6 +123,7 @@ export default function HomeScreen() {
 
           if (event === 'SIGNED_OUT') {
             isPasswordRecoveryFlowRef.current = false;
+            clearPasswordRecoveryRequested();
             setScreen('home');
             return;
           }
@@ -185,6 +191,7 @@ export default function HomeScreen() {
     try {
       await signOut();
       isPasswordRecoveryFlowRef.current = false;
+      clearPasswordRecoveryRequested();
       setSelectedJob(null);
       setSelectedHoursId(null);
       setSelectedNoteId(null);
@@ -254,6 +261,7 @@ export default function HomeScreen() {
       <UpdatePasswordScreen
         onSaved={() => {
           isPasswordRecoveryFlowRef.current = false;
+          clearPasswordRecoveryRequested();
           setScreen('home');
         }}
       />

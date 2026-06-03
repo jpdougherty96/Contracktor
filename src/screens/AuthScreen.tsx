@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
 import { Feather } from '@expo/vector-icons';
 
+import { clearPasswordRecoveryRequested, markPasswordRecoveryRequested } from '@/src/lib/passwordRecovery';
 import { ensureProfileForUser } from '@/src/lib/profiles';
 
 type AuthScreenProps = {
@@ -53,6 +54,7 @@ export function AuthScreen({ configError }: AuthScreenProps) {
           return;
         }
 
+        markPasswordRecoveryRequested();
         setMessage('Password reset email sent. Check your inbox for the reset link.');
         return;
       }
@@ -106,6 +108,7 @@ export function AuthScreen({ configError }: AuthScreenProps) {
       }
 
       if (data.user) {
+        clearPasswordRecoveryRequested();
         await ensureProfileForUser(data.user);
       }
     } catch (error) {
