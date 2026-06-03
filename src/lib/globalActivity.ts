@@ -6,6 +6,7 @@ import type { Job } from '@/src/types/job';
 export type GlobalActivityType = 'expense' | 'hours' | 'job' | 'note' | 'payment' | 'receipt';
 
 export type GlobalActivityItem = {
+  capturedAt?: string | null;
   date: string | null;
   detail: string;
   hoursId?: string;
@@ -114,6 +115,7 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
     if (missingBudget) {
       needsReview.push({
         date: job.updatedAt ?? job.createdAt ?? null,
+        capturedAt: job.updatedAt ?? job.createdAt ?? null,
         detail: 'This active job has activity but no material or labor budget.',
         id: `job-budget-${job.id}`,
         job,
@@ -139,6 +141,7 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
 
     const item: GlobalActivityItem = {
       date: entry.work_date ?? entry.created_at,
+      capturedAt: entry.created_at,
       detail: `${formatDurationMinutes(entry.duration_minutes)} at ${formatCurrency(entry.hourly_rate, {
         showCents: true,
       })}/hr${entry.description ? ` - ${entry.description}` : ''}`,
@@ -166,6 +169,7 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
 
     items.push({
       date: payment.payment_date ?? payment.created_at,
+      capturedAt: payment.created_at,
       detail: `${formatCurrency(payment.amount, { showCents: true })}${
         payment.note ? ` - ${payment.note}` : ''
       }`,
@@ -184,6 +188,7 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
     string,
     {
       date: string | null;
+      capturedAt: string | null;
       job: Job | null;
       jobId: string | null;
       receiptId: string;
@@ -204,6 +209,7 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
       } else {
         receiptExpenseGroups.set(expense.receipt_id, {
           date: receipt?.receipt_date ?? expense.expense_date ?? expense.created_at,
+          capturedAt: expense.created_at,
           job,
           jobId: expense.job_id,
           receiptId: expense.receipt_id,
@@ -217,6 +223,7 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
 
     items.push({
       date: expense.expense_date ?? expense.created_at,
+      capturedAt: expense.created_at,
       detail: `${formatExpenseType(expense.expense_type)} - ${formatCurrency(expense.total_amount, {
         showCents: true,
       })}${expense.description ? ` - ${expense.description}` : ''}`,
@@ -233,6 +240,7 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
   for (const receiptGroup of receiptExpenseGroups.values()) {
     items.push({
       date: receiptGroup.date,
+      capturedAt: receiptGroup.capturedAt,
       detail: `${receiptGroup.vendor} - ${formatCurrency(receiptGroup.total, {
         showCents: true,
       })}`,
@@ -257,6 +265,7 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
     const job = getJob(jobsById, receipt.scan_context_job_id);
     const item: GlobalActivityItem = {
       date: receipt.receipt_date ?? receipt.created_at,
+      capturedAt: receipt.created_at,
       detail: `${receipt.vendor ?? 'Receipt'}${
         receipt.total !== null ? ` - ${formatCurrency(receipt.total, { showCents: true })}` : ''
       }${receipt.category ? ` - ${receipt.category}` : ''}`,
@@ -281,6 +290,7 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
 
     items.push({
       date: note.created_at,
+      capturedAt: note.created_at,
       detail: note.note,
       id: `note-${note.id}`,
       job,

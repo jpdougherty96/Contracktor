@@ -49,6 +49,7 @@ export function ActivityScreen({ onBack, onOpenItem, refreshKey = 0 }: ActivityS
   }, [refreshKey]);
 
   const groupedActivity = useMemo(() => groupActivityByDay(summary?.items ?? []), [summary?.items]);
+  const capturedToday = useMemo(() => getCapturedTodayItems(summary?.items ?? []), [summary?.items]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -106,6 +107,32 @@ export function ActivityScreen({ onBack, onOpenItem, refreshKey = 0 }: ActivityS
               )}
 
               <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Captured today</Text>
+              </View>
+
+              {capturedToday.length > 0 ? (
+                <View style={styles.activityList}>
+                  {capturedToday.map((item) => (
+                    <ActivityRow
+                      detailOverride={getCapturedDetail(item)}
+                      key={`captured-${item.id}`}
+                      item={item}
+                      labelOverride={getCapturedLabel(item)}
+                      onPress={() => onOpenItem(item)}
+                    />
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.quietCard}>
+                  <Feather color={colors.mutedText} name="inbox" size={22} />
+                  <View style={styles.rowText}>
+                    <Text style={styles.rowTitle}>Nothing captured today</Text>
+                    <Text style={styles.rowDetail}>Receipts and updates added today will show here.</Text>
+                  </View>
+                </View>
+              )}
+
+              <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Activity by day</Text>
               </View>
 
@@ -114,11 +141,17 @@ export function ActivityScreen({ onBack, onOpenItem, refreshKey = 0 }: ActivityS
                   {groupedActivity.map((group) => (
                     <View key={group.label} style={styles.dayGroup}>
                       <Text style={styles.dayLabel}>{group.label}</Text>
-                      <View style={styles.activityList}>
-                        {group.items.map((item) => (
-                          <ActivityRow key={item.id} item={item} onPress={() => onOpenItem(item)} />
-                        ))}
-                      </View>
+                      {group.items.length > 0 ? (
+                        <View style={styles.activityList}>
+                          {group.items.map((item) => (
+                            <ActivityRow key={item.id} item={item} onPress={() => onOpenItem(item)} />
+                          ))}
+                        </View>
+                      ) : (
+                        <View style={styles.emptyDayCard}>
+                          <Text style={styles.emptyDayText}>No activity today yet.</Text>
+                        </View>
+                      )}
                     </View>
                   ))}
                 </View>
@@ -136,11 +169,15 @@ export function ActivityScreen({ onBack, onOpenItem, refreshKey = 0 }: ActivityS
 }
 
 function ActivityRow({
+  detailOverride,
   item,
+  labelOverride,
   onPress,
   prominent = false,
 }: {
+  detailOverride?: string;
   item: GlobalActivityItem;
+  labelOverride?: string;
   onPress: () => void;
   prominent?: boolean;
 }) {
@@ -151,7 +188,7 @@ function ActivityRow({
       </View>
       <View style={styles.rowText}>
         <View style={styles.rowTitleLine}>
-          <Text style={styles.rowTitle}>{item.label}</Text>
+          <Text style={styles.rowTitle}>{labelOverride ?? item.label}</Text>
           {item.needsReview ? (
             <View style={styles.smallReviewPill}>
               <Text style={styles.smallReviewPillText}>Review</Text>
@@ -160,12 +197,49 @@ function ActivityRow({
         </View>
         <Text style={styles.jobName}>{item.jobName ?? 'Tools / Inventory'}</Text>
         <Text numberOfLines={prominent ? 3 : 2} style={styles.rowDetail}>
-          {item.reviewReason ?? item.detail}
+          {detailOverride ?? item.reviewReason ?? item.detail}
         </Text>
       </View>
       <Feather color={colors.mutedText} name="chevron-right" size={20} />
     </Pressable>
   );
+}
+
+function getCapturedTodayItems(items: GlobalActivityItem[]) {
+  return items
+    .filter((item) => isToday(item.capturedAt ?? item.date))
+    .sort(sortCapturedNewestFirst)
+    .slice(0, 10);
+}
+
+function getCapturedDetail(item: GlobalActivityItem): string {
+  const activityDate = formatBusinessDate(item.date);
+
+  if (item.type === 'receipt') {
+    return `${item.detail} · Receipt date ${activityDate}`;
+  }
+
+  if (item.type === 'hours') {
+    return `${item.detail} · Work date ${activityDate}`;
+  }
+
+  if (item.type === 'payment') {
+    return `${item.detail} · Payment date ${activityDate}`;
+  }
+
+  if (item.type === 'expense') {
+    return `${item.detail} · Expense date ${activityDate}`;
+  }
+
+  return item.detail;
+}
+
+function getCapturedLabel(item: GlobalActivityItem): string {
+  if (item.type === 'receipt') {
+    return 'Receipt uploaded';
+  }
+
+  return item.label;
 }
 
 function groupActivityByDay(items: GlobalActivityItem[]) {
@@ -193,9 +267,9 @@ function formatDayLabel(dateValue: string | null): string {
     return 'No date';
   }
 
-  const date = new Date(dateValue);
+  const date = parseActivityDate(dateValue);
 
-  if (Number.isNaN(date.getTime())) {
+  if (!date) {
     return 'No date';
   }
 
@@ -216,6 +290,45 @@ function formatDayLabel(dateValue: string | null): string {
     month: 'short',
     year: today.getFullYear() === target.getFullYear() ? undefined : 'numeric',
   }).format(target);
+}
+
+function formatBusinessDate(dateValue: string | null): string {
+  if (!dateValue) {
+    return 'No date';
+  }
+
+  const date = parseActivityDate(dateValue);
+
+  if (!date) {
+    return 'No date';
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(date);
+}
+
+function isToday(dateValue: string | null | undefined): boolean {
+  const date = dateValue ? parseActivityDate(dateValue) : null;
+
+  if (!date) {
+    return false;
+  }
+
+  return startOfDay(date).getTime() === startOfDay(new Date()).getTime();
+}
+
+function parseActivityDate(dateValue: string): Date | null {
+  const normalizedDate = dateValue.includes('T') ? dateValue : `${dateValue}T12:00:00`;
+  const date = new Date(normalizedDate);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function sortCapturedNewestFirst(a: GlobalActivityItem, b: GlobalActivityItem) {
+  return (b.capturedAt ?? b.date ?? '').localeCompare(a.capturedAt ?? a.date ?? '');
 }
 
 function startOfDay(date: Date) {
@@ -346,6 +459,19 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     overflow: 'hidden',
+  },
+  emptyDayCard: {
+    backgroundColor: colors.cardBackground,
+    borderColor: colors.standardBorder,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 16,
+  },
+  emptyDayText: {
+    color: colors.mutedText,
+    fontSize: 15,
+    fontWeight: '800',
   },
   row: {
     alignItems: 'center',
