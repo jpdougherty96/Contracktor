@@ -85,6 +85,7 @@ export default function HomeScreen() {
   const [createBackScreen, setCreateBackScreen] = useState<Screen>('home');
   const [editBackScreen, setEditBackScreen] = useState<Screen>('dashboard');
   const [receiptReviewBackScreen, setReceiptReviewBackScreen] = useState<Screen>('dashboard');
+  const [updatePasswordBackScreen, setUpdatePasswordBackScreen] = useState<Screen>('home');
   const [needsReviewCount, setNeedsReviewCount] = useState(0);
   const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
@@ -262,7 +263,7 @@ export default function HomeScreen() {
         onSaved={() => {
           isPasswordRecoveryFlowRef.current = false;
           clearPasswordRecoveryRequested();
-          setScreen('home');
+          setScreen(updatePasswordBackScreen);
         }}
       />
     );
@@ -272,6 +273,10 @@ export default function HomeScreen() {
     return (
       <AccountSettingsScreen
         onBack={() => setScreen('home')}
+        onChangePassword={() => {
+          setUpdatePasswordBackScreen('accountSettings');
+          setScreen('updatePassword');
+        }}
         onSaved={() => setDashboardRefreshKey((key) => key + 1)}
       />
     );

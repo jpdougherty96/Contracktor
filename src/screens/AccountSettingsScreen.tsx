@@ -21,10 +21,11 @@ import { colors } from '@/src/styles/theme';
 
 type AccountSettingsScreenProps = {
   onBack: () => void;
+  onChangePassword: () => void;
   onSaved: () => void;
 };
 
-export function AccountSettingsScreen({ onBack, onSaved }: AccountSettingsScreenProps) {
+export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: AccountSettingsScreenProps) {
   const [profile, setProfile] = useState<AccountProfile | null>(null);
   const [fullName, setFullName] = useState('');
   const [companyName, setCompanyName] = useState('');
@@ -174,6 +175,16 @@ export function AccountSettingsScreen({ onBack, onSaved }: AccountSettingsScreen
                     />
                   </View>
 
+                  <View style={styles.securitySection}>
+                    <View>
+                      <Text style={styles.sectionTitle}>Password</Text>
+                      <Text style={styles.sectionDetail}>Update the password used to log in.</Text>
+                    </View>
+                    <Pressable onPress={onChangePassword} style={styles.secondaryButton}>
+                      <Text style={styles.secondaryButtonText}>Change password</Text>
+                    </Pressable>
+                  </View>
+
                   {error ? <Text style={styles.errorText}>{error}</Text> : null}
                   {message ? <Text style={styles.messageText}>{message}</Text> : null}
 
@@ -295,6 +306,39 @@ const styles = StyleSheet.create({
     color: colors.mutedText,
     fontSize: 17,
     fontWeight: '800',
+  },
+  securitySection: {
+    borderColor: colors.standardBorder,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 12,
+    marginTop: 4,
+    padding: 14,
+  },
+  sectionTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  sectionDetail: {
+    color: colors.mutedText,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
+    marginTop: 4,
+  },
+  secondaryButton: {
+    alignItems: 'center',
+    borderColor: colors.primaryGreen,
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 48,
+  },
+  secondaryButtonText: {
+    color: colors.primaryGreen,
+    fontSize: 16,
+    fontWeight: '900',
   },
   saveButton: {
     alignItems: 'center',
