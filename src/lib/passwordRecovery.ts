@@ -1,25 +1,39 @@
 const PASSWORD_RECOVERY_REQUESTED_KEY = 'contracktor:passwordRecoveryRequested';
 
 export function hasPendingPasswordRecoveryRequest(): boolean {
-  if (typeof window === 'undefined') {
+  const storage = getPasswordRecoveryStorage();
+
+  if (!storage) {
     return false;
   }
 
-  return window.localStorage.getItem(PASSWORD_RECOVERY_REQUESTED_KEY) === 'true';
+  return storage.getItem(PASSWORD_RECOVERY_REQUESTED_KEY) === 'true';
 }
 
 export function markPasswordRecoveryRequested(): void {
-  if (typeof window === 'undefined') {
+  const storage = getPasswordRecoveryStorage();
+
+  if (!storage) {
     return;
   }
 
-  window.localStorage.setItem(PASSWORD_RECOVERY_REQUESTED_KEY, 'true');
+  storage.setItem(PASSWORD_RECOVERY_REQUESTED_KEY, 'true');
 }
 
 export function clearPasswordRecoveryRequested(): void {
-  if (typeof window === 'undefined') {
+  const storage = getPasswordRecoveryStorage();
+
+  if (!storage) {
     return;
   }
 
-  window.localStorage.removeItem(PASSWORD_RECOVERY_REQUESTED_KEY);
+  storage.removeItem(PASSWORD_RECOVERY_REQUESTED_KEY);
+}
+
+function getPasswordRecoveryStorage(): Storage | null {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return null;
+  }
+
+  return window.localStorage;
 }

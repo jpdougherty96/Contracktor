@@ -118,7 +118,23 @@ Deno.serve(async (req) => {
     const imageBase64 = arrayBufferToBase64(await imageBlob.arrayBuffer());
     const contentType = imageBlob.type || 'image/jpeg';
     const extraction = await extractWithOpenAI(openAiApiKey, openAiModel, imageBase64, contentType);
-    const normalized = normalizeExtraction(extraction);
+    let normalized = normalizeExtraction(extraction);
+
+    if (!lineItemsDoNotExceedReceiptTotal(normalized)) {
+      const retryExtraction = await extractWithOpenAI(
+        openAiApiKey,
+        openAiModel,
+        imageBase64,
+        contentType,
+        true
+      );
+      const retryNormalized = normalizeExtraction(retryExtraction);
+
+      if (lineItemsDoNotExceedReceiptTotal(retryNormalized) && retryNormalized.line_items.length > 0) {
+        normalized = retryNormalized;
+      }
+    }
+
     const extractionStatus = getReceiptStatus(normalized);
     const status =
       extractionStatus === 'accepted' && normalized.line_items.length > 0
@@ -182,8 +198,15 @@ async function extractWithOpenAI(
   apiKey: string,
   model: string,
   imageBase64: string,
-  contentType: string
+  contentType: string,
+  isReconciliationRetry = false
 ): Promise<unknown> {
+  const retryInstruction = isReconciliationRetry
+    ? ' This is a retry because the previous line items exceeded the visible receipt total. Re-read the printed right-side extended amounts carefully, exclude summary/tax/payment rows, and return fewer line items if needed rather than making the item total exceed the receipt total.'
+    : '';
+  const extractionInstructions =
+    `You are extracting data from a contractor receipt photo. Return only valid JSON. If the receipt is shown inside a phone screenshot, email, browser, or app screen, ignore the surrounding UI and read only the receipt itself. Extract vendor, receipt_date in YYYY-MM-DD if visible, subtotal, tax, total, likely receipt category, confidence from 0 to 1, notes, and visible purchased line items. Use issue date, transaction date, order date, or receipt date as receipt_date when a standard receipt date label is not present. For line_items, include purchased products/services only. Never include subtotal, taxes, taxes and fees, fees, total, ticket amount, payment, card, authorization, survey, cashier, transaction number, address, phone, return policy, or other non-purchase/summary rows as item line_items. If itemized taxes or fees are visible and there is no separate tax total, sum those tax/fee rows into the top-level tax value. Preserve original_text exactly as visible, write a cleaned_name that expands abbreviations when clear, and do not invent invisible items. Do not bake tax into item prices. The sum of item line totals plus tax must never exceed the visible receipt total; if a quantity/unit price is visible, use the extended line amount printed at the right, not quantity times a misread unit price. Category must be one of: materials, tools, fuel, subcontractor, permit, other. Line item category must be one of: material, tool, inventory, rental, permit, subcontractor, fuel, other, or null. Line type must be item for purchased rows; use tax, fee, or discount only if such a row is unavoidable, and those rows will be ignored by conTRACKtor. If the receipt date is not visible, set receipt_date to null and include the exact phrase "date not visible" in notes.${retryInstruction}`;
+
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
@@ -195,8 +218,7 @@ async function extractWithOpenAI(
         {
           content: [
             {
-              text:
-                'You are extracting data from a contractor receipt photo. Return only valid JSON. Extract vendor, receipt_date in YYYY-MM-DD if visible, subtotal, tax, total, likely receipt category, confidence from 0 to 1, notes, and visible purchased line items. For line_items, include purchased products/services only. Never include subtotal, taxes, taxes and fees, total, payment, card, authorization, survey, cashier, transaction number, address, phone, return policy, or other non-purchase/summary rows as line_items. Preserve original_text exactly as visible, write a cleaned_name that expands abbreviations when clear, and do not invent invisible items. Do not bake tax into item prices. The sum of item line totals must never exceed the visible receipt total; if a quantity/unit price is visible, use the extended line amount printed at the right, not quantity times a misread unit price. Category must be one of: materials, tools, fuel, subcontractor, permit, other. Line item category must be one of: material, tool, inventory, rental, permit, subcontractor, fuel, other, or null. Line type must be item for purchased rows; use tax, fee, or discount only if such a row is unavoidable, and those rows will be ignored by conTRACKtor. If the receipt date is not visible, set receipt_date to null and include the exact phrase "date not visible" in notes.',
+              text: extractionInstructions,
               type: 'input_text',
             },
             {
@@ -332,15 +354,25 @@ function normalizeExtraction(extraction: unknown) {
     : null;
   const notes = typeof value.notes === 'string' ? value.notes : null;
   const receiptDate = typeof value.receipt_date === 'string' ? value.receipt_date : null;
+  const parsedTotal = toMoney(value.total);
+  const parsedTax = toMoney(value.tax);
+  const taxFromLines = sumRawLineTotals(value.line_items, ['tax', 'fee']);
+  const tax = parsedTax ?? taxFromLines;
+  const parsedSubtotal = toMoney(value.subtotal);
+  const subtotal =
+    parsedSubtotal ??
+    (typeof parsedTotal === 'number' && typeof tax === 'number'
+      ? Math.round((parsedTotal - tax) * 100) / 100
+      : null);
 
   return {
     category,
     confidence: typeof value.confidence === 'number' ? value.confidence : 0,
     notes,
-    receipt_date: receiptDate ?? getFallbackDate(notes),
-    subtotal: toMoney(value.subtotal),
-    tax: toMoney(value.tax),
-    total: toMoney(value.total),
+    receipt_date: receiptDate,
+    subtotal,
+    tax,
+    total: parsedTotal,
     vendor: typeof value.vendor === 'string' ? value.vendor.trim() || null : null,
     line_items: normalizeLineItems(value.line_items),
   };
@@ -420,14 +452,6 @@ function lineItemsDoNotExceedReceiptTotal(extraction: ReturnType<typeof normaliz
   return itemTotal + tax <= extraction.total + receiptMathTolerance;
 }
 
-function getFallbackDate(notes: string | null): string | null {
-  if (!notes?.toLowerCase().includes('date not visible')) {
-    return null;
-  }
-
-  return new Date().toISOString().slice(0, 10);
-}
-
 function isCategory(value: string): value is typeof categories[number] {
   return categories.includes(value as typeof categories[number]);
 }
@@ -466,6 +490,30 @@ function normalizeLineItems(value: unknown) {
   return value
     .map((item, index) => normalizeLineItem(item, index + 1))
     .filter((item): item is NonNullable<ReturnType<typeof normalizeLineItem>> => item !== null);
+}
+
+function sumRawLineTotals(value: unknown, types: string[]): number | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const total = value.reduce((sum, item) => {
+    if (!item || typeof item !== 'object') {
+      return sum;
+    }
+
+    const rawLine = item as Record<string, unknown>;
+    const lineType = typeof rawLine.line_type === 'string' ? rawLine.line_type : null;
+    const lineTotal = toMoney(rawLine.line_total);
+
+    if (!lineType || !types.includes(lineType) || lineTotal === null) {
+      return sum;
+    }
+
+    return sum + Math.abs(lineTotal);
+  }, 0);
+
+  return total > 0 ? Math.round(total * 100) / 100 : null;
 }
 
 function normalizeLineItem(value: unknown, fallbackLineNumber: number) {
@@ -522,7 +570,10 @@ function isReceiptSummaryLine(value: string): boolean {
     normalized === 'tax' ||
     normalized === 'taxes' ||
     normalized === 'taxes and fees' ||
+    normalized === 'taxes fees and charges' ||
     normalized === 'fees' ||
+    normalized === 'ticket amount' ||
+    normalized === 'method of payment' ||
     normalized.startsWith('payment method') ||
     normalized.startsWith('payment methods') ||
     normalized.includes('menard card') ||

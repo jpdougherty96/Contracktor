@@ -4,12 +4,14 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -61,6 +63,7 @@ export function ReceiptReviewScreen({
   onSaved,
   receiptId,
 }: ReceiptReviewScreenProps) {
+  const { width: viewportWidth } = useWindowDimensions();
   const [receipt, setReceipt] = useState<Tables<'receipts'> | null>(null);
   const [vendor, setVendor] = useState('');
   const [receiptDate, setReceiptDate] = useState('');
@@ -73,6 +76,9 @@ export function ReceiptReviewScreen({
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isImageLoading, setIsImageLoading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [imageDimensions, setImageDimensions] = useState<{ height: number; width: number } | null>(null);
+  const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
+  const [imageZoom, setImageZoom] = useState(1);
   const [lineItems, setLineItems] = useState<Tables<'receipt_line_items'>[]>([]);
   const [lineAssignments, setLineAssignments] = useState<Record<string, LineAssignmentState>>({});
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -82,7 +88,8 @@ export function ReceiptReviewScreen({
   const [isReviewingSingleJobLines, setIsReviewingSingleJobLines] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const requiresRetake = receipt?.status === 'error' || receipt?.review_status === 'error';
+  const shouldUseInlineImageZoom = viewportWidth < 768;
+  const needsManualReceiptReview = receipt?.status === 'error' || receipt?.review_status === 'error';
   const hasLineItems = lineItems.length > 0;
   const lineItemsTotal = receipt ? getLineItemsTotal(lineItems, receipt.tax) : 0;
   const lineItemsExceedReceiptTotal =
@@ -99,10 +106,11 @@ export function ReceiptReviewScreen({
   const selectedReceiptJobs =
     contextJobs && contextJobs.length > 0 ? contextJobs : job && !inventoryMode ? [job] : [];
   const isSingleJobLineReceipt = selectedReceiptJobs.length === 1 && hasLineItems;
+  const hasUntrustedLineItems = lineItemsExceedReceiptTotal;
   const requiresLineItems =
     (selectedReceiptJobs.length > 1 ||
       (includeInventoryDestination && selectedReceiptJobs.length > 0)) &&
-    !hasLineItems;
+    (!hasLineItems || hasUntrustedLineItems);
   const areLineItemsFinalized =
     hasLineItems &&
     lineItems.every((lineItem) =>
@@ -117,14 +125,16 @@ export function ReceiptReviewScreen({
   const canEditReceiptDestinations = hasLineItems && Boolean(onEditReceiptJobs);
   const shouldShowLineEditor =
     hasLineItems &&
+    !hasUntrustedLineItems &&
     (inventoryMode ||
       includeInventoryDestination ||
-      lineItemsExceedReceiptTotal ||
       !isSingleJobLineReceipt ||
       isReviewingSingleJobLines ||
       isEditingLineAssignments);
   const canSaveLineAssignments =
-    hasLineItems && (!isSavedReceipt || isEditingLineAssignments || isSingleJobLineReceipt);
+    hasLineItems &&
+    !hasUntrustedLineItems &&
+    (!isSavedReceipt || isEditingLineAssignments || isSingleJobLineReceipt);
 
   useEffect(() => {
     let isMounted = true;
@@ -159,7 +169,7 @@ export function ReceiptReviewScreen({
             getInitialLineAssignments(nextLineItems, displayReceipt, job?.id ?? null, inventoryMode)
           );
           setVendor(displayReceipt.vendor ?? '');
-          setReceiptDate(displayReceipt.receipt_date ?? getTodayDate());
+          setReceiptDate(displayReceipt.receipt_date ?? '');
           setSubtotal(formatEditableMoney(displayReceipt.subtotal));
           setTax(formatEditableMoney(displayReceipt.tax));
           setTotal(formatEditableMoney(displayReceipt.total));
@@ -197,6 +207,19 @@ export function ReceiptReviewScreen({
               .then((signedUrl) => {
                 if (isMounted) {
                   setImageUrl(signedUrl);
+                  Image.getSize(
+                    signedUrl,
+                    (width, height) => {
+                      if (isMounted) {
+                        setImageDimensions({ height, width });
+                      }
+                    },
+                    () => {
+                      if (isMounted) {
+                        setImageDimensions(null);
+                      }
+                    }
+                  );
                 }
               })
               .catch((error) => {
@@ -213,6 +236,7 @@ export function ReceiptReviewScreen({
               });
           } else {
             setImageUrl(null);
+            setImageDimensions(null);
             setImageError(null);
             setIsImageLoading(false);
           }
@@ -238,19 +262,16 @@ export function ReceiptReviewScreen({
   const handleSave = async () => {
     setErrorMessage(null);
 
-    if (requiresRetake) {
-      setErrorMessage(receipt?.error_message ?? 'Please retake this receipt photo before saving.');
-      return;
-    }
-
     if (requiresLineItems) {
       setErrorMessage(
-        'This receipt was scanned for multiple jobs, but no line items were returned. It needs line items before it can be saved.'
+        hasUntrustedLineItems
+          ? 'This receipt needs a clean line-item scan before it can be split across multiple jobs.'
+          : 'This receipt was scanned for multiple jobs, but no line items were returned. It needs line items before it can be saved.'
       );
       return;
     }
 
-    if (hasLineItems) {
+    if (hasLineItems && !hasUntrustedLineItems) {
       if (assignedLineItemsExceedReceiptTotal && typeof receipt?.total === 'number') {
         setErrorMessage(
           `Assigned receipt lines add up to ${formatCurrency(assignedLineItemsTotal, {
@@ -337,6 +358,7 @@ export function ReceiptReviewScreen({
       await updateReceipt(receiptId, {
         category,
         jobCostAmount: parsedJobCostAmount,
+        ignoreLineItems: hasUntrustedLineItems,
         receiptDate,
         subtotal: parsedSubtotal,
         tax: parsedTax,
@@ -408,6 +430,19 @@ export function ReceiptReviewScreen({
     }
   };
 
+  const openImageViewer = () => {
+    setImageZoom(1);
+    setIsImageViewerOpen(true);
+  };
+
+  const zoomImageIn = () => {
+    setImageZoom((current) => Math.min(current + 0.25, 3));
+  };
+
+  const zoomImageOut = () => {
+    setImageZoom((current) => Math.max(current - 0.25, 0.75));
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
@@ -444,11 +479,53 @@ export function ReceiptReviewScreen({
                     </View>
                   ) : null}
                   {imageUrl ? (
-                    <Image
-                      resizeMode="contain"
-                      source={{ uri: imageUrl }}
-                      style={styles.receiptImage}
-                    />
+                    shouldUseInlineImageZoom ? (
+                      <View style={styles.inlineImageViewer}>
+                        <View style={styles.inlineImageControls}>
+                          <Pressable onPress={zoomImageOut} style={styles.inlineImageControlButton}>
+                            <Text style={styles.inlineImageControlButtonText}>-</Text>
+                          </Pressable>
+                          <Pressable onPress={() => setImageZoom(1)} style={styles.inlineImageResetButton}>
+                            <Text style={styles.inlineImageResetButtonText}>
+                              {Math.round(imageZoom * 100)}%
+                            </Text>
+                          </Pressable>
+                          <Pressable onPress={zoomImageIn} style={styles.inlineImageControlButton}>
+                            <Text style={styles.inlineImageControlButtonText}>+</Text>
+                          </Pressable>
+                        </View>
+                        <ScrollView
+                          contentContainerStyle={styles.inlineImageVerticalContent}
+                          maximumZoomScale={3}
+                          minimumZoomScale={0.75}
+                          style={styles.inlineImageViewport}>
+                          <ScrollView
+                            contentContainerStyle={styles.inlineImageHorizontalContent}
+                            horizontal
+                            maximumZoomScale={3}
+                            minimumZoomScale={0.75}>
+                            <Image
+                              resizeMode="contain"
+                              source={{ uri: imageUrl }}
+                              style={getInlineImageStyle(imageZoom, imageDimensions, viewportWidth)}
+                            />
+                          </ScrollView>
+                        </ScrollView>
+                        <Text style={styles.imageHint}>Pinch where supported, or use zoom controls.</Text>
+                      </View>
+                    ) : (
+                      <Pressable
+                        accessibilityLabel="Open receipt photo viewer"
+                        onPress={openImageViewer}
+                        style={styles.receiptImageButton}>
+                        <Image
+                          resizeMode="contain"
+                          source={{ uri: imageUrl }}
+                          style={styles.receiptImage}
+                        />
+                        <Text style={styles.imageHint}>Tap photo to zoom</Text>
+                      </Pressable>
+                    )
                   ) : null}
                   {!isImageLoading && imageError ? (
                     <Text style={styles.imageError}>{imageError}</Text>
@@ -462,12 +539,12 @@ export function ReceiptReviewScreen({
                   <Text style={styles.statusLabel}>Status</Text>
                   <Text style={styles.statusValue}>{formatStatus(receipt.status)}</Text>
                 </View>
-                {requiresRetake ? (
-                  <View style={styles.retakePanel}>
-                    <Text style={styles.retakeTitle}>Retake required</Text>
-                    <Text style={styles.retakeText}>
+                {needsManualReceiptReview ? (
+                  <View style={styles.manualReviewPanel}>
+                    <Text style={styles.manualReviewTitle}>Needs manual review</Text>
+                    <Text style={styles.manualReviewText}>
                       {receipt.error_message ??
-                        "We couldn't read the required receipt details from this photo."}
+                        "We couldn't read the required receipt details from this photo. Add the details you can read from the receipt."}
                     </Text>
                   </View>
                 ) : null}
@@ -562,7 +639,7 @@ export function ReceiptReviewScreen({
                   </View>
                 ) : null}
 
-                {hasLineItems && isSingleJobLineReceipt && !shouldShowLineEditor ? (
+                {hasLineItems && !hasUntrustedLineItems && isSingleJobLineReceipt && !shouldShowLineEditor ? (
                   <View style={styles.quickConfirmPanel}>
                     <View style={styles.quickConfirmText}>
                       <Text style={styles.quickConfirmTitle}>Materials total</Text>
@@ -615,6 +692,37 @@ export function ReceiptReviewScreen({
                   </View>
                 ) : requiresLineItems ? null : (
                   <>
+                    {hasUntrustedLineItems ? (
+                      <>
+                        <View style={styles.manualReviewPanel}>
+                          <Text style={styles.manualReviewTitle}>Use receipt total instead</Text>
+                          <Text style={styles.manualReviewText}>
+                            The parsed lines do not match the receipt total, so conTRACKtor will ignore
+                            those parsed lines and save the corrected receipt details below.
+                          </Text>
+                        </View>
+                        <View style={styles.lineItemsPanel}>
+                          <Text style={styles.sectionTitle}>Parsed lines, not saved</Text>
+                          <Text style={styles.helpText}>
+                            These lines are shown as reference only because they add up to more than
+                            the receipt total.
+                          </Text>
+                          {lineItems.map((lineItem) => (
+                            <LineItemCard
+                              assignment={lineAssignments[lineItem.id]}
+                              jobs={jobs}
+                              key={lineItem.id}
+                              lineItem={lineItem}
+                              readOnly
+                              showAssignments={false}
+                              onChange={(nextAssignment) =>
+                                updateLineAssignment(lineItem.id, nextAssignment)
+                              }
+                            />
+                          ))}
+                        </View>
+                      </>
+                    ) : null}
                     <Field
                       label="Vendor"
                       onChangeText={setVendor}
@@ -734,9 +842,8 @@ export function ReceiptReviewScreen({
                   isSaving ||
                   isLoading ||
                   !receipt ||
-                  requiresRetake ||
                   requiresLineItems ||
-                  (hasLineItems && !canSaveLineAssignments)
+                  (hasLineItems && !hasUntrustedLineItems && !canSaveLineAssignments)
                 }
                 onPress={handleSave}
                 style={[
@@ -744,15 +851,14 @@ export function ReceiptReviewScreen({
                   (isSaving ||
                     isLoading ||
                     !receipt ||
-                    requiresRetake ||
                     requiresLineItems ||
-                    (hasLineItems && !canSaveLineAssignments)) &&
+                    (hasLineItems && !hasUntrustedLineItems && !canSaveLineAssignments)) &&
                     styles.disabledButton,
                 ]}>
                 <Text style={styles.saveButtonText}>
                   {isSaving
                     ? 'Saving...'
-                    : hasLineItems
+                    : hasLineItems && !hasUntrustedLineItems
                       ? 'Save line assignments'
                       : 'Save receipt'}
                 </Text>
@@ -792,6 +898,43 @@ export function ReceiptReviewScreen({
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setIsImageViewerOpen(false)}
+        visible={!shouldUseInlineImageZoom && isImageViewerOpen}>
+        <SafeAreaView style={styles.viewerSafeArea}>
+          <View style={styles.viewerHeader}>
+            <Text style={styles.viewerTitle}>Receipt photo</Text>
+            <Pressable onPress={() => setIsImageViewerOpen(false)} style={styles.viewerCloseButton}>
+              <Text style={styles.viewerCloseButtonText}>Close</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.viewerControls}>
+            <Pressable onPress={zoomImageOut} style={styles.viewerControlButton}>
+              <Text style={styles.viewerControlButtonText}>-</Text>
+            </Pressable>
+            <Pressable onPress={() => setImageZoom(1)} style={styles.viewerResetButton}>
+              <Text style={styles.viewerResetButtonText}>{Math.round(imageZoom * 100)}%</Text>
+            </Pressable>
+            <Pressable onPress={zoomImageIn} style={styles.viewerControlButton}>
+              <Text style={styles.viewerControlButtonText}>+</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.viewerVerticalContent}>
+            <ScrollView contentContainerStyle={styles.viewerHorizontalContent} horizontal>
+              {imageUrl ? (
+                <Image
+                  resizeMode="contain"
+                  source={{ uri: imageUrl }}
+                  style={getViewerImageStyle(imageZoom, imageDimensions)}
+                />
+              ) : null}
+            </ScrollView>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -824,18 +967,55 @@ function Field({
   );
 }
 
+function getViewerImageStyle(
+  zoom: number,
+  dimensions: { height: number; width: number } | null
+) {
+  const baseWidth = Platform.OS === 'web' ? 900 : 420;
+  const aspectRatio =
+    dimensions && dimensions.width > 0 ? dimensions.height / dimensions.width : 1.4;
+  const width = baseWidth * zoom;
+
+  return {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    height: width * aspectRatio,
+    width,
+  };
+}
+
+function getInlineImageStyle(
+  zoom: number,
+  dimensions: { height: number; width: number } | null,
+  viewportWidth: number
+) {
+  const baseWidth = Math.max(260, Math.min(viewportWidth - 56, 430));
+  const aspectRatio =
+    dimensions && dimensions.width > 0 ? dimensions.height / dimensions.width : 1.4;
+  const width = baseWidth * zoom;
+
+  return {
+    backgroundColor: '#F6F5F2',
+    borderRadius: 8,
+    height: width * aspectRatio,
+    width,
+  };
+}
+
 function LineItemCard({
   assignment,
   jobs,
   lineItem,
   onChange,
   readOnly = false,
+  showAssignments = true,
 }: {
   assignment: LineAssignmentState | undefined;
   jobs: Job[];
   lineItem: Tables<'receipt_line_items'>;
   onChange: (assignment: LineAssignmentState) => void;
   readOnly?: boolean;
+  showAssignments?: boolean;
 }) {
   const currentAssignment = assignment ?? {
     assignedJobId: lineItem.assigned_job_id,
@@ -864,67 +1044,69 @@ function LineItemCard({
           : ''}
       </Text>
 
-      <View style={styles.assignmentGrid}>
-        {canAssignToJob ? (
+      {showAssignments ? (
+        <View style={styles.assignmentGrid}>
+          {canAssignToJob ? (
+            <Pressable
+              disabled={readOnly}
+              onPress={() =>
+                onChange({
+                  assignedJobId: currentAssignment.assignedJobId ?? jobs[0]?.id ?? null,
+                  assignmentType: 'job',
+                })
+              }
+              style={[
+                styles.assignmentButton,
+                currentAssignment.assignmentType === 'job' && styles.selectedAssignmentButton,
+                readOnly && styles.readOnlyButton,
+              ]}>
+              <Text
+                style={[
+                  styles.assignmentButtonText,
+                  currentAssignment.assignmentType === 'job' && styles.selectedAssignmentButtonText,
+                ]}>
+                Job
+              </Text>
+            </Pressable>
+          ) : null}
           <Pressable
             disabled={readOnly}
-            onPress={() =>
-              onChange({
-                assignedJobId: currentAssignment.assignedJobId ?? jobs[0]?.id ?? null,
-                assignmentType: 'job',
-              })
-            }
+            onPress={() => onChange({ assignedJobId: null, assignmentType: 'tools_inventory' })}
             style={[
               styles.assignmentButton,
-              currentAssignment.assignmentType === 'job' && styles.selectedAssignmentButton,
+              currentAssignment.assignmentType === 'tools_inventory' &&
+                styles.selectedAssignmentButton,
               readOnly && styles.readOnlyButton,
             ]}>
             <Text
               style={[
                 styles.assignmentButtonText,
-                currentAssignment.assignmentType === 'job' && styles.selectedAssignmentButtonText,
+                currentAssignment.assignmentType === 'tools_inventory' &&
+                  styles.selectedAssignmentButtonText,
               ]}>
-              Job
+              Tools / Inventory
             </Text>
           </Pressable>
-        ) : null}
-        <Pressable
-          disabled={readOnly}
-          onPress={() => onChange({ assignedJobId: null, assignmentType: 'tools_inventory' })}
-          style={[
-            styles.assignmentButton,
-            currentAssignment.assignmentType === 'tools_inventory' &&
-              styles.selectedAssignmentButton,
-            readOnly && styles.readOnlyButton,
-          ]}>
-          <Text
+          <Pressable
+            disabled={readOnly}
+            onPress={() => onChange({ assignedJobId: null, assignmentType: 'ignore' })}
             style={[
-              styles.assignmentButtonText,
-              currentAssignment.assignmentType === 'tools_inventory' &&
-                styles.selectedAssignmentButtonText,
+              styles.assignmentButton,
+              currentAssignment.assignmentType === 'ignore' && styles.selectedAssignmentButton,
+              readOnly && styles.readOnlyButton,
             ]}>
-            Tools / Inventory
-          </Text>
-        </Pressable>
-        <Pressable
-          disabled={readOnly}
-          onPress={() => onChange({ assignedJobId: null, assignmentType: 'ignore' })}
-          style={[
-            styles.assignmentButton,
-            currentAssignment.assignmentType === 'ignore' && styles.selectedAssignmentButton,
-            readOnly && styles.readOnlyButton,
-          ]}>
-          <Text
-            style={[
-              styles.assignmentButtonText,
-              currentAssignment.assignmentType === 'ignore' && styles.selectedAssignmentButtonText,
-            ]}>
-            Ignore
-          </Text>
-        </Pressable>
-      </View>
+            <Text
+              style={[
+                styles.assignmentButtonText,
+                currentAssignment.assignmentType === 'ignore' && styles.selectedAssignmentButtonText,
+              ]}>
+              Ignore
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
 
-      {currentAssignment.assignmentType === 'job' ? (
+      {showAssignments && currentAssignment.assignmentType === 'job' ? (
         <View style={styles.jobChoiceGrid}>
           {jobs.map((jobOption) => (
             <Pressable
@@ -977,10 +1159,6 @@ function parseOptionalMoney(value: string): number | null | undefined {
   const parsed = Number(trimmedValue);
 
   return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function getTodayDate(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function isIsoDate(value: string): boolean {
@@ -1189,6 +1367,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
+  receiptImageButton: {
+    gap: 8,
+  },
   receiptImage: {
     alignSelf: 'stretch',
     backgroundColor: '#F6F5F2',
@@ -1196,6 +1377,67 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     height: Platform.select({ default: 360, web: 520 }),
+  },
+  inlineImageViewer: {
+    gap: 8,
+  },
+  inlineImageControls: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  inlineImageControlButton: {
+    alignItems: 'center',
+    backgroundColor: '#335C43',
+    borderRadius: 8,
+    justifyContent: 'center',
+    minHeight: 40,
+    minWidth: 50,
+  },
+  inlineImageControlButtonText: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '900',
+    lineHeight: 26,
+  },
+  inlineImageResetButton: {
+    alignItems: 'center',
+    borderColor: '#BCD7C4',
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 40,
+    minWidth: 78,
+  },
+  inlineImageResetButtonText: {
+    color: '#335C43',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  inlineImageViewport: {
+    alignSelf: 'stretch',
+    backgroundColor: '#F6F5F2',
+    borderColor: '#E2E0DA',
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 380,
+  },
+  inlineImageVerticalContent: {
+    alignItems: 'center',
+    flexGrow: 1,
+    justifyContent: 'center',
+    padding: 8,
+  },
+  inlineImageHorizontalContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imageHint: {
+    color: '#335C43',
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   imageMessage: {
     color: '#64748B',
@@ -1206,6 +1448,83 @@ const styles = StyleSheet.create({
     color: '#B91C1C',
     fontSize: 14,
     lineHeight: 20,
+  },
+  viewerSafeArea: {
+    backgroundColor: '#111827',
+    flex: 1,
+  },
+  viewerHeader: {
+    alignItems: 'center',
+    borderBottomColor: 'rgba(255,255,255,0.16)',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 58,
+    paddingHorizontal: 16,
+  },
+  viewerTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  viewerCloseButton: {
+    alignItems: 'center',
+    borderColor: 'rgba(255,255,255,0.28)',
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 40,
+    paddingHorizontal: 14,
+  },
+  viewerCloseButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  viewerControls: {
+    alignItems: 'center',
+    borderBottomColor: 'rgba(255,255,255,0.12)',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'center',
+    padding: 12,
+  },
+  viewerControlButton: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    justifyContent: 'center',
+    minHeight: 42,
+    minWidth: 52,
+  },
+  viewerControlButtonText: {
+    color: '#111827',
+    fontSize: 24,
+    fontWeight: '900',
+    lineHeight: 28,
+  },
+  viewerResetButton: {
+    alignItems: 'center',
+    borderColor: 'rgba(255,255,255,0.28)',
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 42,
+    minWidth: 82,
+  },
+  viewerResetButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  viewerVerticalContent: {
+    alignItems: 'center',
+    flexGrow: 1,
+    padding: 16,
+  },
+  viewerHorizontalContent: {
+    justifyContent: 'center',
   },
   statusLabel: {
     color: '#64748B',
@@ -1409,6 +1728,24 @@ const styles = StyleSheet.create({
   },
   retakeText: {
     color: '#7F1D1D',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  manualReviewPanel: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FDBA74',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 6,
+    padding: 12,
+  },
+  manualReviewTitle: {
+    color: '#9A3412',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  manualReviewText: {
+    color: '#7C2D12',
     fontSize: 14,
     lineHeight: 20,
   },

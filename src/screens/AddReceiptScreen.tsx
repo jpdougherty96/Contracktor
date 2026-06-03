@@ -1,3 +1,4 @@
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -54,10 +55,12 @@ export function AddReceiptScreen({
   const processReceiptAsset = async (asset: ImagePicker.ImagePickerAsset) => {
     try {
       setStep('uploading');
-      setMessage('Uploading receipt...');
+      setMessage('Preparing receipt...');
 
       const contextJobId = inventoryMode ? null : job?.id;
-      const upload = await uploadReceiptPhoto(contextJobId ?? null, asset);
+      const preparedAsset = await prepareReceiptAssetForUpload(asset);
+      setMessage('Uploading receipt...');
+      const upload = await uploadReceiptPhoto(contextJobId ?? null, preparedAsset);
       const receipt = await createProcessingReceipt(
         contextJobId ?? null,
         upload.storagePath,
@@ -357,25 +360,133 @@ function pickWebReceiptImage({ capture }: { capture: boolean }): Promise<ImagePi
   });
 }
 
+async function prepareReceiptAssetForUpload(
+  asset: ImagePicker.ImagePickerAsset
+): Promise<ImagePicker.ImagePickerAsset> {
+  if (Platform.OS === 'web') {
+    return asset;
+  }
+
+  if (!asset.uri) {
+    return asset;
+  }
+
+  const maxDimension = 2400;
+  const largestDimension = Math.max(asset.width ?? 0, asset.height ?? 0);
+  const actions =
+    largestDimension > maxDimension
+      ? [{ resize: getResizeDimensions(asset, maxDimension) }]
+      : [];
+  const manipulated = await ImageManipulator.manipulateAsync(asset.uri, actions, {
+    base64: true,
+    compress: 0.92,
+    format: ImageManipulator.SaveFormat.JPEG,
+  });
+
+  return {
+    ...asset,
+    base64: manipulated.base64 ?? asset.base64,
+    fileName: `${(asset.fileName ?? `receipt-${Date.now()}`).replace(/\.[^.]+$/, '')}.jpg`,
+    height: manipulated.height,
+    mimeType: 'image/jpeg',
+    uri: manipulated.uri,
+    width: manipulated.width,
+  };
+}
+
+function getResizeDimensions(
+  asset: ImagePicker.ImagePickerAsset,
+  maxDimension: number
+): { height?: number; width?: number } {
+  const width = asset.width ?? 0;
+  const height = asset.height ?? 0;
+
+  if (width >= height) {
+    return { width: maxDimension };
+  }
+
+  return { height: maxDimension };
+}
+
 async function fileToImagePickerAsset(file: File): Promise<ImagePicker.ImagePickerAsset> {
   const dataUrl = await readFileAsDataUrl(file);
-  const base64 = dataUrl.split(',')[1];
+  const preparedImage = await prepareWebReceiptImage(dataUrl);
+  const base64 = preparedImage.dataUrl.split(',')[1];
 
   if (!base64) {
     throw new Error('Unable to prepare receipt image.');
   }
 
-  const dimensions = await readImageDimensions(dataUrl);
+  const originalBaseName = (file.name || `receipt-${Date.now()}`).replace(/\.[^.]+$/, '');
+  const extension = preparedImage.mimeType.includes('png')
+    ? 'png'
+    : preparedImage.mimeType.includes('webp')
+      ? 'webp'
+      : preparedImage.mimeType.includes('heic') || preparedImage.mimeType.includes('heif')
+        ? 'heic'
+        : 'jpg';
 
   return {
     base64,
-    fileName: file.name || `receipt-${Date.now()}.jpg`,
-    fileSize: file.size,
-    height: dimensions.height,
-    mimeType: file.type || 'image/jpeg',
-    uri: dataUrl,
-    width: dimensions.width,
+    fileName: `${originalBaseName}.${extension}`,
+    fileSize: preparedImage.size ?? file.size,
+    height: preparedImage.height,
+    mimeType: preparedImage.mimeType,
+    uri: preparedImage.dataUrl,
+    width: preparedImage.width,
   } as ImagePicker.ImagePickerAsset;
+}
+
+async function prepareWebReceiptImage(dataUrl: string): Promise<{
+  dataUrl: string;
+  height: number;
+  mimeType: string;
+  size: number | null;
+  width: number;
+}> {
+  const dimensions = await readImageDimensions(dataUrl);
+  const originalMimeType = getDataUrlMimeType(dataUrl) ?? 'image/jpeg';
+  const originalImage = {
+    dataUrl,
+    height: dimensions.height,
+    mimeType: originalMimeType,
+    size: null,
+    width: dimensions.width,
+  };
+
+  if (
+    typeof document === 'undefined' ||
+    !dimensions.height ||
+    !dimensions.width
+  ) {
+    return originalImage;
+  }
+
+  const maxDimension = 2400;
+  const scale = Math.min(1, maxDimension / Math.max(dimensions.height, dimensions.width));
+  const width = Math.round(dimensions.width * scale);
+  const height = Math.round(dimensions.height * scale);
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    return originalImage;
+  }
+
+  const image = await loadImage(dataUrl);
+  canvas.width = width;
+  canvas.height = height;
+  context.drawImage(image, 0, 0, width, height);
+
+  const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.92);
+
+  return {
+    dataUrl: jpegDataUrl,
+    height,
+    mimeType: 'image/jpeg',
+    size: estimateDataUrlBytes(jpegDataUrl),
+    width,
+  };
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -400,6 +511,31 @@ function readImageDimensions(uri: string): Promise<{ height: number; width: numb
     image.onerror = () => resolve({ height: 0, width: 0 });
     image.src = uri;
   });
+}
+
+function loadImage(uri: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Unable to prepare receipt image.'));
+    image.src = uri;
+  });
+}
+
+function estimateDataUrlBytes(dataUrl: string): number | null {
+  const base64 = dataUrl.split(',')[1];
+
+  if (!base64) {
+    return null;
+  }
+
+  return Math.round((base64.length * 3) / 4);
+}
+
+function getDataUrlMimeType(dataUrl: string): string | null {
+  const match = dataUrl.match(/^data:([^;]+);base64,/);
+
+  return match?.[1] ?? null;
 }
 
 const styles = StyleSheet.create({

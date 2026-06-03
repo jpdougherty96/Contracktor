@@ -47,6 +47,7 @@ const receiptTotalTolerance = 0.05;
 
 export type UpdateReceiptInput = {
   category: ReceiptCategory;
+  ignoreLineItems?: boolean;
   jobCostAmount: number;
   receiptDate: string;
   subtotal?: number | null;
@@ -568,6 +569,10 @@ export async function updateReceipt(
     throw new Error(error.message);
   }
 
+  if (input.ignoreLineItems) {
+    await ignoreReceiptLineItems(receiptId, userData.user.id);
+  }
+
   await upsertReceiptExpense({
     category: input.category,
     jobCostAmount: input.jobCostAmount,
@@ -581,6 +586,40 @@ export async function updateReceipt(
   });
 
   return data;
+}
+
+async function ignoreReceiptLineItems(receiptId: string, ownerId: string): Promise<void> {
+  const { data: lineItems, error: lineItemsError } = await supabase
+    .from('receipt_line_items')
+    .select('id')
+    .eq('receipt_id', receiptId)
+    .eq('owner_id', ownerId);
+
+  if (lineItemsError) {
+    throw new Error(lineItemsError.message);
+  }
+
+  const lineItemIds = (lineItems ?? []).map((lineItem) => lineItem.id);
+  await deleteReceiptExpenses(receiptId, ownerId, lineItemIds);
+
+  if (lineItemIds.length === 0) {
+    return;
+  }
+
+  const { error } = await supabase
+    .from('receipt_line_items')
+    .update({
+      assigned_job_id: null,
+      assignment_type: 'ignore',
+      review_status: 'ignored',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('receipt_id', receiptId)
+    .eq('owner_id', ownerId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
 }
 
 export async function acceptExtractedReceipt(receipt: Tables<'receipts'>): Promise<Tables<'receipts'>> {
