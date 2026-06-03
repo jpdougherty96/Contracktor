@@ -4,6 +4,7 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -73,6 +74,9 @@ export function ReceiptReviewScreen({
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isImageLoading, setIsImageLoading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [imageDimensions, setImageDimensions] = useState<{ height: number; width: number } | null>(null);
+  const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
+  const [imageZoom, setImageZoom] = useState(1);
   const [lineItems, setLineItems] = useState<Tables<'receipt_line_items'>[]>([]);
   const [lineAssignments, setLineAssignments] = useState<Record<string, LineAssignmentState>>({});
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -197,6 +201,19 @@ export function ReceiptReviewScreen({
               .then((signedUrl) => {
                 if (isMounted) {
                   setImageUrl(signedUrl);
+                  Image.getSize(
+                    signedUrl,
+                    (width, height) => {
+                      if (isMounted) {
+                        setImageDimensions({ height, width });
+                      }
+                    },
+                    () => {
+                      if (isMounted) {
+                        setImageDimensions(null);
+                      }
+                    }
+                  );
                 }
               })
               .catch((error) => {
@@ -213,6 +230,7 @@ export function ReceiptReviewScreen({
               });
           } else {
             setImageUrl(null);
+            setImageDimensions(null);
             setImageError(null);
             setIsImageLoading(false);
           }
@@ -408,6 +426,19 @@ export function ReceiptReviewScreen({
     }
   };
 
+  const openImageViewer = () => {
+    setImageZoom(1);
+    setIsImageViewerOpen(true);
+  };
+
+  const zoomImageIn = () => {
+    setImageZoom((current) => Math.min(current + 0.25, 3));
+  };
+
+  const zoomImageOut = () => {
+    setImageZoom((current) => Math.max(current - 0.25, 0.75));
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
@@ -444,11 +475,17 @@ export function ReceiptReviewScreen({
                     </View>
                   ) : null}
                   {imageUrl ? (
-                    <Image
-                      resizeMode="contain"
-                      source={{ uri: imageUrl }}
-                      style={styles.receiptImage}
-                    />
+                    <Pressable
+                      accessibilityLabel="Open receipt photo viewer"
+                      onPress={openImageViewer}
+                      style={styles.receiptImageButton}>
+                      <Image
+                        resizeMode="contain"
+                        source={{ uri: imageUrl }}
+                        style={styles.receiptImage}
+                      />
+                      <Text style={styles.imageHint}>Tap photo to zoom</Text>
+                    </Pressable>
                   ) : null}
                   {!isImageLoading && imageError ? (
                     <Text style={styles.imageError}>{imageError}</Text>
@@ -792,6 +829,43 @@ export function ReceiptReviewScreen({
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setIsImageViewerOpen(false)}
+        visible={isImageViewerOpen}>
+        <SafeAreaView style={styles.viewerSafeArea}>
+          <View style={styles.viewerHeader}>
+            <Text style={styles.viewerTitle}>Receipt photo</Text>
+            <Pressable onPress={() => setIsImageViewerOpen(false)} style={styles.viewerCloseButton}>
+              <Text style={styles.viewerCloseButtonText}>Close</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.viewerControls}>
+            <Pressable onPress={zoomImageOut} style={styles.viewerControlButton}>
+              <Text style={styles.viewerControlButtonText}>-</Text>
+            </Pressable>
+            <Pressable onPress={() => setImageZoom(1)} style={styles.viewerResetButton}>
+              <Text style={styles.viewerResetButtonText}>{Math.round(imageZoom * 100)}%</Text>
+            </Pressable>
+            <Pressable onPress={zoomImageIn} style={styles.viewerControlButton}>
+              <Text style={styles.viewerControlButtonText}>+</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.viewerVerticalContent}>
+            <ScrollView contentContainerStyle={styles.viewerHorizontalContent} horizontal>
+              {imageUrl ? (
+                <Image
+                  resizeMode="contain"
+                  source={{ uri: imageUrl }}
+                  style={getViewerImageStyle(imageZoom, imageDimensions)}
+                />
+              ) : null}
+            </ScrollView>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -822,6 +896,23 @@ function Field({
       />
     </View>
   );
+}
+
+function getViewerImageStyle(
+  zoom: number,
+  dimensions: { height: number; width: number } | null
+) {
+  const baseWidth = Platform.OS === 'web' ? 900 : 420;
+  const aspectRatio =
+    dimensions && dimensions.width > 0 ? dimensions.height / dimensions.width : 1.4;
+  const width = baseWidth * zoom;
+
+  return {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    height: width * aspectRatio,
+    width,
+  };
 }
 
 function LineItemCard({
@@ -1189,6 +1280,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
+  receiptImageButton: {
+    gap: 8,
+  },
   receiptImage: {
     alignSelf: 'stretch',
     backgroundColor: '#F6F5F2',
@@ -1196,6 +1290,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     height: Platform.select({ default: 360, web: 520 }),
+  },
+  imageHint: {
+    color: '#335C43',
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   imageMessage: {
     color: '#64748B',
@@ -1206,6 +1306,83 @@ const styles = StyleSheet.create({
     color: '#B91C1C',
     fontSize: 14,
     lineHeight: 20,
+  },
+  viewerSafeArea: {
+    backgroundColor: '#111827',
+    flex: 1,
+  },
+  viewerHeader: {
+    alignItems: 'center',
+    borderBottomColor: 'rgba(255,255,255,0.16)',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 58,
+    paddingHorizontal: 16,
+  },
+  viewerTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  viewerCloseButton: {
+    alignItems: 'center',
+    borderColor: 'rgba(255,255,255,0.28)',
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 40,
+    paddingHorizontal: 14,
+  },
+  viewerCloseButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  viewerControls: {
+    alignItems: 'center',
+    borderBottomColor: 'rgba(255,255,255,0.12)',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'center',
+    padding: 12,
+  },
+  viewerControlButton: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    justifyContent: 'center',
+    minHeight: 42,
+    minWidth: 52,
+  },
+  viewerControlButtonText: {
+    color: '#111827',
+    fontSize: 24,
+    fontWeight: '900',
+    lineHeight: 28,
+  },
+  viewerResetButton: {
+    alignItems: 'center',
+    borderColor: 'rgba(255,255,255,0.28)',
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 42,
+    minWidth: 82,
+  },
+  viewerResetButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  viewerVerticalContent: {
+    alignItems: 'center',
+    flexGrow: 1,
+    padding: 16,
+  },
+  viewerHorizontalContent: {
+    justifyContent: 'center',
   },
   statusLabel: {
     color: '#64748B',
