@@ -19,6 +19,8 @@ export type GlobalActivityItem = {
   noteId?: string;
   paymentId?: string;
   receiptId?: string;
+  receiptIncludesInventoryDestination?: boolean;
+  receiptJobs?: Job[];
   reviewReason?: string;
   tone?: 'danger' | 'normal' | 'warning';
   type: GlobalActivityType;
@@ -189,8 +191,15 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
     {
       date: string | null;
       capturedAt: string | null;
-      job: Job | null;
-      jobId: string | null;
+      destinations: Map<
+        string,
+        {
+          job: Job | null;
+          jobId: string | null;
+          label: string;
+          total: number;
+        }
+      >;
       receiptId: string;
       total: number;
       vendor: string;
@@ -203,15 +212,38 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
 
     if (expense.receipt_id) {
       const existing = receiptExpenseGroups.get(expense.receipt_id);
+      const destinationKey = expense.job_id ? `job:${expense.job_id}` : 'tools_inventory';
+      const destinationLabel = job ? job.name : 'Tools / Inventory';
 
       if (existing) {
         existing.total += expense.total_amount ?? 0;
+        const existingDestination = existing.destinations.get(destinationKey);
+
+        if (existingDestination) {
+          existingDestination.total += expense.total_amount ?? 0;
+        } else {
+          existing.destinations.set(destinationKey, {
+            job,
+            jobId: expense.job_id,
+            label: destinationLabel,
+            total: expense.total_amount ?? 0,
+          });
+        }
       } else {
         receiptExpenseGroups.set(expense.receipt_id, {
           date: receipt?.receipt_date ?? expense.expense_date ?? expense.created_at,
           capturedAt: expense.created_at,
-          job,
-          jobId: expense.job_id,
+          destinations: new Map([
+            [
+              destinationKey,
+              {
+                job,
+                jobId: expense.job_id,
+                label: destinationLabel,
+                total: expense.total_amount ?? 0,
+              },
+            ],
+          ]),
           receiptId: expense.receipt_id,
           total: expense.total_amount ?? 0,
           vendor: receipt?.vendor ?? expense.description ?? 'Receipt',
@@ -238,18 +270,25 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
   }
 
   for (const receiptGroup of receiptExpenseGroups.values()) {
+    const destinations = Array.from(receiptGroup.destinations.values());
+    const jobDestinations = destinations
+      .map((destination) => destination.job)
+      .filter((job): job is Job => Boolean(job));
+    const includesInventoryDestination = destinations.some((destination) => !destination.jobId);
+    const isMultiDestination = destinations.length > 1;
+
     items.push({
       date: receiptGroup.date,
       capturedAt: receiptGroup.capturedAt,
-      detail: `${receiptGroup.vendor} - ${formatCurrency(receiptGroup.total, {
-        showCents: true,
-      })}`,
+      detail: formatReceiptActivityDetail(receiptGroup.vendor, receiptGroup.total, destinations),
       id: `receipt-expense-${receiptGroup.receiptId}`,
-      job: receiptGroup.job,
-      jobId: receiptGroup.jobId,
-      jobName: getJobName(receiptGroup.job),
+      job: isMultiDestination ? null : destinations[0]?.job ?? null,
+      jobId: isMultiDestination ? null : destinations[0]?.jobId ?? null,
+      jobName: isMultiDestination ? 'Multiple destinations' : destinations[0]?.label ?? 'Tools / Inventory',
       label: 'Receipt saved',
       receiptId: receiptGroup.receiptId,
+      receiptIncludesInventoryDestination: includesInventoryDestination,
+      receiptJobs: jobDestinations,
       tone: 'normal',
       type: 'receipt',
     });
@@ -359,6 +398,26 @@ function getJob(jobsById: Map<string, Job>, jobId: string | null): Job | null {
 
 function getJobName(job: Job | null): string {
   return job?.name ?? 'Tools / Inventory';
+}
+
+function formatReceiptActivityDetail(
+  vendor: string,
+  total: number,
+  destinations: { label: string; total: number }[]
+): string {
+  const summary = `${vendor} - ${formatCurrency(total, { showCents: true })}`;
+
+  if (destinations.length <= 1) {
+    return summary;
+  }
+
+  return [
+    summary,
+    ...destinations.map(
+      (destination) =>
+        `${destination.label}: ${formatCurrency(destination.total, { showCents: true })}`
+    ),
+  ].join('\n');
 }
 
 function hasUsableMaterialBudget(job: Job): boolean {

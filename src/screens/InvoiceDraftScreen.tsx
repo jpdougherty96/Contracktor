@@ -19,12 +19,14 @@ import {
   type JobMaterialCostEntry,
 } from '@/src/lib/jobFinancials';
 import { createAndSharePdf, sanitizePdfFileName } from '@/src/lib/pdfExport';
+import { fetchAccountProfile, type AccountProfile } from '@/src/lib/profiles';
 import { buttonStyles, colors, radii } from '@/src/styles/theme';
 import type { Job } from '@/src/types/job';
 
 type InvoiceDraftScreenProps = {
   job: Job;
   onBack: () => void;
+  onEditBusinessProfile: () => void;
 };
 
 type InvoiceLine = {
@@ -34,15 +36,24 @@ type InvoiceLine = {
 };
 
 const defaultNote = 'Thank you for your business.';
+const materialMarkupPresets = [0, 10, 15, 20];
 
-export function InvoiceDraftScreen({ job, onBack }: InvoiceDraftScreenProps) {
+export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: InvoiceDraftScreenProps) {
   const [snapshot, setSnapshot] = useState<JobFinancialSnapshotRow | null>(null);
   const [laborEntries, setLaborEntries] = useState<JobLaborCostEntry[]>([]);
   const [materialEntries, setMaterialEntries] = useState<JobMaterialCostEntry[]>([]);
+  const [profile, setProfile] = useState<AccountProfile | null>(null);
+  const [materialMarkupPercent, setMaterialMarkupPercent] = useState('0');
   const [note, setNote] = useState(defaultNote);
   const [message, setMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const parsedMaterialMarkupPercent = parseMarkupPercent(materialMarkupPercent);
+  const materialMarkupError =
+    parsedMaterialMarkupPercent === undefined ? 'Enter a valid materials markup percent.' : null;
+  const isTimeAndMaterialsJob = job.jobType === 'time_and_materials';
+  const missingInvoiceFields = getMissingInvoiceProfileFields(profile);
+  const canExportInvoice = missingInvoiceFields.length === 0 && !materialMarkupError;
 
   useEffect(() => {
     let isMounted = true;
@@ -52,16 +63,19 @@ export function InvoiceDraftScreen({ job, onBack }: InvoiceDraftScreenProps) {
       setErrorMessage(null);
 
       try {
-        const [nextSnapshot, nextLaborEntries, nextMaterialEntries] = await Promise.all([
+        const [nextSnapshot, nextLaborEntries, nextMaterialEntries, nextProfile] = await Promise.all([
           fetchJobFinancialSnapshot(job.id),
           fetchJobLaborCostEntries(job.id),
           fetchJobMaterialCostEntries(job.id),
+          fetchAccountProfile(),
         ]);
 
         if (isMounted) {
           setSnapshot(nextSnapshot);
           setLaborEntries(nextLaborEntries);
           setMaterialEntries(nextMaterialEntries);
+          setProfile(nextProfile);
+          setNote(nextProfile.defaultInvoiceNote ?? defaultNote);
         }
       } catch (error) {
         if (isMounted) {
@@ -82,40 +96,64 @@ export function InvoiceDraftScreen({ job, onBack }: InvoiceDraftScreenProps) {
   }, [job.id]);
 
   const invoice = useMemo(
-    () => buildInvoiceDraft(job, snapshot, laborEntries, materialEntries, note),
-    [job, laborEntries, materialEntries, note, snapshot]
+    () =>
+      buildInvoiceDraft(
+        job,
+        snapshot,
+        laborEntries,
+        materialEntries,
+        parsedMaterialMarkupPercent ?? 0,
+        note,
+        profile
+      ),
+    [job, laborEntries, materialEntries, note, parsedMaterialMarkupPercent, profile, snapshot]
   );
 
-  const handleCopy = async () => {
+  const handleSavePdf = async () => {
     setMessage(null);
 
-    if (Platform.OS !== 'web') {
-      setMessage('Copy is available on web for this draft.');
+    if (materialMarkupError) {
+      setMessage(materialMarkupError);
       return;
     }
 
-    const clipboard = globalThis.navigator?.clipboard;
+    if (missingInvoiceFields.length > 0) {
+      setMessage('Complete your business profile before saving this invoice.');
+      return;
+    }
 
     try {
-      if (clipboard) {
-        await clipboard.writeText(invoice.text);
-      } else {
-        copyTextWithTextarea(invoice.text);
+      const fileBaseName = `${job.name} Invoice`;
+      const html = buildPrintableInvoiceHtml(invoice.html, fileBaseName);
+
+      if (Platform.OS === 'web') {
+        setMessage('Use Print and choose Save as PDF in your browser.');
+        return;
       }
 
-      setMessage('Invoice text copied.');
+      const result = await createAndSharePdf({
+        dialogTitle: 'Save invoice PDF',
+        fileBaseName,
+        html,
+      });
+      setMessage(result.didOpen ? 'Invoice PDF opened.' : 'Invoice PDF saved.');
     } catch {
-      try {
-        copyTextWithTextarea(invoice.text);
-        setMessage('Invoice text copied.');
-      } catch {
-        setMessage('Unable to copy invoice text in this browser.');
-      }
+      setMessage('Unable to save invoice PDF.');
     }
   };
 
   const handlePrint = async () => {
     setMessage(null);
+
+    if (materialMarkupError) {
+      setMessage(materialMarkupError);
+      return;
+    }
+
+    if (missingInvoiceFields.length > 0) {
+      setMessage('Complete your business profile before printing this invoice.');
+      return;
+    }
 
     try {
       const fileBaseName = `${job.name} Invoice`;
@@ -145,25 +183,108 @@ export function InvoiceDraftScreen({ job, onBack }: InvoiceDraftScreenProps) {
             <Text style={styles.backButtonText}>Back to job</Text>
           </Pressable>
           <View style={styles.exportActions}>
-            <Pressable style={styles.secondaryButton} onPress={handleCopy}>
-              <Text style={styles.secondaryButtonText}>Copy text</Text>
+            <Pressable
+              disabled={!canExportInvoice}
+              style={[styles.secondaryButton, !canExportInvoice && styles.disabledButton]}
+              onPress={handleSavePdf}>
+              <Text style={styles.secondaryButtonText}>Save PDF</Text>
             </Pressable>
-            <Pressable style={styles.primaryButton} onPress={handlePrint}>
-              <Text style={styles.primaryButtonText}>Print / PDF</Text>
+            <Pressable
+              disabled={!canExportInvoice}
+              style={[styles.primaryButton, !canExportInvoice && styles.disabledButton]}
+              onPress={handlePrint}>
+              <Text style={styles.primaryButtonText}>Print</Text>
             </Pressable>
           </View>
         </View>
 
         <View style={styles.header}>
-          <Text style={styles.title}>Invoice</Text>
-          <Text style={styles.subtitle}>Generated from current job data.</Text>
+          <Text style={styles.title}>Invoice preview</Text>
+          <Text style={styles.subtitle}>Review the invoice before saving or printing.</Text>
         </View>
 
         {isLoading ? <Text style={styles.messageText}>Building invoice...</Text> : null}
         {!isLoading && errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
         {message ? <Text style={styles.messageText}>{message}</Text> : null}
+        {!isLoading && missingInvoiceFields.length > 0 ? (
+          <View style={styles.profileWarningPanel}>
+            <Text style={styles.profileWarningTitle}>Business profile required</Text>
+            <Text style={styles.profileWarningText}>
+              Complete your business profile before saving or printing this invoice.
+            </Text>
+            <Text style={styles.profileWarningText}>
+              Missing: {missingInvoiceFields.join(', ')}
+            </Text>
+            <Pressable style={styles.warningButton} onPress={onEditBusinessProfile}>
+              <Text style={styles.warningButtonText}>Complete business profile</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
-        <View style={styles.invoice}>
+        <View style={styles.settingsPanel}>
+          <Text style={styles.settingsTitle}>Invoice options</Text>
+          {isTimeAndMaterialsJob ? (
+            <View style={styles.markupPanel}>
+              <View style={styles.markupHeader}>
+                <View style={styles.markupText}>
+                  <Text style={styles.sectionLabel}>Materials markup</Text>
+                  <Text style={styles.markupHelp}>Applies to this invoice only.</Text>
+                </View>
+                <View style={styles.markupInputRow}>
+                  <TextInput
+                    inputMode="decimal"
+                    keyboardType="decimal-pad"
+                    onChangeText={setMaterialMarkupPercent}
+                    placeholder="0"
+                    placeholderTextColor="#8A94A6"
+                    style={styles.markupInput}
+                    value={materialMarkupPercent}
+                  />
+                  <Text style={styles.markupPercentText}>%</Text>
+                </View>
+              </View>
+              <View style={styles.markupPresetRow}>
+                {materialMarkupPresets.map((preset) => (
+                  <Pressable
+                    key={preset}
+                    onPress={() => setMaterialMarkupPercent(String(preset))}
+                    style={[
+                      styles.markupPresetButton,
+                      parsedMaterialMarkupPercent === preset && styles.selectedMarkupPresetButton,
+                    ]}>
+                    <Text
+                      style={[
+                        styles.markupPresetButtonText,
+                        parsedMaterialMarkupPercent === preset &&
+                          styles.selectedMarkupPresetButtonText,
+                      ]}>
+                      {preset}%
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              {materialMarkupError ? (
+                <Text style={styles.markupErrorText}>{materialMarkupError}</Text>
+              ) : null}
+            </View>
+          ) : null}
+
+          <View style={styles.noteEditor}>
+            <Text style={styles.sectionLabel}>Customer note</Text>
+            <TextInput
+              multiline
+              onChangeText={setNote}
+              placeholder="Add a note for the customer"
+              placeholderTextColor="#8A94A6"
+              style={styles.noteInput}
+              textAlignVertical="top"
+              value={note}
+            />
+          </View>
+        </View>
+
+        <View style={styles.previewWrap}>
+          <View style={styles.invoice}>
           <View style={styles.invoiceHeader}>
             <View>
               <Text style={styles.invoiceTitle}>Invoice</Text>
@@ -172,6 +293,13 @@ export function InvoiceDraftScreen({ job, onBack }: InvoiceDraftScreenProps) {
             <Text style={styles.invoiceType}>
               {job.jobType === 'time_and_materials' ? 'Time & materials' : 'Fixed bid'}
             </Text>
+          </View>
+
+          <View style={styles.fromBlock}>
+            <Text style={styles.sectionLabel}>From</Text>
+            {formatInvoiceProfileLines(profile).map((line) => (
+              <Text key={line} style={styles.invoiceText}>{line}</Text>
+            ))}
           </View>
 
           <View style={styles.billTo}>
@@ -202,45 +330,19 @@ export function InvoiceDraftScreen({ job, onBack }: InvoiceDraftScreenProps) {
 
           <View style={styles.noteBlock}>
             <Text style={styles.sectionLabel}>Note</Text>
-            <TextInput
-              multiline
-              onChangeText={setNote}
-              placeholder="Add a note for the customer"
-              placeholderTextColor="#8A94A6"
-              style={styles.noteInput}
-              textAlignVertical="top"
-              value={note}
-            />
+            <Text style={styles.invoiceText}>{note}</Text>
+          </View>
+          {profile?.defaultInvoiceTerms ? (
+            <View style={styles.noteBlock}>
+              <Text style={styles.sectionLabel}>Terms</Text>
+              <Text style={styles.invoiceText}>{profile.defaultInvoiceTerms}</Text>
+            </View>
+          ) : null}
           </View>
         </View>
       </ScrollView>
     </SafeAreaView>
   );
-}
-
-function copyTextWithTextarea(text: string): void {
-  const documentRef = globalThis.document;
-
-  if (!documentRef) {
-    throw new Error('Document is unavailable.');
-  }
-
-  const textarea = documentRef.createElement('textarea');
-  textarea.value = text;
-  textarea.setAttribute('readonly', '');
-  textarea.style.left = '-9999px';
-  textarea.style.position = 'fixed';
-  textarea.style.top = '0';
-  documentRef.body.appendChild(textarea);
-  textarea.focus();
-  textarea.select();
-
-  const didCopy = documentRef.execCommand('copy');
-  documentRef.body.removeChild(textarea);
-
-  if (!didCopy) {
-    throw new Error('Copy command failed.');
-  }
 }
 
 function printHtmlFromIframe(html: string): void {
@@ -312,12 +414,20 @@ function buildInvoiceDraft(
   snapshot: JobFinancialSnapshotRow | null,
   laborEntries: JobLaborCostEntry[],
   materialEntries: JobMaterialCostEntry[],
-  note: string
+  materialMarkupPercent: number,
+  note: string,
+  profile: AccountProfile | null
 ) {
   const paymentsReceived = snapshot?.payments_received ?? 0;
   const lines =
     job.jobType === 'time_and_materials'
-      ? buildTimeAndMaterialsLines(job, snapshot, laborEntries, materialEntries)
+      ? buildTimeAndMaterialsLines(
+          job,
+          snapshot,
+          laborEntries,
+          materialEntries,
+          materialMarkupPercent
+        )
       : buildFixedBidLines(job, snapshot);
   const subtotal = lines.reduce((sum, line) => sum + line.value, 0);
   const balanceDue = subtotal - paymentsReceived;
@@ -327,8 +437,8 @@ function buildInvoiceDraft(
     lines,
     paymentsReceived,
     subtotal,
-    text: formatInvoiceText(job, lines, subtotal, paymentsReceived, balanceDue, note),
-    html: formatInvoiceHtml(job, lines, subtotal, paymentsReceived, balanceDue, note),
+    text: formatInvoiceText(job, lines, subtotal, paymentsReceived, balanceDue, note, profile),
+    html: formatInvoiceHtml(job, lines, subtotal, paymentsReceived, balanceDue, note, profile),
   };
 }
 
@@ -345,7 +455,8 @@ function buildTimeAndMaterialsLines(
   job: Job,
   snapshot: JobFinancialSnapshotRow | null,
   laborEntries: JobLaborCostEntry[],
-  materialEntries: JobMaterialCostEntry[]
+  materialEntries: JobMaterialCostEntry[],
+  materialMarkupPercent: number
 ): InvoiceLine[] {
   const totalHours =
     snapshot?.total_hours ??
@@ -354,6 +465,7 @@ function buildTimeAndMaterialsLines(
   const laborTotal = totalHours * laborRate;
   const materialTotal =
     snapshot?.receipt_cost ?? materialEntries.reduce((sum, entry) => sum + entry.total_amount, 0);
+  const markedUpMaterialTotal = roundMoney(materialTotal * (1 + materialMarkupPercent / 100));
 
   return [
     {
@@ -363,8 +475,11 @@ function buildTimeAndMaterialsLines(
     },
     {
       label: 'Materials',
-      meta: 'Materials logged',
-      value: materialTotal,
+      meta:
+        materialMarkupPercent > 0
+          ? `${formatCurrency(materialTotal)} materials + ${formatNumber(materialMarkupPercent)}% markup`
+          : 'Materials logged',
+      value: markedUpMaterialTotal,
     },
   ];
 }
@@ -384,17 +499,44 @@ function averageLaborRate(laborEntries: JobLaborCostEntry[]): number {
   return total / hours;
 }
 
+function parseMarkupPercent(value: string): number | undefined {
+  const cleaned = value.replace(/[%\s,]/g, '');
+
+  if (!cleaned) {
+    return 0;
+  }
+
+  const parsed = Number(cleaned);
+
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 500) {
+    return undefined;
+  }
+
+  return Math.round(parsed * 100) / 100;
+}
+
+function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 function formatInvoiceText(
   job: Job,
   lines: InvoiceLine[],
   subtotal: number,
   paymentsReceived: number,
   balanceDue: number,
-  note: string
+  note: string,
+  profile: AccountProfile | null
 ): string {
+  const fromLines = formatInvoiceProfileLines(profile);
+
   return [
     'Invoice',
     '',
+    'From',
+    ...fromLines,
+    '',
+    'Bill to',
     job.clientName,
     job.name,
     job.location ?? '',
@@ -409,6 +551,7 @@ function formatInvoiceText(
     `Balance due: ${formatCurrency(balanceDue)}`,
     '',
     note,
+    profile?.defaultInvoiceTerms ? `Terms: ${profile.defaultInvoiceTerms}` : '',
   ]
     .filter((line, index, allLines) => line || allLines[index - 1])
     .join('\n');
@@ -420,7 +563,8 @@ function formatInvoiceHtml(
   subtotal: number,
   paymentsReceived: number,
   balanceDue: number,
-  note: string
+  note: string,
+  profile: AccountProfile | null
 ): string {
   const lineRows = lines
     .map(
@@ -447,6 +591,13 @@ function formatInvoiceHtml(
       </header>
 
       <section>
+        <h2>From</h2>
+        ${formatInvoiceProfileLines(profile)
+          .map((line) => `<p>${escapeHtml(line)}</p>`)
+          .join('')}
+      </section>
+
+      <section>
         <h2>Bill to</h2>
         <p>${escapeHtml(job.clientName)}</p>
         <p>${escapeHtml(job.name)}</p>
@@ -464,8 +615,68 @@ function formatInvoiceHtml(
       </section>
 
       ${note ? `<section><h2>Note</h2><p>${escapeHtml(note)}</p></section>` : ''}
+      ${profile?.defaultInvoiceTerms ? `<section><h2>Terms</h2><p>${escapeHtml(profile.defaultInvoiceTerms)}</p></section>` : ''}
     </main>
   `;
+}
+
+function getMissingInvoiceProfileFields(profile: AccountProfile | null): string[] {
+  if (!profile) {
+    return ['business name', 'phone', 'address', 'city', 'state', 'ZIP'];
+  }
+
+  const missingFields: string[] = [];
+
+  if (!hasText(profile.companyName) && !hasText(profile.fullName)) {
+    missingFields.push('business name');
+  }
+
+  if (!hasText(profile.phone)) {
+    missingFields.push('phone');
+  }
+
+  if (!hasText(profile.invoiceEmail)) {
+    missingFields.push('email');
+  }
+
+  if (!hasText(profile.addressLine1)) {
+    missingFields.push('address');
+  }
+
+  if (!hasText(profile.city)) {
+    missingFields.push('city');
+  }
+
+  if (!hasText(profile.state)) {
+    missingFields.push('state');
+  }
+
+  if (!hasText(profile.postalCode)) {
+    missingFields.push('ZIP');
+  }
+
+  return missingFields;
+}
+
+function formatInvoiceProfileLines(profile: AccountProfile | null): string[] {
+  if (!profile) {
+    return [];
+  }
+
+  return [
+    profile.companyName ?? profile.fullName ?? '',
+    profile.companyName && profile.fullName ? profile.fullName : '',
+    profile.addressLine1 ?? '',
+    profile.addressLine2 ?? '',
+    [profile.city, profile.state, profile.postalCode].filter(hasText).join(', ').replace(', ', ', '),
+    profile.phone ?? '',
+    profile.invoiceEmail ?? '',
+    profile.website ?? '',
+  ].filter(hasText);
+}
+
+function hasText(value: string | null | undefined): value is string {
+  return Boolean(value?.trim());
 }
 
 function buildPrintableInvoiceHtml(invoiceHtml: string, fileBaseName: string): string {
@@ -672,6 +883,9 @@ const styles = StyleSheet.create({
     ...buttonStyles.secondary.text,
     fontSize: 15,
   },
+  disabledButton: {
+    opacity: 0.55,
+  },
   header: {
     marginBottom: 16,
   },
@@ -700,39 +914,100 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 12,
   },
-  invoice: {
+  profileWarningPanel: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FDBA74',
+    borderRadius: radii.card,
+    borderWidth: 1,
+    gap: 8,
+    marginBottom: 14,
+    padding: 14,
+  },
+  profileWarningTitle: {
+    color: '#9A3412',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  profileWarningText: {
+    color: '#7C2D12',
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  warningButton: {
+    alignItems: 'center',
+    borderColor: '#9A3412',
+    borderRadius: radii.button,
+    borderWidth: 1,
+    justifyContent: 'center',
+    marginTop: 4,
+    minHeight: 42,
+  },
+  warningButtonText: {
+    color: '#9A3412',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  settingsPanel: {
     backgroundColor: colors.cardBackground,
     borderColor: colors.standardBorder,
     borderRadius: radii.card,
     borderWidth: 1,
-    gap: 20,
-    padding: 18,
+    gap: 14,
+    marginBottom: 16,
+    padding: 16,
+  },
+  settingsTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  noteEditor: {
+    gap: 8,
+  },
+  previewWrap: {
+    backgroundColor: '#F6F3EC',
+    borderColor: '#D8D2C6',
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+  },
+  invoice: {
+    backgroundColor: '#FFFDF8',
+    borderColor: '#D8D2C6',
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 28,
+    padding: 32,
   },
   invoiceHeader: {
     alignItems: 'flex-start',
     flexDirection: 'row',
-    gap: 12,
+    gap: 24,
     justifyContent: 'space-between',
   },
   invoiceTitle: {
     color: colors.text,
-    fontSize: 28,
+    fontSize: 36,
     fontWeight: '900',
   },
   invoiceMeta: {
     color: colors.mutedText,
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
-    marginTop: 4,
+    marginTop: 6,
   },
   invoiceType: {
     color: colors.primaryGreen,
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '900',
     textAlign: 'right',
   },
   billTo: {
-    gap: 3,
+    gap: 2,
+  },
+  fromBlock: {
+    gap: 2,
   },
   sectionLabel: {
     color: colors.mutedText,
@@ -745,7 +1020,85 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16,
     fontWeight: '700',
-    lineHeight: 22,
+    lineHeight: 23,
+  },
+  markupPanel: {
+    borderColor: colors.standardBorder,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 12,
+    padding: 12,
+  },
+  markupHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  markupText: {
+    flex: 1,
+    gap: 4,
+  },
+  markupHelp: {
+    color: colors.mutedText,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  markupInputRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  markupInput: {
+    borderColor: colors.standardBorder,
+    borderRadius: 8,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '800',
+    minHeight: 44,
+    paddingHorizontal: 12,
+    textAlign: 'right',
+    width: 86,
+  },
+  markupPercentText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  markupPresetRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  markupPresetButton: {
+    alignItems: 'center',
+    borderColor: colors.standardBorder,
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 38,
+    minWidth: 58,
+    paddingHorizontal: 12,
+  },
+  selectedMarkupPresetButton: {
+    backgroundColor: colors.primaryGreen,
+    borderColor: colors.primaryGreen,
+  },
+  markupPresetButtonText: {
+    color: colors.primaryGreen,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  selectedMarkupPresetButtonText: {
+    color: colors.warmWhite,
+  },
+  markupErrorText: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
   },
   lines: {
     borderTopColor: '#ECE6DA',
@@ -758,7 +1111,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     justifyContent: 'space-between',
-    paddingVertical: 14,
+    paddingVertical: 16,
   },
   lineText: {
     flex: 1,
@@ -781,7 +1134,10 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   totals: {
+    alignSelf: 'flex-end',
     gap: 9,
+    maxWidth: 360,
+    width: '100%',
   },
   totalRow: {
     alignItems: 'center',
@@ -790,7 +1146,7 @@ const styles = StyleSheet.create({
   },
   totalLabel: {
     color: colors.mutedText,
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '800',
   },
   totalValue: {
@@ -804,7 +1160,7 @@ const styles = StyleSheet.create({
   },
   strongTotalText: {
     color: colors.text,
-    fontSize: 19,
+    fontSize: 20,
     fontWeight: '900',
   },
   noteBlock: {

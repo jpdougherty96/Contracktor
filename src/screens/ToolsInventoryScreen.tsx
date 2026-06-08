@@ -55,7 +55,7 @@ export function ToolsInventoryScreen({ onAddManualExpense, onBack }: ToolsInvent
         </View>
 
         <Pressable style={styles.primaryButton} onPress={onAddManualExpense}>
-          <Text style={styles.primaryButtonText}>Add manual expense</Text>
+          <Text style={styles.primaryButtonText}>Add Tools / Inventory expense</Text>
         </Pressable>
 
         <View style={styles.summaryCard}>

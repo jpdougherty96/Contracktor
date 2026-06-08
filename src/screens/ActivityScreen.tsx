@@ -383,7 +383,7 @@ const styles = StyleSheet.create({
   },
   content: {
     alignSelf: 'center',
-    maxWidth: 720,
+    maxWidth: 980,
     paddingHorizontal: 4,
     paddingTop: 12,
     width: '100%',

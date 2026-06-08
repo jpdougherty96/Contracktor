@@ -25,7 +25,7 @@ export async function createAndSharePdf({
   const canShare = await Sharing.isAvailableAsync();
 
   if (!canShare) {
-    return namedUri;
+    return { didOpen: false, uri: namedUri };
   }
 
   await Sharing.shareAsync(namedUri, {
@@ -34,7 +34,7 @@ export async function createAndSharePdf({
     UTI: 'com.adobe.pdf',
   });
 
-  return namedUri;
+  return { didOpen: true, uri: namedUri };
 }
 
 export function sanitizePdfFileName(value: string): string {
