@@ -549,7 +549,7 @@ const styles = StyleSheet.create({
   },
   webContainer: {
     alignSelf: 'center',
-    maxWidth: 720,
+    maxWidth: 980,
     width: '100%',
   },
   backButton: {

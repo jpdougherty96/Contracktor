@@ -3,16 +3,36 @@ import type { User } from '@supabase/supabase-js';
 import { supabase } from '@/src/lib/supabase';
 
 export type AccountProfile = {
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
   companyName: string | null;
   defaultHourlyRate: number | null;
+  defaultInvoiceNote: string | null;
+  defaultInvoiceTerms: string | null;
   email: string | null;
   fullName: string | null;
+  invoiceEmail: string | null;
+  phone: string | null;
+  postalCode: string | null;
+  state: string | null;
+  website: string | null;
 };
 
 export type UpdateAccountProfileInput = {
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
   companyName?: string | null;
   defaultHourlyRate?: number | null;
+  defaultInvoiceNote?: string | null;
+  defaultInvoiceTerms?: string | null;
   fullName?: string | null;
+  invoiceEmail?: string | null;
+  phone?: string | null;
+  postalCode?: string | null;
+  state?: string | null;
+  website?: string | null;
 };
 
 export async function ensureProfileForUser(user: User): Promise<void> {
@@ -53,7 +73,7 @@ export async function fetchAccountProfile(): Promise<AccountProfile> {
 
   const { data, error } = await supabase
     .from('profiles')
-    .select('full_name, company_name, default_hourly_rate')
+    .select(profileFields)
     .eq('id', userData.user.id)
     .single();
 
@@ -62,10 +82,20 @@ export async function fetchAccountProfile(): Promise<AccountProfile> {
   }
 
   return {
+    addressLine1: data.address_line_1,
+    addressLine2: data.address_line_2,
+    city: data.city,
     companyName: data.company_name,
     defaultHourlyRate: data.default_hourly_rate,
+    defaultInvoiceNote: data.default_invoice_note,
+    defaultInvoiceTerms: data.default_invoice_terms,
     email: userData.user.email ?? null,
     fullName: data.full_name,
+    invoiceEmail: data.invoice_email ?? userData.user.email ?? null,
+    phone: data.phone,
+    postalCode: data.postal_code,
+    state: data.state,
+    website: data.website,
   };
 }
 
@@ -84,11 +114,21 @@ export async function updateAccountProfile(input: UpdateAccountProfileInput): Pr
     .from('profiles')
     .update({
       company_name: cleanOptionalText(input.companyName),
+      address_line_1: cleanOptionalText(input.addressLine1),
+      address_line_2: cleanOptionalText(input.addressLine2),
+      city: cleanOptionalText(input.city),
       default_hourly_rate: input.defaultHourlyRate ?? null,
+      default_invoice_note: cleanOptionalText(input.defaultInvoiceNote),
+      default_invoice_terms: cleanOptionalText(input.defaultInvoiceTerms),
       full_name: cleanOptionalText(input.fullName),
+      invoice_email: cleanOptionalText(input.invoiceEmail),
+      phone: cleanOptionalText(input.phone),
+      postal_code: cleanOptionalText(input.postalCode),
+      state: cleanOptionalText(input.state),
+      website: cleanOptionalText(input.website),
     })
     .eq('id', userData.user.id)
-    .select('full_name, company_name, default_hourly_rate')
+    .select(profileFields)
     .single();
 
   if (error) {
@@ -96,10 +136,20 @@ export async function updateAccountProfile(input: UpdateAccountProfileInput): Pr
   }
 
   return {
+    addressLine1: data.address_line_1,
+    addressLine2: data.address_line_2,
+    city: data.city,
     companyName: data.company_name,
     defaultHourlyRate: data.default_hourly_rate,
+    defaultInvoiceNote: data.default_invoice_note,
+    defaultInvoiceTerms: data.default_invoice_terms,
     email: userData.user.email ?? null,
     fullName: data.full_name,
+    invoiceEmail: data.invoice_email ?? userData.user.email ?? null,
+    phone: data.phone,
+    postalCode: data.postal_code,
+    state: data.state,
+    website: data.website,
   };
 }
 
@@ -163,3 +213,6 @@ function cleanOptionalText(value: string | null | undefined): string | null {
 
   return trimmed ? trimmed : null;
 }
+
+const profileFields =
+  'full_name, company_name, default_hourly_rate, invoice_email, phone, website, address_line_1, address_line_2, city, state, postal_code, default_invoice_terms, default_invoice_note';

@@ -51,6 +51,7 @@ export type Job = {
   estimatedMiscCost?: number | null;
   actualMaterialCost?: number | null;
   actualLaborHours?: number | null;
+  paymentsReceived?: number | null;
   status: JobStatus;
   createdAt?: string;
   updatedAt?: string;

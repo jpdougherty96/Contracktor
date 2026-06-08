@@ -283,6 +283,29 @@ Not included in Phase 1:
 - advanced AI job health
 - standalone Job Plan workflow
 
+## Future Features
+
+### Lightweight Tools / Inventory Expense Suggestions
+
+Avoid building a full inventory ledger unless the product clearly needs it. Quantity-on-hand tracking, returns, waste, price changes, and unit matching can get messy quickly.
+
+A simpler future workflow:
+
+- A bulk purchase receipt is saved to Tools / Inventory.
+- Parsed receipt line items keep useful unit details when available, such as `8 ft 2x4` at `$4.15 each`.
+- Later, when a user writes a job note like `Used 15 2x4x8 on this wall`, conTRACKtor can suggest a job material expense.
+- Example suggestion: `15 x 8 ft 2x4 @ $4.15 = $62.25`.
+- The user must confirm or edit the suggestion before any expense is created.
+- The original Tools / Inventory receipt stays unchanged.
+- This should create a normal job material expense, not decrement inventory.
+
+Rules for this feature:
+
+- Never auto-add the expense.
+- Always ask for confirmation.
+- Let the user edit quantity, unit cost, and description.
+- Treat it as `Suggest expense from inventory`, not true inventory tracking.
+
 ## Before Shipping Or Testing A Build
 
 Run:

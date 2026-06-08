@@ -137,6 +137,7 @@ function JobCard({ job, onPress }: { job: Job; onPress: () => void }) {
   const isTimeAndMaterials = job.jobType === 'time_and_materials';
   const healthLabel = isTimeAndMaterials ? getTimeAndMaterialsLabel(job) : triage.label;
   const healthTone = isTimeAndMaterials ? getTimeAndMaterialsTone(job) : triage.tone;
+  const projectedProfit = getProjectedProfit(job);
 
   return (
     <Pressable style={[styles.card, getCardAccentStyle(healthTone)]} onPress={onPress}>
@@ -148,7 +149,12 @@ function JobCard({ job, onPress }: { job: Job; onPress: () => void }) {
             {job.location ? ` · ${formatShortLocation(job.location)}` : ''}
           </Text>
         </View>
-        <Text style={styles.statusPill}>{formatStatus(job.status)}</Text>
+        <View style={styles.cardPills}>
+          <Text style={styles.statusPill}>{formatStatus(job.status)}</Text>
+          <Text style={styles.jobTypePill}>
+            {isTimeAndMaterials ? 'Time & materials' : 'Fixed bid'}
+          </Text>
+        </View>
       </View>
 
       <Text style={[styles.healthPill, getHealthPillStyle(healthTone)]}>{healthLabel}</Text>
@@ -179,6 +185,20 @@ function JobCard({ job, onPress }: { job: Job; onPress: () => void }) {
 
       {!isTimeAndMaterials && triage.reason ? (
         <Text style={styles.attentionReason}>{triage.reason}</Text>
+      ) : null}
+      {!isTimeAndMaterials ? (
+        <View style={styles.projectedProfitRow}>
+          <Text style={styles.projectedProfitLabel}>
+            {projectedProfit < 0 ? 'Projected loss' : 'Projected profit'}
+          </Text>
+          <Text
+            style={[
+              styles.projectedProfitValue,
+              projectedProfit < 0 ? styles.projectedLossValue : styles.projectedGainValue,
+            ]}>
+            {formatCurrency(projectedProfit)}
+          </Text>
+        </View>
       ) : null}
     </Pressable>
   );
@@ -302,20 +322,22 @@ function getJobTriage(
     totalLocalReceipts(job) > 0 || totalLocalHours(job) > 0 || job.payments.length > 0;
 
   if ((materialPercent ?? 0) > 100 || (laborPercent ?? 0) > 100) {
-    if ((laborPercent ?? 0) >= (materialPercent ?? 0)) {
-      return { label: 'Over budget', reason: 'Labor is over budget', tone: 'problemPill' };
-    }
-
-    return { label: 'Over budget', reason: 'Materials are over budget', tone: 'problemPill' };
+    return {
+      label: 'Over budget',
+      reason: formatBudgetReason(getBudgetCategoriesOverLimit(materialPercent, laborPercent), 'over budget'),
+      tone: 'problemPill',
+    };
   }
 
   const laborNeedsWatch = laborPercent !== null && laborPercent >= 80;
   const materialsNeedWatch = materialPercent !== null && materialPercent >= 80;
 
   if (laborNeedsWatch && materialsNeedWatch) {
-    return laborPercent >= materialPercent
-      ? { label: 'Needs attention', reason: 'Labor is near budget', tone: 'watchPill' }
-      : { label: 'Needs attention', reason: 'Materials are near budget', tone: 'watchPill' };
+    return {
+      label: 'Needs attention',
+      reason: formatBudgetReason(['Materials', 'Labor'], 'near budget'),
+      tone: 'watchPill',
+    };
   }
 
   if (laborNeedsWatch) {
@@ -337,6 +359,30 @@ function getJobTriage(
   return { label: 'On track', tone: 'onTrackPill' };
 }
 
+function getBudgetCategoriesOverLimit(
+  materialPercent: number | null,
+  laborPercent: number | null
+): string[] {
+  return [
+    (materialPercent ?? 0) > 100 ? 'Materials' : null,
+    (laborPercent ?? 0) > 100 ? 'Labor' : null,
+  ].filter((category): category is string => Boolean(category));
+}
+
+function formatBudgetReason(categories: string[], status: 'near budget' | 'over budget'): string {
+  if (categories.length === 0) {
+    return '';
+  }
+
+  if (categories.length === 1) {
+    const verb = categories[0] === 'Materials' ? 'are' : 'is';
+
+    return `${categories[0]} ${verb} ${status}`;
+  }
+
+  return `${categories.slice(0, -1).join(', ')} and ${categories[categories.length - 1].toLowerCase()} are ${status}`;
+}
+
 function getTimeAndMaterialsLabel(job: Job): string {
   return totalLocalReceipts(job) > 0 || totalLocalHours(job) > 0 ? 'Tracking' : 'Ready to track';
 }
@@ -351,6 +397,16 @@ function totalLocalHours(job: Job): number {
 
 function totalLocalReceipts(job: Job): number {
   return job.actualMaterialCost ?? job.receipts.reduce((sum, receipt) => sum + receipt.amount, 0);
+}
+
+function getProjectedProfit(job: Job): number {
+  const actualLaborCost = totalLocalHours(job) * (job.hourlyRate ?? 0);
+  const estimatedLaborCost = (job.estimatedLaborHours ?? 0) * (job.hourlyRate ?? 0);
+  const projectedLaborCost = Math.max(actualLaborCost, estimatedLaborCost);
+  const projectedMaterialCost = Math.max(totalLocalReceipts(job), job.estimatedMaterialCost ?? 0);
+  const projectedOtherCost = (job.estimatedSubCost ?? 0) + (job.estimatedMiscCost ?? 0);
+
+  return job.quoteAmount - projectedMaterialCost - projectedLaborCost - projectedOtherCost;
 }
 
 function formatNumber(value: number): string {
@@ -539,6 +595,10 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 3,
   },
+  cardPills: {
+    alignItems: 'flex-end',
+    gap: 6,
+  },
   jobName: {
     color: colors.text,
     fontSize: 18,
@@ -561,6 +621,18 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     paddingHorizontal: 10,
     paddingVertical: 5,
+  },
+  jobTypePill: {
+    backgroundColor: '#F6F5F2',
+    borderColor: colors.standardBorder,
+    borderRadius: 999,
+    borderWidth: 1,
+    color: colors.mutedText,
+    fontSize: 11,
+    fontWeight: '800',
+    overflow: 'hidden',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
   },
   healthPill: {
     alignSelf: 'flex-start',
@@ -642,6 +714,30 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 20,
     marginTop: 12,
+  },
+  projectedProfitRow: {
+    alignItems: 'center',
+    borderTopColor: '#ECE6DA',
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 12,
+    paddingTop: 12,
+  },
+  projectedProfitLabel: {
+    color: colors.mutedText,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  projectedProfitValue: {
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  projectedGainValue: {
+    color: colors.primaryGreen,
+  },
+  projectedLossValue: {
+    color: colors.danger,
   },
   statePanel: {
     backgroundColor: colors.cardBackground,

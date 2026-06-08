@@ -14,6 +14,7 @@ import type { Job } from '@/src/types/job';
 type JobPickerScreenProps = {
   actionLabel: string;
   backLabel?: string;
+  compactJobCards?: boolean;
   emptyDetail?: string;
   includeInventoryOption?: boolean;
   initialInventorySelected?: boolean;
@@ -24,6 +25,7 @@ type JobPickerScreenProps = {
   onSelectInventory?: () => void;
   onSelectJob: (job: Job) => void;
   onSelectJobs?: (jobs: Job[], includesInventory?: boolean) => void;
+  pickerContext?: 'default' | 'payment';
   refreshKey?: number;
   title?: string;
 };
@@ -31,6 +33,7 @@ type JobPickerScreenProps = {
 export function JobPickerScreen({
   actionLabel,
   backLabel = 'Back home',
+  compactJobCards = false,
   emptyDetail = 'Create a job before adding updates against it.',
   includeInventoryOption = false,
   initialInventorySelected = false,
@@ -41,6 +44,7 @@ export function JobPickerScreen({
   onSelectInventory,
   onSelectJob,
   onSelectJobs,
+  pickerContext = 'default',
   refreshKey = 0,
   title = 'Select job',
 }: JobPickerScreenProps) {
@@ -161,7 +165,8 @@ export function JobPickerScreen({
               />
             ) : null}
             {openJobs.map((job) => {
-              const snapshot = hasFinancialActivity(job)
+              const usesCompactCard = multiSelect || compactJobCards;
+              const snapshot = !usesCompactCard && hasFinancialActivity(job)
                 ? calculateJobFinancialSnapshot(job)
                 : null;
               const health = snapshot ? getJobHealth(snapshot) : 'New';
@@ -182,10 +187,14 @@ export function JobPickerScreen({
                   <View style={styles.cardHeader}>
                     <View style={styles.cardTitleGroup}>
                       <Text style={styles.jobName}>{job.name}</Text>
-                      <Text style={styles.clientName}>{job.clientName}</Text>
-                      {job.location ? <Text style={styles.locationText}>{job.location}</Text> : null}
+                      {!usesCompactCard ? (
+                        <>
+                          <Text style={styles.clientName}>{job.clientName}</Text>
+                          {job.location ? <Text style={styles.locationText}>{job.location}</Text> : null}
+                        </>
+                      ) : null}
                     </View>
-                    {multiSelect ? (
+                    {usesCompactCard ? (
                       <View style={[styles.selectBadge, isSelected && styles.selectedBadge]}>
                         <Text
                           style={[
@@ -199,10 +208,18 @@ export function JobPickerScreen({
                       <HealthBadge health={health} />
                     )}
                   </View>
-                  <View style={styles.metricRow}>
-                    <Text style={styles.metricLabel}>Quote</Text>
-                    <Text style={styles.metricValue}>{formatCurrency(job.quoteAmount)}</Text>
-                  </View>
+                  {!usesCompactCard ? (
+                    <View style={styles.metricRow}>
+                      <Text style={styles.metricLabel}>
+                        {pickerContext === 'payment' ? 'Balance due' : 'Quote'}
+                      </Text>
+                      <Text style={styles.metricValue}>
+                        {formatCurrency(
+                          pickerContext === 'payment' ? getJobBalanceDue(job) : job.quoteAmount
+                        )}
+                      </Text>
+                    </View>
+                  ) : null}
                 </Pressable>
               );
             })}
@@ -285,6 +302,10 @@ function InventoryOption({
 
 function hasFinancialActivity(job: Job): boolean {
   return job.receipts.length > 0 || job.hours.length > 0 || job.payments.length > 0;
+}
+
+function getJobBalanceDue(job: Job): number {
+  return Math.max(0, job.quoteAmount - (job.paymentsReceived ?? 0));
 }
 
 function getContinueLabel(isInventorySelected: boolean, selectedJobCount: number): string {

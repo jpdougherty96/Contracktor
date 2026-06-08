@@ -719,23 +719,53 @@ export type Database = {
         Row: {
           company_name: string | null
           created_at: string | null
+          address_line_1: string | null
+          address_line_2: string | null
+          city: string | null
           default_hourly_rate: number | null
+          default_invoice_note: string | null
+          default_invoice_terms: string | null
           full_name: string | null
           id: string
+          invoice_email: string | null
+          phone: string | null
+          postal_code: string | null
+          state: string | null
+          website: string | null
         }
         Insert: {
+          address_line_1?: string | null
+          address_line_2?: string | null
+          city?: string | null
           company_name?: string | null
           created_at?: string | null
           default_hourly_rate?: number | null
+          default_invoice_note?: string | null
+          default_invoice_terms?: string | null
           full_name?: string | null
           id: string
+          invoice_email?: string | null
+          phone?: string | null
+          postal_code?: string | null
+          state?: string | null
+          website?: string | null
         }
         Update: {
+          address_line_1?: string | null
+          address_line_2?: string | null
+          city?: string | null
           company_name?: string | null
           created_at?: string | null
           default_hourly_rate?: number | null
+          default_invoice_note?: string | null
+          default_invoice_terms?: string | null
           full_name?: string | null
           id?: string
+          invoice_email?: string | null
+          phone?: string | null
+          postal_code?: string | null
+          state?: string | null
+          website?: string | null
         }
         Relationships: []
       }

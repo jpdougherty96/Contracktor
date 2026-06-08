@@ -121,13 +121,19 @@ export function ReceiptReviewScreen({
     receipt?.review_status === 'reviewed' &&
     !requiresLineItems &&
     (!hasLineItems || areLineItemsFinalized);
+  const assignedDestinationKeys = getAssignedDestinationKeys(lineItems, lineAssignments);
+  const hasMultipleAssignedDestinations = isSavedReceipt && assignedDestinationKeys.length > 1;
+  const isMultiDestinationReceipt =
+    selectedReceiptJobs.length > 1 ||
+    (includeInventoryDestination && selectedReceiptJobs.length > 0) ||
+    hasMultipleAssignedDestinations;
   const canEditLineAssignments = hasLineItems && isSavedReceipt;
-  const canEditReceiptDestinations = hasLineItems && Boolean(onEditReceiptJobs);
   const shouldShowLineEditor =
     hasLineItems &&
     !hasUntrustedLineItems &&
     (inventoryMode ||
       includeInventoryDestination ||
+      hasMultipleAssignedDestinations ||
       !isSingleJobLineReceipt ||
       isReviewingSingleJobLines ||
       isEditingLineAssignments);
@@ -145,11 +151,21 @@ export function ReceiptReviewScreen({
 
       try {
         const shouldFetchJobs = !contextJobs || contextJobs.length === 0;
-        const [nextReceipt, nextLineItems, nextJobs] = await Promise.all([
+        const [nextReceipt, nextLineItems, fetchedJobs] = await Promise.all([
           fetchReceipt(receiptId),
           fetchReceiptLineItems(receiptId),
-          shouldFetchJobs ? fetchJobs() : Promise.resolve(contextJobs),
+          shouldFetchJobs ? fetchJobs() : Promise.resolve([]),
         ]);
+        let nextJobs = shouldFetchJobs ? fetchedJobs : contextJobs ?? [];
+        const knownJobIds = new Set(nextJobs.map((nextJob) => nextJob.id));
+        const hasAssignedJobOutsideContext = nextLineItems.some(
+          (lineItem) => lineItem.assigned_job_id && !knownJobIds.has(lineItem.assigned_job_id)
+        );
+
+        if (!inventoryMode && hasAssignedJobOutsideContext) {
+          nextJobs = await fetchJobs();
+        }
+
         const assignmentJobs = inventoryMode ? [] : nextJobs.length > 0 ? nextJobs : job ? [job] : [];
         const needsLineItemReset =
           (assignmentJobs.length > 1 || (includeInventoryDestination && assignmentJobs.length > 0)) &&
@@ -166,7 +182,13 @@ export function ReceiptReviewScreen({
           setLineItems(nextLineItems);
           setJobs(assignmentJobs);
           setLineAssignments(
-            getInitialLineAssignments(nextLineItems, displayReceipt, job?.id ?? null, inventoryMode)
+            getInitialLineAssignments(
+              nextLineItems,
+              displayReceipt,
+              job?.id ?? null,
+              inventoryMode,
+              assignmentJobs.length > 1 || (includeInventoryDestination && assignmentJobs.length > 0)
+            )
           );
           setVendor(displayReceipt.vendor ?? '');
           setReceiptDate(displayReceipt.receipt_date ?? '');
@@ -272,6 +294,20 @@ export function ReceiptReviewScreen({
     }
 
     if (hasLineItems && !hasUntrustedLineItems) {
+      const assignedDestinations = getAssignedDestinationKeys(lineItems, lineAssignments);
+
+      if (isMultiDestinationReceipt && assignedDestinations.length < 2) {
+        setErrorMessage(
+          'Assign receipt lines to at least two selected destinations, or edit the receipt destinations before saving.'
+        );
+        return;
+      }
+
+      if (!isMultiDestinationReceipt && assignedDestinations.length === 0) {
+        setErrorMessage('Assign at least one receipt line before saving.');
+        return;
+      }
+
       if (assignedLineItemsExceedReceiptTotal && typeof receipt?.total === 'number') {
         setErrorMessage(
           `Assigned receipt lines add up to ${formatCurrency(assignedLineItemsTotal, {
@@ -683,6 +719,7 @@ export function ReceiptReviewScreen({
                         jobs={jobs}
                         key={lineItem.id}
                         lineItem={lineItem}
+                        taxAmount={getLineAllocatedTax(lineItem, lineItems, receipt.tax)}
                         readOnly={isSavedReceipt && !isEditingLineAssignments}
                         onChange={(nextAssignment) =>
                           updateLineAssignment(lineItem.id, nextAssignment)
@@ -713,6 +750,7 @@ export function ReceiptReviewScreen({
                               jobs={jobs}
                               key={lineItem.id}
                               lineItem={lineItem}
+                              taxAmount={getLineAllocatedTax(lineItem, lineItems, receipt.tax)}
                               readOnly
                               showAssignments={false}
                               onChange={(nextAssignment) =>
@@ -802,7 +840,9 @@ export function ReceiptReviewScreen({
               <View style={styles.savedPanel}>
                 <Text style={styles.savedTitle}>Receipt saved</Text>
                 <Text style={styles.savedText}>
-                  {inventoryMode
+                  {hasMultipleAssignedDestinations
+                    ? 'This receipt is already assigned to multiple destinations.'
+                    : inventoryMode
                     ? 'This receipt is already saved to Tools / Inventory.'
                     : "This receipt is already included in this job's costs."}
                 </Text>
@@ -821,18 +861,6 @@ export function ReceiptReviewScreen({
                     }}
                     style={styles.savedEditButton}>
                     <Text style={styles.savedEditButtonText}>Edit line assignments</Text>
-                  </Pressable>
-                ) : null}
-                {canEditReceiptDestinations ? (
-                  <Pressable
-                    onPress={() => {
-                      onEditReceiptJobs?.(
-                        getReceiptAssignedJobIds(lineItems, receipt),
-                        getReceiptHasInventoryDestination(lineItems, inventoryMode)
-                      );
-                    }}
-                    style={styles.savedSecondaryButton}>
-                    <Text style={styles.savedSecondaryButtonText}>Change jobs / destinations</Text>
                   </Pressable>
                 ) : null}
               </View>
@@ -1009,6 +1037,7 @@ function LineItemCard({
   onChange,
   readOnly = false,
   showAssignments = true,
+  taxAmount = 0,
 }: {
   assignment: LineAssignmentState | undefined;
   jobs: Job[];
@@ -1016,25 +1045,34 @@ function LineItemCard({
   onChange: (assignment: LineAssignmentState) => void;
   readOnly?: boolean;
   showAssignments?: boolean;
+  taxAmount?: number;
 }) {
   const currentAssignment = assignment ?? {
     assignedJobId: lineItem.assigned_job_id,
     assignmentType: lineItem.assignment_type as ReceiptLineAssignmentType,
   };
   const canAssignToJob = jobs.length > 0;
+  const originalText = getLineItemOriginalText(lineItem);
 
   return (
     <View style={styles.lineItemCard}>
       <View style={styles.lineItemHeader}>
         <View style={styles.lineItemTextColumn}>
           <Text style={styles.lineItemName}>{lineItem.cleaned_name}</Text>
-          {lineItem.original_text && lineItem.original_text !== lineItem.cleaned_name ? (
-            <Text style={styles.lineItemOriginal}>{lineItem.original_text}</Text>
+          {originalText ? (
+            <Text style={styles.lineItemOriginal}>{originalText}</Text>
           ) : null}
         </View>
-        <Text style={styles.lineItemAmount}>
-          {formatCurrency(lineItem.line_total, { showCents: true })}
-        </Text>
+        <View style={styles.lineItemAmountColumn}>
+          <Text style={styles.lineItemAmount}>
+            {formatCurrency(lineItem.line_total, { showCents: true })}
+          </Text>
+          {taxAmount > 0 ? (
+            <Text style={styles.lineItemTaxAmount}>
+              Tax {formatCurrency(taxAmount, { showCents: true })}
+            </Text>
+          ) : null}
+        </View>
       </View>
       <Text style={styles.lineItemMeta}>
         {formatCategory(lineItem.line_type)}
@@ -1139,6 +1177,42 @@ function LineItemCard({
   );
 }
 
+function getLineItemOriginalText(lineItem: Tables<'receipt_line_items'>): string | null {
+  if (!lineItem.original_text || lineItem.original_text === lineItem.cleaned_name) {
+    return null;
+  }
+
+  const amountPattern = formatLineAmountPattern(lineItem.line_total);
+  const trailingAmountPattern = formatTrailingLineAmountPattern(lineItem.line_total);
+  const lines = lineItem.original_text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !amountPattern.test(line));
+  const displayText = lines
+    .join('\n')
+    .replace(trailingAmountPattern, '')
+    .trim();
+
+  return displayText && displayText !== lineItem.cleaned_name ? displayText : null;
+}
+
+function formatLineAmountPattern(amount: number): RegExp {
+  const fixedAmount = amount.toFixed(2).replace('.', '\\.');
+  const wholeAmount = Number.isInteger(amount) ? String(amount) : null;
+  const amountAlternatives = wholeAmount ? `${fixedAmount}|${wholeAmount}` : fixedAmount;
+
+  return new RegExp(`^\\$?(?:${amountAlternatives})$`);
+}
+
+function formatTrailingLineAmountPattern(amount: number): RegExp {
+  const fixedAmount = amount.toFixed(2).replace('.', '\\.');
+  const wholeAmount = Number.isInteger(amount) ? String(amount) : null;
+  const amountAlternatives = wholeAmount ? `${fixedAmount}|${wholeAmount}` : fixedAmount;
+
+  return new RegExp(`(?:\\s|\\n)+\\$?(?:${amountAlternatives})$`);
+}
+
 function formatEditableMoney(value: number | null): string {
   return value === null ? '' : String(value);
 }
@@ -1173,7 +1247,8 @@ function getInitialLineAssignments(
   lineItems: Tables<'receipt_line_items'>[],
   receipt: Tables<'receipts'>,
   fallbackJobId: string | null,
-  inventoryMode = false
+  inventoryMode = false,
+  requiresExplicitAssignment = false
 ): Record<string, LineAssignmentState> {
   return Object.fromEntries(
     lineItems.map((lineItem) => {
@@ -1187,13 +1262,23 @@ function getInitialLineAssignments(
         ];
       }
 
+      if (requiresExplicitAssignment && lineItem.review_status === 'needs_review') {
+        return [
+          lineItem.id,
+          {
+            assignedJobId: null,
+            assignmentType: 'job' as const,
+          },
+        ];
+      }
+
       const assignmentType = inventoryMode
         ? 'tools_inventory'
         : isReceiptLineAssignmentType(lineItem.assignment_type)
         ? lineItem.assignment_type
         : 'job';
       const assignedJobId =
-        assignmentType === 'job' && fallbackJobId
+        assignmentType === 'job'
           ? lineItem.assigned_job_id ?? receipt.scan_context_job_id ?? fallbackJobId
           : null;
 
@@ -1223,15 +1308,27 @@ function getLineItemsTotal(
   return itemTotal + (receiptTax ?? 0);
 }
 
+function getLineAllocatedTax(
+  lineItem: Tables<'receipt_line_items'>,
+  lineItems: Tables<'receipt_line_items'>[],
+  receiptTax: number | null
+): number {
+  const taxableSubtotal = lineItems
+    .filter((nextLineItem) => nextLineItem.line_type === 'item')
+    .reduce((sum, nextLineItem) => sum + nextLineItem.line_total, 0);
+
+  if (!receiptTax || taxableSubtotal <= 0 || lineItem.line_type !== 'item') {
+    return 0;
+  }
+
+  return roundMoney(receiptTax * (lineItem.line_total / taxableSubtotal));
+}
+
 function getAssignedLineItemsTotal(
   lineItems: Tables<'receipt_line_items'>[],
   assignments: Record<string, LineAssignmentState>,
   receiptTax: number | null
 ): number {
-  const taxableSubtotal = lineItems
-    .filter((lineItem) => lineItem.line_type === 'item')
-    .reduce((sum, lineItem) => sum + lineItem.line_total, 0);
-
   return lineItems.reduce((sum, lineItem) => {
     const assignment = assignments[lineItem.id];
 
@@ -1239,13 +1336,12 @@ function getAssignedLineItemsTotal(
       return sum;
     }
 
-    const allocatedTax =
-      receiptTax && taxableSubtotal > 0 && lineItem.line_type === 'item'
-        ? receiptTax * (lineItem.line_total / taxableSubtotal)
-        : 0;
-
-    return sum + lineItem.line_total + allocatedTax;
+    return sum + lineItem.line_total + getLineAllocatedTax(lineItem, lineItems, receiptTax);
   }, 0);
+}
+
+function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 function isNonPurchaseLineItem(lineItem: Tables<'receipt_line_items'>): boolean {
@@ -1253,6 +1349,35 @@ function isNonPurchaseLineItem(lineItem: Tables<'receipt_line_items'>): boolean 
     lineItem.line_type === 'tax' ||
     lineItem.line_type === 'fee' ||
     lineItem.line_type === 'discount'
+  );
+}
+
+function getAssignedDestinationKeys(
+  lineItems: Tables<'receipt_line_items'>[],
+  assignments: Record<string, LineAssignmentState>
+): string[] {
+  return Array.from(
+    new Set(
+      lineItems
+        .map((lineItem) => {
+          if (isNonPurchaseLineItem(lineItem)) {
+            return null;
+          }
+
+          const assignment = assignments[lineItem.id];
+
+          if (!assignment || assignment.assignmentType === 'ignore') {
+            return null;
+          }
+
+          if (assignment.assignmentType === 'tools_inventory') {
+            return 'tools_inventory';
+          }
+
+          return assignment.assignedJobId ? `job:${assignment.assignedJobId}` : null;
+        })
+        .filter((destination): destination is string => Boolean(destination))
+    )
   );
 }
 
@@ -1648,10 +1773,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 18,
   },
+  lineItemAmountColumn: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
   lineItemAmount: {
     color: '#1F2933',
     fontSize: 15,
     fontWeight: '900',
+  },
+  lineItemTaxAmount: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '800',
   },
   lineItemMeta: {
     color: '#64748B',
@@ -1702,8 +1836,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   selectedJobChoiceButton: {
-    backgroundColor: '#EEF6F0',
+    backgroundColor: '#F0FDF4',
     borderColor: '#335C43',
+    borderWidth: 2,
   },
   jobChoiceButtonText: {
     color: '#475569',
@@ -1712,6 +1847,7 @@ const styles = StyleSheet.create({
   },
   selectedJobChoiceButtonText: {
     color: '#335C43',
+    fontWeight: '900',
   },
   retakePanel: {
     backgroundColor: '#FEF2F2',
@@ -1861,20 +1997,6 @@ const styles = StyleSheet.create({
   },
   savedEditButtonText: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  savedSecondaryButton: {
-    alignItems: 'center',
-    borderColor: '#166534',
-    borderRadius: 8,
-    borderWidth: 1,
-    justifyContent: 'center',
-    marginTop: 6,
-    minHeight: 44,
-  },
-  savedSecondaryButtonText: {
-    color: '#166534',
     fontSize: 15,
     fontWeight: '900',
   },

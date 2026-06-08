@@ -96,12 +96,12 @@ export function JobReportScreen({ job, onBack }: JobReportScreenProps) {
         return;
       }
 
-      const sharedUri = await createAndSharePdf({
+      const result = await createAndSharePdf({
         dialogTitle: 'Share job report PDF',
         fileBaseName,
         html: documentHtml,
       });
-      setMessage(`PDF ready: ${sharedUri}`);
+      setMessage(result.didOpen ? 'Job report PDF opened.' : 'Job report PDF saved.');
     } catch {
       setMessage('Unable to export job report PDF.');
     }
@@ -129,12 +129,12 @@ export function JobReportScreen({ job, onBack }: JobReportScreenProps) {
         return;
       }
 
-      const sharedUri = await createAndSharePdf({
+      const result = await createAndSharePdf({
         dialogTitle: 'Share receipt photos PDF',
         fileBaseName,
         html: receiptPhotosHtml,
       });
-      setMessage(`Receipt photos ready: ${sharedUri}`);
+      setMessage(result.didOpen ? 'Receipt photos PDF opened.' : 'Receipt photos PDF saved.');
     } catch {
       setMessage('Unable to export receipt photos.');
     }

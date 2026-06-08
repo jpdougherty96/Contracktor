@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -29,6 +29,8 @@ type CrewOption = {
   name: string;
 };
 
+type TimeEntryMode = 'duration' | 'range';
+
 export function AddHoursScreen({
   backLabel = 'Back to updates',
   job,
@@ -36,6 +38,10 @@ export function AddHoursScreen({
   onCreated,
 }: AddHoursScreenProps) {
   const [hours, setHours] = useState('');
+  const [timeEntryMode, setTimeEntryMode] = useState<TimeEntryMode>('duration');
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [breakMinutes, setBreakMinutes] = useState('');
   const [workDate, setWorkDate] = useState(getTodayDate());
   const [workerName, setWorkerName] = useState('');
   const [hourlyRate, setHourlyRate] = useState(formatEditableNumber(job.hourlyRate));
@@ -44,6 +50,10 @@ export function AddHoursScreen({
   const [note, setNote] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const calculatedHours = useMemo(
+    () => calculateTimeRangeHours(startTime, endTime, breakMinutes),
+    [breakMinutes, endTime, startTime]
+  );
 
   const applyCrewOption = useCallback(
     (option: CrewOption) => {
@@ -104,11 +114,16 @@ export function AddHoursScreen({
   const handleSubmit = async () => {
     setErrorMessage(null);
 
-    const parsedHours = parsePositiveNumber(hours);
+    const parsedHours =
+      timeEntryMode === 'duration' ? parsePositiveNumber(hours) : calculatedHours.hours;
     const parsedHourlyRate = parsePositiveNumber(hourlyRate);
 
     if (parsedHours === null) {
-      setErrorMessage('Hours are required and must be greater than 0.');
+      setErrorMessage(
+        timeEntryMode === 'duration'
+          ? 'Hours are required and must be greater than 0.'
+          : calculatedHours.error ?? 'Enter a valid start time and end time.'
+      );
       return;
     }
 
@@ -187,13 +202,73 @@ export function AddHoursScreen({
                 </View>
               </View>
             ) : null}
-            <Field
-              inputMode="decimal"
-              label="Hours"
-              onChangeText={setHours}
-              placeholder="0"
-              value={hours}
-            />
+            <View style={styles.field}>
+              <Text style={styles.label}>Time entry</Text>
+              <View style={styles.segmentedControl}>
+                {(['duration', 'range'] as TimeEntryMode[]).map((mode) => (
+                  <Pressable
+                    key={mode}
+                    onPress={() => setTimeEntryMode(mode)}
+                    style={[
+                      styles.segmentButton,
+                      timeEntryMode === mode && styles.selectedSegmentButton,
+                    ]}>
+                    <Text
+                      style={[
+                        styles.segmentButtonText,
+                        timeEntryMode === mode && styles.selectedSegmentButtonText,
+                      ]}>
+                      {mode === 'duration' ? 'Duration' : 'Time range'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+            {timeEntryMode === 'duration' ? (
+              <Field
+                inputMode="decimal"
+                label="Hours"
+                onChangeText={setHours}
+                placeholder="0"
+                value={hours}
+              />
+            ) : (
+              <View style={styles.timeRangePanel}>
+                <View style={styles.timeRangeGrid}>
+                  <Field
+                    label="Start time"
+                    onChangeText={setStartTime}
+                    placeholder="8:00 AM"
+                    value={startTime}
+                  />
+                  <Field
+                    label="End time"
+                    onChangeText={setEndTime}
+                    placeholder="4:30 PM"
+                    value={endTime}
+                  />
+                </View>
+                <Field
+                  inputMode="decimal"
+                  label="Break minutes"
+                  onChangeText={setBreakMinutes}
+                  placeholder="Optional"
+                  value={breakMinutes}
+                />
+                <View style={styles.calculatedPanel}>
+                  <Text style={styles.calculatedLabel}>Calculated hours</Text>
+                  <Text
+                    style={[
+                      styles.calculatedValue,
+                      calculatedHours.error && styles.calculatedErrorValue,
+                    ]}>
+                    {calculatedHours.hours === null
+                      ? calculatedHours.error ?? 'Enter start and end times'
+                      : formatHours(calculatedHours.hours)}
+                  </Text>
+                </View>
+              </View>
+            )}
             <Field
               label="Work date"
               onChangeText={setWorkDate}
@@ -262,6 +337,97 @@ function parsePositiveNumber(value: string): number | null {
   const parsed = Number(value.replace(/[$,]/g, '').trim());
 
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseNonNegativeNumber(value: string): number | null {
+  const trimmedValue = value.replace(/[$,]/g, '').trim();
+
+  if (!trimmedValue) {
+    return 0;
+  }
+
+  const parsed = Number(trimmedValue);
+
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function calculateTimeRangeHours(
+  startTime: string,
+  endTime: string,
+  breakMinutes: string
+): { error?: string; hours: number | null } {
+  if (!startTime.trim() && !endTime.trim()) {
+    return { hours: null };
+  }
+
+  const startMinutes = parseTimeOfDay(startTime);
+  const endMinutes = parseTimeOfDay(endTime);
+  const parsedBreakMinutes = parseNonNegativeNumber(breakMinutes);
+
+  if (startMinutes === null || endMinutes === null) {
+    return { error: 'Use times like 8:00 AM or 4:30 PM.', hours: null };
+  }
+
+  if (parsedBreakMinutes === null) {
+    return { error: 'Break minutes must be 0 or more.', hours: null };
+  }
+
+  const workedMinutes = endMinutes - startMinutes - parsedBreakMinutes;
+
+  if (endMinutes <= startMinutes) {
+    return { error: 'End time must be after start time.', hours: null };
+  }
+
+  if (workedMinutes <= 0) {
+    return { error: 'Calculated hours must be greater than 0.', hours: null };
+  }
+
+  return { hours: Math.round((workedMinutes / 60) * 100) / 100 };
+}
+
+function parseTimeOfDay(value: string): number | null {
+  const normalizedValue = value.trim().toLowerCase().replace(/\s+/g, '');
+
+  if (!normalizedValue) {
+    return null;
+  }
+
+  const match = normalizedValue.match(/^(\d{1,2})(?::?(\d{2}))?(am|pm)?$/);
+
+  if (!match) {
+    return null;
+  }
+
+  let hours = Number(match[1]);
+  const minutes = match[2] ? Number(match[2]) : 0;
+  const meridiem = match[3];
+
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || minutes < 0 || minutes > 59) {
+    return null;
+  }
+
+  if (meridiem) {
+    if (hours < 1 || hours > 12) {
+      return null;
+    }
+
+    if (meridiem === 'am') {
+      hours = hours === 12 ? 0 : hours;
+    } else {
+      hours = hours === 12 ? 12 : hours + 12;
+    }
+  } else if (hours < 0 || hours > 23) {
+    return null;
+  }
+
+  return hours * 60 + minutes;
+}
+
+function formatHours(hours: number): string {
+  return `${new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: hours % 1 === 0 ? 0 : 2,
+  }).format(hours)} hrs`;
 }
 
 function formatEditableNumber(value: number | null | undefined): string {
@@ -364,6 +530,61 @@ const styles = StyleSheet.create({
     fontSize: 16,
     minHeight: 52,
     paddingHorizontal: 14,
+  },
+  segmentedControl: {
+    backgroundColor: '#F6F5F2',
+    borderColor: '#D8D3CA',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    padding: 3,
+  },
+  segmentButton: {
+    alignItems: 'center',
+    borderRadius: 6,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 42,
+  },
+  selectedSegmentButton: {
+    backgroundColor: '#335C43',
+  },
+  segmentButtonText: {
+    color: '#475569',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  selectedSegmentButtonText: {
+    color: '#FFFFFF',
+  },
+  timeRangePanel: {
+    gap: 12,
+  },
+  timeRangeGrid: {
+    gap: 12,
+  },
+  calculatedPanel: {
+    backgroundColor: '#F6F5F2',
+    borderColor: '#E2E0DA',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 3,
+    padding: 12,
+  },
+  calculatedLabel: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  calculatedValue: {
+    color: '#1F2933',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  calculatedErrorValue: {
+    color: '#B91C1C',
+    fontSize: 14,
+    lineHeight: 20,
   },
   crewGrid: {
     gap: 8,

@@ -1,6 +1,6 @@
 import type { Session } from '@supabase/supabase-js';
-import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ActivityIndicator, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getCurrentAuthState, signOut } from '@/src/lib/auth';
@@ -67,6 +67,7 @@ type Screen =
   | 'updatePassword';
 
 export default function HomeScreen() {
+  const { width: viewportWidth } = useWindowDimensions();
   const [session, setSession] = useState<Session | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -90,6 +91,13 @@ export default function HomeScreen() {
   const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
   const isPasswordRecoveryFlowRef = useRef(false);
+  const renderScreen = (content: ReactNode) => (
+    <View style={styles.appShell}>
+      <View style={[styles.screenFrame, viewportWidth >= 768 && styles.desktopScreenFrame]}>
+        {content}
+      </View>
+    </View>
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -211,8 +219,10 @@ export default function HomeScreen() {
 
     if (item.receiptId) {
       setSelectedReceiptId(item.receiptId);
-      setSelectedReceiptJobs(item.job ? [item.job] : []);
-      setIsSelectedReceiptInventoryMode(!item.job);
+      setSelectedReceiptJobs(item.receiptJobs ?? (item.job ? [item.job] : []));
+      setIsSelectedReceiptInventoryMode(
+        item.receiptIncludesInventoryDestination ?? !item.job
+      );
       setReceiptReviewBackScreen('activity');
       setScreen('reviewReceipt');
       return;
@@ -254,11 +264,11 @@ export default function HomeScreen() {
   }
 
   if (!session) {
-    return <AuthScreen configError={authError} />;
+    return renderScreen(<AuthScreen configError={authError} />);
   }
 
   if (screen === 'updatePassword') {
-    return (
+    return renderScreen(
       <UpdatePasswordScreen
         onSaved={() => {
           isPasswordRecoveryFlowRef.current = false;
@@ -270,7 +280,7 @@ export default function HomeScreen() {
   }
 
   if (screen === 'accountSettings') {
-    return (
+    return renderScreen(
       <AccountSettingsScreen
         onBack={() => setScreen('home')}
         onChangePassword={() => {
@@ -283,7 +293,7 @@ export default function HomeScreen() {
   }
 
   if (screen === 'activity') {
-    return (
+    return renderScreen(
       <ActivityScreen
         onBack={() => setScreen('home')}
         onOpenItem={handleOpenActivityItem}
@@ -293,7 +303,7 @@ export default function HomeScreen() {
   }
 
   if (screen === 'home') {
-    return (
+    return renderScreen(
       <HomeActionsScreen
         needsReviewCount={needsReviewCount}
         onAddExpense={() => {
@@ -318,9 +328,10 @@ export default function HomeScreen() {
   }
 
   if (isJobPickerScreen(screen)) {
-    return (
+    return renderScreen(
       <JobPickerScreen
         actionLabel={getJobPickerActionLabel(screen)}
+        compactJobCards={screen === 'selectJobForNote'}
         emptyDetail={getJobPickerEmptyDetail(screen)}
         includeInventoryOption={screen === 'selectJobForExpense' || screen === 'selectJobsForReceiptEdit'}
         initialInventorySelected={
@@ -370,13 +381,14 @@ export default function HomeScreen() {
           setScreen('addExpenseMethod');
         }}
         refreshKey={jobsRefreshKey}
+        pickerContext={screen === 'selectJobForPayment' ? 'payment' : 'default'}
         title={getJobPickerTitle(screen)}
       />
     );
   }
 
   if (screen === 'dashboard' && selectedJob) {
-    return (
+    return renderScreen(
       <JobDashboardScreen
         job={selectedJob}
         onBack={() => setScreen('jobs')}
@@ -412,15 +424,21 @@ export default function HomeScreen() {
   }
 
   if (screen === 'invoiceDraft' && selectedJob) {
-    return <InvoiceDraftScreen job={selectedJob} onBack={() => setScreen('dashboard')} />;
+    return renderScreen(
+      <InvoiceDraftScreen
+        job={selectedJob}
+        onBack={() => setScreen('dashboard')}
+        onEditBusinessProfile={() => setScreen('accountSettings')}
+      />
+    );
   }
 
   if (screen === 'jobReport' && selectedJob) {
-    return <JobReportScreen job={selectedJob} onBack={() => setScreen('dashboard')} />;
+    return renderScreen(<JobReportScreen job={selectedJob} onBack={() => setScreen('dashboard')} />);
   }
 
   if (screen === 'addHoursHub') {
-    return (
+    return renderScreen(
       <AddHoursHubScreen
         onBack={() => setScreen('home')}
         onManualHours={(job) => {
@@ -435,7 +453,7 @@ export default function HomeScreen() {
   }
 
   if (screen === 'toolsInventory') {
-    return (
+    return renderScreen(
       <ToolsInventoryScreen
         onAddManualExpense={() => {
           setSelectedJob(null);
@@ -450,7 +468,7 @@ export default function HomeScreen() {
   }
 
   if (screen === 'addExpenseMethod' && (selectedJob || isSelectedReceiptInventoryMode)) {
-    return (
+    return renderScreen(
       <AddExpenseMethodScreen
         contextLabel={isSelectedReceiptInventoryMode ? 'Tools / Inventory' : selectedJob?.name ?? 'Job expense'}
         onBack={() => setScreen(addBackScreen)}
@@ -461,7 +479,7 @@ export default function HomeScreen() {
   }
 
   if (screen === 'editHours' && selectedJob && selectedHoursId) {
-    return (
+    return renderScreen(
       <EditHoursScreen
         hoursId={selectedHoursId}
         job={selectedJob}
@@ -480,7 +498,7 @@ export default function HomeScreen() {
   }
 
   if (screen === 'editNote' && selectedJob && selectedNoteId) {
-    return (
+    return renderScreen(
       <EditNoteScreen
         job={selectedJob}
         noteId={selectedNoteId}
@@ -494,7 +512,7 @@ export default function HomeScreen() {
   }
 
   if (screen === 'editPayment' && selectedJob && selectedPaymentId) {
-    return (
+    return renderScreen(
       <EditPaymentScreen
         job={selectedJob}
         onBack={() => setScreen(editBackScreen)}
@@ -508,7 +526,7 @@ export default function HomeScreen() {
   }
 
   if (screen === 'editJob' && selectedJob) {
-    return (
+    return renderScreen(
       <EditJobScreen
         job={selectedJob}
         onCancel={() => setScreen('dashboard')}
@@ -522,15 +540,27 @@ export default function HomeScreen() {
     );
   }
 
-  if (screen === 'reviewReceipt' && selectedReceiptId && (selectedJob || isSelectedReceiptInventoryMode)) {
+  if (
+    screen === 'reviewReceipt' &&
+    selectedReceiptId &&
+    (selectedJob || selectedReceiptJobs.length > 0 || isSelectedReceiptInventoryMode)
+  ) {
     const isInventoryOnlyReceipt = isSelectedReceiptInventoryMode && !selectedJob;
+    const receiptJobs =
+      isInventoryOnlyReceipt
+        ? []
+        : selectedReceiptJobs.length > 0
+          ? selectedReceiptJobs
+          : selectedJob
+            ? [selectedJob]
+            : [];
 
-    return (
+    return renderScreen(
       <ReceiptReviewScreen
         includeInventoryDestination={isSelectedReceiptInventoryMode}
         inventoryMode={isInventoryOnlyReceipt}
         job={selectedJob}
-        jobs={isInventoryOnlyReceipt ? [] : selectedJob && selectedReceiptJobs.length > 0 ? selectedReceiptJobs : selectedJob ? [selectedJob] : []}
+        jobs={receiptJobs}
         onBack={() => setScreen(receiptReviewBackScreen)}
         onReviewReceipt={(receiptId) => {
           setSelectedReceiptId(receiptId);
@@ -543,13 +573,7 @@ export default function HomeScreen() {
         }}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setScreen(
-            receiptReviewBackScreen === 'activity'
-              ? 'activity'
-              : isInventoryOnlyReceipt
-                ? 'toolsInventory'
-                : 'dashboard'
-          );
+          setScreen(getReceiptCompleteScreen(selectedReceiptJobs, isSelectedReceiptInventoryMode));
         }}
         receiptId={selectedReceiptId}
       />
@@ -557,7 +581,7 @@ export default function HomeScreen() {
   }
 
   if (screen === 'addUpdate' && selectedJob) {
-    return (
+    return renderScreen(
       <AddUpdateScreen
         job={selectedJob}
         onAddExpense={() => {
@@ -590,7 +614,7 @@ export default function HomeScreen() {
   if (screen === 'addReceipt' && (selectedJob || isSelectedReceiptInventoryMode)) {
     const isInventoryOnlyReceipt = isSelectedReceiptInventoryMode && !selectedJob;
 
-    return (
+    return renderScreen(
       <AddReceiptScreen
         backLabel={getAddBackLabel(addBackScreen)}
         doneLabel={getAddDoneLabel(addCompleteScreen)}
@@ -601,7 +625,7 @@ export default function HomeScreen() {
         onBack={() => setScreen(addBackScreen)}
         onDone={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setScreen(addCompleteScreen);
+          setScreen(getReceiptCompleteScreen(selectedReceiptJobs, isSelectedReceiptInventoryMode));
         }}
         onReviewReceipt={(receiptId) => {
           setSelectedReceiptId(receiptId);
@@ -616,7 +640,7 @@ export default function HomeScreen() {
   if (screen === 'addManualExpense' && (selectedJob || isSelectedReceiptInventoryMode)) {
     const isInventoryOnlyExpense = isSelectedReceiptInventoryMode && !selectedJob;
 
-    return (
+    return renderScreen(
       <AddManualExpenseScreen
         backLabel={getAddBackLabel(addBackScreen)}
         inventoryMode={isInventoryOnlyExpense}
@@ -631,7 +655,7 @@ export default function HomeScreen() {
   }
 
   if (screen === 'addHours' && selectedJob) {
-    return (
+    return renderScreen(
       <AddHoursScreen
         backLabel={getAddBackLabel(addBackScreen)}
         job={selectedJob}
@@ -645,7 +669,7 @@ export default function HomeScreen() {
   }
 
   if (screen === 'addPayment' && selectedJob) {
-    return (
+    return renderScreen(
       <AddPaymentScreen
         backLabel={getAddBackLabel(addBackScreen)}
         job={selectedJob}
@@ -659,7 +683,7 @@ export default function HomeScreen() {
   }
 
   if (screen === 'addNote' && selectedJob) {
-    return (
+    return renderScreen(
       <AddNoteScreen
         backLabel={getAddBackLabel(addBackScreen)}
         job={selectedJob}
@@ -673,7 +697,7 @@ export default function HomeScreen() {
   }
 
   if (screen === 'createJob') {
-    return (
+    return renderScreen(
       <CreateJobScreen
         onCancel={() => setScreen(createBackScreen)}
         onCreated={(job) => {
@@ -685,7 +709,7 @@ export default function HomeScreen() {
     );
   }
 
-  return (
+  return renderScreen(
     <JobsListScreen
       onCreateJob={() => {
         setCreateBackScreen('jobs');
@@ -827,6 +851,18 @@ function getAddDoneLabel(screen: Screen): string {
   return 'Back home';
 }
 
+function getReceiptCompleteScreen(receiptJobs: Job[], includesInventoryDestination: boolean): Screen {
+  if (receiptJobs.length === 1 && !includesInventoryDestination) {
+    return 'dashboard';
+  }
+
+  if (receiptJobs.length === 0 && includesInventoryDestination) {
+    return 'toolsInventory';
+  }
+
+  return 'activity';
+}
+
 function isPasswordRecoveryUrl(): boolean {
   if (typeof window === 'undefined') {
     return false;
@@ -856,6 +892,18 @@ function LoadingScreen() {
 }
 
 const styles = StyleSheet.create({
+  appShell: {
+    backgroundColor: '#F6F5F2',
+    flex: 1,
+  },
+  screenFrame: {
+    flex: 1,
+    width: '100%',
+  },
+  desktopScreenFrame: {
+    alignSelf: 'center',
+    maxWidth: 980,
+  },
   safeArea: {
     flex: 1,
     backgroundColor: '#F6F5F2',

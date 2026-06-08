@@ -5,7 +5,7 @@ import type { Job, JobType } from '@/src/types/job';
 
 type JobSnapshotSummary = Pick<
   Tables<'job_financial_snapshots'>,
-  'job_id' | 'receipt_cost' | 'total_hours'
+  'job_id' | 'payments_received' | 'receipt_cost' | 'total_hours'
 >;
 
 export type CreateJobInput = {
@@ -146,7 +146,7 @@ async function fetchSnapshotSummaries(
 
   const { data, error } = await supabase
     .from('job_financial_snapshots')
-    .select('job_id, receipt_cost, total_hours')
+    .select('job_id, payments_received, receipt_cost, total_hours')
     .eq('owner_id', ownerId)
     .in('job_id', jobIds);
 
@@ -177,6 +177,7 @@ function mapJobRow(row: Tables<'jobs'>, snapshot?: JobSnapshotSummary): Job {
     estimatedMiscCost: row.estimated_misc_cost,
     actualMaterialCost: snapshot?.receipt_cost ?? null,
     actualLaborHours: snapshot?.total_hours ?? null,
+    paymentsReceived: snapshot?.payments_received ?? null,
     status: row.status,
     createdAt: row.created_at ?? undefined,
     updatedAt: row.updated_at ?? undefined,
