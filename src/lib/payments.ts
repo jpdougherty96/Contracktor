@@ -1,8 +1,11 @@
+import { recordActivityEvent } from '@/src/lib/activityEvents';
+import { formatCurrency } from '@/src/lib/financials';
 import { supabase } from '@/src/lib/supabase';
 import type { Tables } from '@/src/types/database';
 
 export type CreatePaymentInput = {
   amount: number;
+  method?: string | null;
   paymentDate: string;
   note?: string;
 };
@@ -10,7 +13,8 @@ export type CreatePaymentInput = {
 export type UpdatePaymentInput = CreatePaymentInput;
 export type CustomerPayment = Tables<'customer_payments'>;
 
-const paymentFields = 'id, job_id, owner_id, amount, payment_date, method, source, note, created_at, updated_at';
+const paymentFields =
+  'id, job_id, owner_id, business_id, created_by_user_id, amount, payment_date, method, source, note, created_at, updated_at';
 
 export async function createPayment(
   jobId: string,
@@ -31,6 +35,7 @@ export async function createPayment(
     .insert({
       amount: input.amount,
       job_id: jobId,
+      method: input.method?.trim() || null,
       note: input.note?.trim() || null,
       owner_id: userData.user.id,
       payment_date: input.paymentDate,
@@ -42,6 +47,26 @@ export async function createPayment(
   if (error) {
     throw new Error(error.message);
   }
+
+  await recordActivityEventSafely({
+    businessId: data.business_id,
+    createdByUserId: data.created_by_user_id ?? data.owner_id,
+    detail: `${formatCurrency(data.amount, { showCents: true })}${
+      data.note ? ` - ${data.note}` : ''
+    }`,
+    eventType: 'payment_recorded',
+    jobId: data.job_id,
+    metadata: {
+      amount: data.amount,
+      method: data.method,
+      paymentDate: data.payment_date,
+      source: data.source,
+    },
+    ownerId: data.owner_id,
+    sourceId: data.id,
+    sourceTable: 'customer_payments',
+    title: 'Payment recorded',
+  });
 
   return data;
 }
@@ -71,6 +96,16 @@ export async function fetchPayment(paymentId: string): Promise<CustomerPayment> 
   return data;
 }
 
+async function recordActivityEventSafely(
+  input: Parameters<typeof recordActivityEvent>[0]
+): Promise<void> {
+  try {
+    await recordActivityEvent(input);
+  } catch {
+    // Activity is an audit aid; the payment is the source of truth.
+  }
+}
+
 export async function updatePayment(
   paymentId: string,
   input: UpdatePaymentInput
@@ -89,6 +124,7 @@ export async function updatePayment(
     .from('customer_payments')
     .update({
       amount: input.amount,
+      method: input.method?.trim() || null,
       note: input.note?.trim() || null,
       payment_date: input.paymentDate,
       updated_at: new Date().toISOString(),

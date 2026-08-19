@@ -35,7 +35,7 @@ export async function fetchJobFinancialSnapshot(
   const { data, error } = await supabase
     .from('job_financial_snapshots')
     .select(
-      'job_id, owner_id, name, client_name, quote_amount, payments_received, labor_cost, receipt_cost, total_cost, projected_profit, projected_margin_percent, total_hours'
+      'job_id, owner_id, business_id, name, client_name, quote_amount, payments_received, labor_cost, receipt_cost, total_cost, projected_profit, projected_margin_percent, total_hours'
     )
     .eq('job_id', jobId)
     .eq('owner_id', userData.user.id)

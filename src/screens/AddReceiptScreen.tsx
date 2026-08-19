@@ -1,20 +1,20 @@
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { WebCameraCapture } from '@/src/components/WebCameraCapture';
 import {
-  acceptExtractedReceipt,
-  createProcessingReceipt,
-  extractReceipt,
-  fetchPotentialDuplicateReceipts,
+  attachReceiptPhoto,
+  createUploadingReceipt,
+  finalizeReceiptCapture,
   uploadReceiptPhoto,
 } from '@/src/lib/receipts';
 import type { Job } from '@/src/types/job';
 
 type AddReceiptScreenProps = {
+  autoStartCamera?: boolean;
   backLabel?: string;
   doneLabel?: string;
   includeInventoryDestination?: boolean;
@@ -26,12 +26,13 @@ type AddReceiptScreenProps = {
   onReviewReceipt: (receiptId: string) => void;
 };
 
-type ReceiptStep = 'idle' | 'uploading' | 'extracting' | 'complete';
+type ReceiptStep = 'idle' | 'uploading' | 'complete';
 
-const unclearReceiptMessage =
-  "We couldn't read the vendor, date, and total from this receipt. Please retake a clearer photo.";
+const receiptImageMaxDimension = 4000;
+const receiptJpegQuality = 0.95;
 
 export function AddReceiptScreen({
+  autoStartCamera = false,
   backLabel = 'Back to updates',
   doneLabel = 'Back to dashboard',
   includeInventoryDestination = false,
@@ -46,73 +47,47 @@ export function AddReceiptScreen({
   const [message, setMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isWebCameraOpen, setIsWebCameraOpen] = useState(false);
+  const didAutoStartCameraRef = useRef(false);
   const receiptJobs = jobs && jobs.length > 0 ? jobs : job ? [job] : [];
 
-  const isBusy = step === 'uploading' || step === 'extracting';
+  const isBusy = step === 'uploading';
   const isWeb = Platform.OS === 'web';
   const prefersNativeWebCamera = isWeb && isMobileWebBrowser();
 
-  const processReceiptAsset = async (asset: ImagePicker.ImagePickerAsset) => {
+  const processReceiptAsset = useCallback(async (asset: ImagePicker.ImagePickerAsset) => {
     try {
       setStep('uploading');
       setMessage('Preparing receipt...');
 
       const contextJobId = inventoryMode ? null : job?.id;
+      const receipt = await createUploadingReceipt(contextJobId ?? null);
       const preparedAsset = await prepareReceiptAssetForUpload(asset);
       setMessage('Uploading receipt...');
-      const upload = await uploadReceiptPhoto(contextJobId ?? null, preparedAsset);
-      const receipt = await createProcessingReceipt(
+      const upload = await uploadReceiptPhoto(
+        receipt.id,
         contextJobId ?? null,
-        upload.storagePath,
-        upload.originalFilename
+        preparedAsset
       );
+      await attachReceiptPhoto(receipt.id, upload.storagePath, upload.originalFilename);
 
-      setStep('extracting');
-      setMessage('Reading receipt...');
-
-      const extraction = await extractReceipt(receipt.id);
-
-      if (extraction.receipt.status === 'error' || extraction.receipt.review_status === 'error') {
-        setStep('idle');
-        setMessage(null);
-        setErrorMessage(extraction.receipt.error_message ?? unclearReceiptMessage);
-        return;
-      }
-
-      if ((extraction.line_items ?? []).length > 0) {
-        onReviewReceipt(extraction.receipt.id);
-        return;
-      }
-
-      if (inventoryMode || includeInventoryDestination || receiptJobs.length > 1) {
-        onReviewReceipt(extraction.receipt.id);
-        return;
-      }
-
-      const duplicates = await fetchPotentialDuplicateReceipts(extraction.receipt);
-
-      if (
-        extraction.receipt.status !== 'accepted' ||
-        extraction.receipt.review_status !== 'reviewed' ||
-        duplicates.length > 0
-      ) {
-        onReviewReceipt(extraction.receipt.id);
-        return;
-      }
-
-      await acceptExtractedReceipt(extraction.receipt);
+      setMessage('Securing receipt...');
+      await finalizeReceiptCapture(receipt.id);
       setStep('complete');
-      setMessage('Receipt saved.');
-      onDone();
+      setMessage('Receipt secured. Choose where it goes next.');
+      onReviewReceipt(receipt.id);
       return;
 
     } catch (error) {
       setStep('idle');
       setErrorMessage(error instanceof Error ? error.message : 'Unable to add receipt.');
     }
-  };
+  }, [
+    inventoryMode,
+    job?.id,
+    onReviewReceipt,
+  ]);
 
-  const handleTakePhoto = async () => {
+  const handleTakePhoto = useCallback(async () => {
     setMessage(null);
     setErrorMessage(null);
 
@@ -142,7 +117,7 @@ export function AddReceiptScreen({
       allowsEditing: false,
       base64: true,
       mediaTypes: ['images'],
-      quality: 0.8,
+      quality: 1,
     });
 
     if (result.canceled || !result.assets[0]) {
@@ -150,7 +125,7 @@ export function AddReceiptScreen({
     }
 
     await processReceiptAsset(result.assets[0]);
-  };
+  }, [isWeb, prefersNativeWebCamera, processReceiptAsset]);
 
   const handleChoosePhoto = async () => {
     setMessage(null);
@@ -170,7 +145,7 @@ export function AddReceiptScreen({
       allowsMultipleSelection: false,
       base64: true,
       mediaTypes: ['images'],
-      quality: 0.8,
+      quality: 1,
     });
 
     if (result.canceled || !result.assets[0]) {
@@ -179,6 +154,15 @@ export function AddReceiptScreen({
 
     await processReceiptAsset(result.assets[0]);
   };
+
+  useEffect(() => {
+    if (!autoStartCamera || didAutoStartCameraRef.current || isWeb) {
+      return;
+    }
+
+    didAutoStartCameraRef.current = true;
+    void handleTakePhoto();
+  }, [autoStartCamera, handleTakePhoto, isWeb]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -189,9 +173,7 @@ export function AddReceiptScreen({
 
         <View style={styles.header}>
           <Text style={styles.title}>Add receipt</Text>
-          <Text style={styles.subtitle}>
-            {inventoryMode ? 'Tools / Inventory' : formatReceiptJobs(receiptJobs)}
-          </Text>
+          <Text style={styles.subtitle}>{formatReceiptContext(inventoryMode, receiptJobs)}</Text>
         </View>
 
         <View style={styles.panel}>
@@ -201,7 +183,7 @@ export function AddReceiptScreen({
               ? 'Take a clear receipt photo with your phone camera, or upload an existing image.'
               : isWeb
               ? 'Upload a clear receipt image from this computer, or use a connected camera.'
-              : 'Take a clear photo of the full receipt. The app will upload it and start extraction.'}
+              : 'Take a clear photo of the full receipt. The app will secure it for background processing.'}
           </Text>
 
           {message ? <Text style={styles.messageText}>{message}</Text> : null}
@@ -287,9 +269,13 @@ export function AddReceiptScreen({
   );
 }
 
-function formatReceiptJobs(jobs: Job[]): string {
-  if (jobs.length === 0) {
+function formatReceiptContext(inventoryMode: boolean, jobs: Job[]): string {
+  if (inventoryMode) {
     return 'Tools / Inventory';
+  }
+
+  if (jobs.length === 0) {
+    return 'Choose destination after capture';
   }
 
   if (jobs.length === 1) {
@@ -371,15 +357,14 @@ async function prepareReceiptAssetForUpload(
     return asset;
   }
 
-  const maxDimension = 2400;
   const largestDimension = Math.max(asset.width ?? 0, asset.height ?? 0);
   const actions =
-    largestDimension > maxDimension
-      ? [{ resize: getResizeDimensions(asset, maxDimension) }]
+    largestDimension > receiptImageMaxDimension
+      ? [{ resize: getResizeDimensions(asset, receiptImageMaxDimension) }]
       : [];
   const manipulated = await ImageManipulator.manipulateAsync(asset.uri, actions, {
     base64: true,
-    compress: 0.92,
+    compress: receiptJpegQuality,
     format: ImageManipulator.SaveFormat.JPEG,
   });
 
@@ -462,8 +447,7 @@ async function prepareWebReceiptImage(dataUrl: string): Promise<{
     return originalImage;
   }
 
-  const maxDimension = 2400;
-  const scale = Math.min(1, maxDimension / Math.max(dimensions.height, dimensions.width));
+  const scale = Math.min(1, receiptImageMaxDimension / Math.max(dimensions.height, dimensions.width));
   const width = Math.round(dimensions.width * scale);
   const height = Math.round(dimensions.height * scale);
   const canvas = document.createElement('canvas');
@@ -478,7 +462,7 @@ async function prepareWebReceiptImage(dataUrl: string): Promise<{
   canvas.height = height;
   context.drawImage(image, 0, 0, width, height);
 
-  const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.92);
+  const jpegDataUrl = canvas.toDataURL('image/jpeg', receiptJpegQuality);
 
   return {
     dataUrl: jpegDataUrl,

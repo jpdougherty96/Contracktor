@@ -10,12 +10,13 @@ type HomeActionsScreenProps = {
   onAddExpense: () => void;
   onAddHours: () => void;
   onAddJob: () => void;
-  onAddNote: () => void;
   onAddPayment: () => void;
   onAccountSettings?: () => void;
+  onCaptureReceipt: () => void;
   onGoToActivity: () => void;
   onGoToJobs: () => void;
   onGoToToolsInventory: () => void;
+  onTellContracktor: () => void;
   onLogout?: () => void;
   userEmail?: string;
 };
@@ -52,12 +53,6 @@ const primaryActions = [
     label: 'Add payment',
   },
   {
-    description: 'Save a job note, photo, or reminder.',
-    icon: 'clipboard',
-    key: 'note',
-    label: 'Add note',
-  },
-  {
     description: 'Review non-job tool and inventory purchases.',
     icon: 'archive',
     key: 'toolsInventory',
@@ -76,12 +71,13 @@ export function HomeActionsScreen({
   onAddExpense,
   onAddHours,
   onAddJob,
-  onAddNote,
   onAddPayment,
   onAccountSettings,
+  onCaptureReceipt,
   onGoToActivity,
   onGoToJobs,
   onGoToToolsInventory,
+  onTellContracktor,
   onLogout,
   userEmail,
 }: HomeActionsScreenProps) {
@@ -100,11 +96,6 @@ export function HomeActionsScreen({
 
     if (key === 'payment') {
       onAddPayment();
-      return;
-    }
-
-    if (key === 'note') {
-      onAddNote();
       return;
     }
 
@@ -163,6 +154,30 @@ export function HomeActionsScreen({
           </View>
 
           <Text style={styles.heading}>What do you need to update?</Text>
+
+          <Pressable onPress={onCaptureReceipt} style={styles.captureButton}>
+            <View style={styles.captureIconBlock}>
+              <Feather color={colors.warmWhite} name="camera" size={30} />
+            </View>
+            <View style={styles.captureText}>
+              <Text style={styles.captureLabel}>Capture receipt</Text>
+              <Text style={styles.captureDescription}>
+                Open the camera first. Choose the job after.
+              </Text>
+            </View>
+          </Pressable>
+
+          <Pressable onPress={onTellContracktor} style={styles.tellButton}>
+            <View style={styles.tellIconBlock}>
+              <Feather color={colors.primaryGreen} name="message-circle" size={30} />
+            </View>
+            <View style={styles.captureText}>
+              <Text style={styles.tellLabel}>Tell conTRACKtor</Text>
+              <Text style={styles.tellDescription}>
+                Type or dictate what happened. Add photos if useful.
+              </Text>
+            </View>
+          </Pressable>
 
           <View style={styles.actionList}>
             {primaryActions.map((action) => (
@@ -292,6 +307,72 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     lineHeight: 28,
     marginBottom: 16,
+  },
+  captureButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primaryGreen,
+    borderRadius: 16,
+    flexDirection: 'row',
+    gap: 14,
+    marginBottom: 14,
+    minHeight: 96,
+    padding: 16,
+  },
+  tellButton: {
+    alignItems: 'center',
+    backgroundColor: colors.cardBackground,
+    borderColor: colors.primaryGreen,
+    borderRadius: 16,
+    borderWidth: 2,
+    flexDirection: 'row',
+    gap: 14,
+    marginBottom: 14,
+    minHeight: 96,
+    padding: 16,
+  },
+  captureIconBlock: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 253, 248, 0.16)',
+    borderRadius: 14,
+    height: 62,
+    justifyContent: 'center',
+    width: 62,
+  },
+  tellIconBlock: {
+    alignItems: 'center',
+    backgroundColor: '#E9F0EA',
+    borderRadius: 14,
+    height: 62,
+    justifyContent: 'center',
+    width: 62,
+  },
+  captureText: {
+    flex: 1,
+    gap: 4,
+  },
+  captureLabel: {
+    color: colors.warmWhite,
+    fontSize: 27,
+    fontWeight: '900',
+    lineHeight: 32,
+  },
+  captureDescription: {
+    color: '#E8EFE8',
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 21,
+  },
+  tellLabel: {
+    color: colors.text,
+    fontSize: 27,
+    fontWeight: '900',
+    lineHeight: 32,
+  },
+  tellDescription: {
+    color: colors.mutedText,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 21,
   },
   actionList: {
     gap: 10,

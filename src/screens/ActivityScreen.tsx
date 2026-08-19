@@ -3,24 +3,41 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { resolveActivityEvent } from '@/src/lib/activityEvents';
 import { fetchGlobalActivity, type GlobalActivityItem, type GlobalActivitySummary } from '@/src/lib/globalActivity';
 import { colors } from '@/src/styles/theme';
 
 type ActivityScreenProps = {
+  onChanged?: () => void;
   onBack: () => void;
   onOpenItem: (item: GlobalActivityItem) => void;
   refreshKey?: number;
 };
 
-export function ActivityScreen({ onBack, onOpenItem, refreshKey = 0 }: ActivityScreenProps) {
+export function ActivityScreen({ onBack, onChanged, onOpenItem, refreshKey = 0 }: ActivityScreenProps) {
   const [summary, setSummary] = useState<GlobalActivitySummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [resolvingEventId, setResolvingEventId] = useState<string | null>(null);
+
+  const loadActivity = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const nextSummary = await fetchGlobalActivity();
+      setSummary(nextSummary);
+    } catch (activityError) {
+      setError(activityError instanceof Error ? activityError.message : 'Unable to load activity.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
 
-    const loadActivity = async () => {
+    const loadMountedActivity = async () => {
       setIsLoading(true);
       setError(null);
 
@@ -41,15 +58,42 @@ export function ActivityScreen({ onBack, onOpenItem, refreshKey = 0 }: ActivityS
       }
     };
 
-    loadActivity();
+    loadMountedActivity();
 
     return () => {
       isMounted = false;
     };
   }, [refreshKey]);
 
-  const groupedActivity = useMemo(() => groupActivityByDay(summary?.items ?? []), [summary?.items]);
-  const capturedToday = useMemo(() => getCapturedTodayItems(summary?.items ?? []), [summary?.items]);
+  const handleResolveItem = async (item: GlobalActivityItem) => {
+    if (!item.activityEventId) {
+      return;
+    }
+
+    setResolvingEventId(item.activityEventId);
+    setError(null);
+
+    try {
+      await resolveActivityEvent(item.activityEventId);
+      await loadActivity();
+      onChanged?.();
+    } catch (resolveError) {
+      setError(resolveError instanceof Error ? resolveError.message : 'Unable to mark item reviewed.');
+    } finally {
+      setResolvingEventId(null);
+    }
+  };
+
+  const attentionItems = summary?.needsReview ?? [];
+  const normalActivity = useMemo(
+    () => (summary?.items ?? []).filter((item) => !item.needsReview),
+    [summary?.items]
+  );
+  const todayActivity = useMemo(() => getTodayItems(normalActivity), [normalActivity]);
+  const groupedEarlierActivity = useMemo(
+    () => groupActivityByDay(normalActivity.filter((item) => !isToday(item.capturedAt ?? item.date))),
+    [normalActivity]
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -62,7 +106,7 @@ export function ActivityScreen({ onBack, onOpenItem, refreshKey = 0 }: ActivityS
           <View style={styles.header}>
             <View>
               <Text style={styles.title}>Recent activity</Text>
-              <Text style={styles.subtitle}>What happened and what needs attention.</Text>
+              <Text style={styles.subtitle}>Completed work and items that need attention.</Text>
             </View>
           </View>
 
@@ -82,7 +126,7 @@ export function ActivityScreen({ onBack, onOpenItem, refreshKey = 0 }: ActivityS
           {!isLoading && !error && summary ? (
             <>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Needs review</Text>
+                <Text style={styles.sectionTitle}>Needs Attention</Text>
                 {summary.needsReviewCount > 0 ? (
                   <View style={styles.reviewCount}>
                     <Text style={styles.reviewCountText}>{summary.needsReviewCount}</Text>
@@ -90,29 +134,40 @@ export function ActivityScreen({ onBack, onOpenItem, refreshKey = 0 }: ActivityS
                 ) : null}
               </View>
 
-              {summary.needsReview.length > 0 ? (
+              {attentionItems.length > 0 ? (
                 <View style={styles.reviewList}>
-                  {summary.needsReview.map((item) => (
-                    <ActivityRow key={item.id} item={item} onPress={() => onOpenItem(item)} prominent />
+                  {attentionItems.map((item) => (
+                    <ActivityRow
+                      isResolving={resolvingEventId === item.activityEventId}
+                      key={item.id}
+                      item={item}
+                      onPress={() => onOpenItem(item)}
+                      onResolve={
+                        item.activityEventId && item.type === 'activity_event'
+                          ? () => handleResolveItem(item)
+                          : undefined
+                      }
+                      prominent
+                    />
                   ))}
                 </View>
               ) : (
-                <View style={styles.quietCard}>
+                <View style={styles.emptyState}>
                   <Feather color={colors.primaryGreen} name="check-circle" size={22} />
                   <View style={styles.rowText}>
-                    <Text style={styles.rowTitle}>Nothing needs review</Text>
-                    <Text style={styles.rowDetail}>No receipt, budget, or timer issues are flagged right now.</Text>
+                    <Text style={styles.rowTitle}>Nothing needs attention</Text>
+                    <Text style={styles.rowDetail}>conTRACKtor is not waiting on you to finish anything right now.</Text>
                   </View>
                 </View>
               )}
 
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Captured today</Text>
+                <Text style={styles.sectionTitle}>Today</Text>
               </View>
 
-              {capturedToday.length > 0 ? (
+              {todayActivity.length > 0 ? (
                 <View style={styles.activityList}>
-                  {capturedToday.map((item) => (
+                  {todayActivity.map((item) => (
                     <ActivityRow
                       detailOverride={getCapturedDetail(item)}
                       key={`captured-${item.id}`}
@@ -123,22 +178,22 @@ export function ActivityScreen({ onBack, onOpenItem, refreshKey = 0 }: ActivityS
                   ))}
                 </View>
               ) : (
-                <View style={styles.quietCard}>
+                <View style={styles.emptyState}>
                   <Feather color={colors.mutedText} name="inbox" size={22} />
                   <View style={styles.rowText}>
-                    <Text style={styles.rowTitle}>Nothing captured today</Text>
-                    <Text style={styles.rowDetail}>Receipts and updates added today will show here.</Text>
+                    <Text style={styles.rowTitle}>Nothing completed today</Text>
+                    <Text style={styles.rowDetail}>Receipts, hours, notes, payments, and expenses will show here.</Text>
                   </View>
                 </View>
               )}
 
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Activity by day</Text>
+                <Text style={styles.sectionTitle}>Earlier</Text>
               </View>
 
-              {groupedActivity.length > 0 ? (
+              {groupedEarlierActivity.length > 0 ? (
                 <View style={styles.dayList}>
-                  {groupedActivity.map((group) => (
+                  {groupedEarlierActivity.map((group) => (
                     <View key={group.label} style={styles.dayGroup}>
                       <Text style={styles.dayLabel}>{group.label}</Text>
                       {group.items.length > 0 ? (
@@ -157,7 +212,7 @@ export function ActivityScreen({ onBack, onOpenItem, refreshKey = 0 }: ActivityS
                 </View>
               ) : (
                 <View style={styles.stateCard}>
-                  <Text style={styles.stateText}>No recent activity yet.</Text>
+                  <Text style={styles.stateText}>No earlier activity yet.</Text>
                 </View>
               )}
             </>
@@ -173,12 +228,16 @@ function ActivityRow({
   item,
   labelOverride,
   onPress,
+  onResolve,
   prominent = false,
+  isResolving = false,
 }: {
   detailOverride?: string;
+  isResolving?: boolean;
   item: GlobalActivityItem;
   labelOverride?: string;
   onPress: () => void;
+  onResolve?: () => void;
   prominent?: boolean;
 }) {
   return (
@@ -191,7 +250,7 @@ function ActivityRow({
           <Text style={styles.rowTitle}>{labelOverride ?? item.label}</Text>
           {item.needsReview ? (
             <View style={styles.smallReviewPill}>
-              <Text style={styles.smallReviewPillText}>Review</Text>
+              <Text style={styles.smallReviewPillText}>Attention</Text>
             </View>
           ) : null}
         </View>
@@ -199,13 +258,24 @@ function ActivityRow({
         <Text numberOfLines={prominent ? 3 : 2} style={styles.rowDetail}>
           {detailOverride ?? item.reviewReason ?? item.detail}
         </Text>
+        {onResolve ? (
+          <Pressable
+            disabled={isResolving}
+            onPress={(event) => {
+              event.stopPropagation();
+              onResolve();
+            }}
+            style={styles.resolveButton}>
+            <Text style={styles.resolveButtonText}>{isResolving ? 'Saving...' : 'Mark reviewed'}</Text>
+          </Pressable>
+        ) : null}
       </View>
       <Feather color={colors.mutedText} name="chevron-right" size={20} />
     </Pressable>
   );
 }
 
-function getCapturedTodayItems(items: GlobalActivityItem[]) {
+function getTodayItems(items: GlobalActivityItem[]) {
   return items
     .filter((item) => isToday(item.capturedAt ?? item.date))
     .sort(sortCapturedNewestFirst)
@@ -235,10 +305,6 @@ function getCapturedDetail(item: GlobalActivityItem): string {
 }
 
 function getCapturedLabel(item: GlobalActivityItem): string {
-  if (item.type === 'receipt') {
-    return 'Receipt uploaded';
-  }
-
   return item.label;
 }
 
@@ -533,6 +599,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 19,
   },
+  resolveButton: {
+    alignSelf: 'flex-start',
+    borderColor: colors.primaryGreen,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  resolveButtonText: {
+    color: colors.primaryGreen,
+    fontSize: 13,
+    fontWeight: '900',
+  },
   smallReviewPill: {
     backgroundColor: '#F7E2DE',
     borderRadius: 999,
@@ -544,16 +624,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
   },
-  quietCard: {
+  emptyState: {
     alignItems: 'center',
-    backgroundColor: colors.cardBackground,
-    borderColor: colors.standardBorder,
-    borderRadius: 14,
-    borderWidth: 1,
+    backgroundColor: 'transparent',
     flexDirection: 'row',
     gap: 12,
     marginBottom: 20,
-    padding: 14,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
   },
   stateCard: {
     alignItems: 'center',

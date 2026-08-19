@@ -16,7 +16,7 @@ export type SaveJobPlanInput = {
 };
 
 const jobPlanFields =
-  'id, job_id, owner_id, scope_of_work, assumptions, exclusions, estimated_labor_hours, estimated_material_cost, estimated_other_cost, planned_phases, created_at, updated_at';
+  'id, job_id, owner_id, business_id, created_by_user_id, scope_of_work, assumptions, exclusions, estimated_labor_hours, estimated_material_cost, estimated_other_cost, planned_phases, created_at, updated_at';
 
 export async function fetchJobPlan(jobId: string): Promise<JobPlan | null> {
   const { data: userData, error: userError } = await supabase.auth.getUser();

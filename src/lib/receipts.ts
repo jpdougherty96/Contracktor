@@ -1,5 +1,10 @@
 import type { ImagePickerAsset } from 'expo-image-picker';
 
+import { recordReceiptActivityEvent } from '@/src/lib/activityEvents';
+import {
+  fulfillShoppingNeedsFromReceipt,
+  undoShoppingNeedFulfillmentsFromReceipt,
+} from '@/src/lib/shoppingNeeds';
 import { supabase } from '@/src/lib/supabase';
 import type { Tables } from '@/src/types/database';
 
@@ -44,9 +49,12 @@ export const receiptCategories: ReceiptCategory[] = [
 
 const duplicateAmountTolerance = 0.05;
 const receiptTotalTolerance = 0.05;
+const receiptFields =
+  'id, scan_context_job_id, owner_id, business_id, created_by_user_id, storage_path, original_filename, vendor, receipt_date, subtotal, tax, total, category, ai_confidence, extracted_json, status, review_status, processing_status, processing_started_at, processing_attempts, last_processing_error, error_message, created_at, updated_at';
 
 export type UpdateReceiptInput = {
   category: ReceiptCategory;
+  destinationJobId?: string | null;
   ignoreLineItems?: boolean;
   jobCostAmount: number;
   receiptDate: string;
@@ -69,6 +77,7 @@ export async function createReceiptImageSignedUrl(storagePath: string): Promise<
 }
 
 export async function uploadReceiptPhoto(
+  receiptId: string,
   jobId: string | null,
   imageAsset: ImagePickerAsset
 ): Promise<{
@@ -93,7 +102,7 @@ export async function uploadReceiptPhoto(
   const extension = getFileExtension(contentType);
   const originalFilename = imageAsset.fileName ?? `receipt-${Date.now()}.${extension}`;
   const storageScope = jobId ?? 'tools-inventory';
-  const storagePath = `${userData.user.id}/${storageScope}/${Date.now()}-${sanitizeFilename(
+  const storagePath = `${userData.user.id}/${storageScope}/${receiptId}/${sanitizeFilename(
     originalFilename
   )}`;
   const fileBody = base64ToArrayBuffer(imageAsset.base64);
@@ -113,11 +122,7 @@ export async function uploadReceiptPhoto(
   };
 }
 
-export async function createProcessingReceipt(
-  jobId: string | null,
-  storagePath: string,
-  originalFilename?: string
-): Promise<Tables<'receipts'>> {
+export async function createUploadingReceipt(jobId: string | null): Promise<Tables<'receipts'>> {
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
   if (userError) {
@@ -131,21 +136,103 @@ export async function createProcessingReceipt(
   const { data, error } = await supabase
     .from('receipts')
     .insert({
-      original_filename: originalFilename ?? null,
       owner_id: userData.user.id,
-      review_status: 'processing',
+      processing_status: 'uploading',
+      review_status: 'none',
       scan_context_job_id: jobId,
       status: 'processing',
-      storage_path: storagePath,
     })
-    .select(
-      'id, scan_context_job_id, owner_id, storage_path, original_filename, vendor, receipt_date, subtotal, tax, total, category, ai_confidence, extracted_json, status, review_status, error_message, created_at, updated_at'
-    )
+    .select(receiptFields)
     .single();
 
   if (error) {
     throw new Error(error.message);
   }
+
+  return data;
+}
+
+export async function attachReceiptPhoto(
+  receiptId: string,
+  storagePath: string,
+  originalFilename?: string
+): Promise<Tables<'receipts'>> {
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw new Error(userError.message);
+  }
+
+  if (!userData.user) {
+    throw new Error('You must be logged in to attach a receipt photo.');
+  }
+
+  const { data, error } = await supabase
+    .from('receipts')
+    .update({
+      original_filename: originalFilename ?? null,
+      storage_path: storagePath,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', receiptId)
+    .eq('owner_id', userData.user.id)
+    .select(receiptFields)
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data;
+}
+
+export async function setReceiptDraftDestination(
+  receiptId: string,
+  jobId: string | null
+): Promise<Tables<'receipts'>> {
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw new Error(userError.message);
+  }
+
+  if (!userData.user) {
+    throw new Error('You must be logged in to update a receipt destination.');
+  }
+
+  const { data, error } = await supabase
+    .from('receipts')
+    .update({
+      scan_context_job_id: jobId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', receiptId)
+    .eq('owner_id', userData.user.id)
+    .select(receiptFields)
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data;
+}
+
+export async function finalizeReceiptCapture(receiptId: string): Promise<Tables<'receipts'>> {
+  const { data, error } = await supabase.rpc('finalize_receipt_capture', {
+    p_receipt_id: receiptId,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  await recordReceiptEventSafely({
+    detail: 'Queued for background processing.',
+    eventType: 'receipt_secured',
+    receipt: data,
+    title: 'Receipt uploaded',
+  });
 
   return data;
 }
@@ -211,9 +298,7 @@ export async function fetchReceipt(receiptId: string): Promise<Tables<'receipts'
 
   const { data, error } = await supabase
     .from('receipts')
-    .select(
-      'id, scan_context_job_id, owner_id, storage_path, original_filename, vendor, receipt_date, subtotal, tax, total, category, ai_confidence, extracted_json, status, review_status, error_message, created_at, updated_at'
-    )
+    .select(receiptFields)
     .eq('id', receiptId)
     .eq('owner_id', userData.user.id)
     .single();
@@ -551,6 +636,10 @@ export async function updateReceipt(
       error_message: null,
       receipt_date: input.receiptDate,
       review_status: 'reviewed',
+      scan_context_job_id:
+        input.destinationJobId === undefined
+          ? existingReceipt.scan_context_job_id
+          : input.destinationJobId,
       status: 'accepted',
       subtotal: input.subtotal ?? null,
       tax: input.tax ?? null,
@@ -560,9 +649,7 @@ export async function updateReceipt(
     })
     .eq('id', receiptId)
     .eq('owner_id', userData.user.id)
-    .select(
-      'id, scan_context_job_id, owner_id, storage_path, original_filename, vendor, receipt_date, subtotal, tax, total, category, ai_confidence, extracted_json, status, review_status, error_message, created_at, updated_at'
-    )
+    .select(receiptFields)
     .single();
 
   if (error) {
@@ -576,7 +663,13 @@ export async function updateReceipt(
   await upsertReceiptExpense({
     category: input.category,
     jobCostAmount: input.jobCostAmount,
-    receipt: existingReceipt,
+    receipt: {
+      ...existingReceipt,
+      scan_context_job_id:
+        input.destinationJobId === undefined
+          ? existingReceipt.scan_context_job_id
+          : input.destinationJobId,
+    },
     receiptDate: input.receiptDate,
     subtotal: input.subtotal ?? null,
     tax: input.tax ?? null,
@@ -584,6 +677,20 @@ export async function updateReceipt(
     userId: userData.user.id,
     vendor: input.vendor,
   });
+
+  await recordReceiptEventSafely({
+    detail: `${input.vendor} - ${formatMoney(input.jobCostAmount)}`,
+    eventType: 'receipt_saved',
+    metadata: {
+      category: input.category,
+      jobCostAmount: input.jobCostAmount,
+      total: input.total,
+    },
+    receipt: data,
+    title: 'Receipt saved',
+  });
+
+  await fulfillShoppingNeedsFromReceiptSafely(data);
 
   return data;
 }
@@ -648,7 +755,8 @@ export async function acceptExtractedReceipt(receipt: Tables<'receipts'>): Promi
 
 export async function confirmReceiptLineAssignments(
   receiptId: string,
-  assignments: ReceiptLineAssignmentInput[]
+  assignments: ReceiptLineAssignmentInput[],
+  options: { allowAssignedTotalAboveReceiptTotal?: boolean } = {}
 ): Promise<Tables<'receipts'>> {
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
@@ -680,7 +788,11 @@ export async function confirmReceiptLineAssignments(
 
   const assignedTotal = calculateAssignedReceiptTotal(receipt, lineItems, assignments);
 
-  if (typeof receipt.total === 'number' && assignedTotal > receipt.total + receiptTotalTolerance) {
+  if (
+    !options.allowAssignedTotalAboveReceiptTotal &&
+    typeof receipt.total === 'number' &&
+    assignedTotal > receipt.total + receiptTotalTolerance
+  ) {
     throw new Error(
       `Assigned receipt lines add up to ${formatMoney(assignedTotal)}, which is more than the receipt total of ${formatMoney(receipt.total)}. Review the parsed line items before saving.`
     );
@@ -765,16 +877,66 @@ export async function confirmReceiptLineAssignments(
     })
     .eq('id', receiptId)
     .eq('owner_id', userData.user.id)
-    .select(
-      'id, scan_context_job_id, owner_id, storage_path, original_filename, vendor, receipt_date, subtotal, tax, total, category, ai_confidence, extracted_json, status, review_status, error_message, created_at, updated_at'
-    )
+    .select(receiptFields)
     .single();
 
   if (error) {
     throw new Error(error.message);
   }
 
+  await recordReceiptEventSafely({
+    detail: `${receipt.vendor ?? 'Receipt'} split saved from line items.`,
+    eventType: 'receipt_split_saved',
+    metadata: {
+      assignmentCount: assignments.length,
+      expenseCount: expenseRows.length,
+    },
+    receipt: data,
+    title: 'Receipt split saved',
+  });
+
+  const savedLineItems = lineItems.map((lineItem) => {
+    const assignment = assignments.find((candidate) => candidate.lineItemId === lineItem.id);
+
+    if (!assignment) {
+      return lineItem;
+    }
+
+    return {
+      ...lineItem,
+      assigned_job_id: assignment.assignmentType === 'job' ? assignment.assignedJobId : null,
+      assignment_type: assignment.assignmentType,
+      review_status:
+        assignment.assignmentType === 'ignore' || shouldSkipLineExpense(lineItem)
+          ? 'ignored'
+          : 'confirmed',
+    };
+  });
+
+  await fulfillShoppingNeedsFromReceiptSafely(data, savedLineItems);
+
   return data;
+}
+
+async function recordReceiptEventSafely(
+  input: Parameters<typeof recordReceiptActivityEvent>[0]
+): Promise<void> {
+  try {
+    await recordReceiptActivityEvent(input);
+  } catch {
+    // Activity is an audit aid, not the source of truth for receipt completion.
+  }
+}
+
+async function fulfillShoppingNeedsFromReceiptSafely(
+  receipt: Tables<'receipts'>,
+  lineItems?: Tables<'receipt_line_items'>[]
+): Promise<void> {
+  try {
+    await fulfillShoppingNeedsFromReceipt(receipt, lineItems);
+  } catch {
+    // Shopping fulfillment is helpful automation, not part of receipt financial integrity.
+  }
 }
 
 export async function requireReceiptLineItems(receiptId: string): Promise<Tables<'receipts'>> {
@@ -801,9 +963,7 @@ export async function requireReceiptLineItems(receiptId: string): Promise<Tables
     })
     .eq('id', receiptId)
     .eq('owner_id', userData.user.id)
-    .select(
-      'id, scan_context_job_id, owner_id, storage_path, original_filename, vendor, receipt_date, subtotal, tax, total, category, ai_confidence, extracted_json, status, review_status, error_message, created_at, updated_at'
-    )
+    .select(receiptFields)
     .single();
 
   if (error) {
@@ -837,7 +997,9 @@ export async function deleteReceipt(receiptId: string): Promise<void> {
   }
 
   const lineItemIds = (lineItems ?? []).map((lineItem) => lineItem.id);
+  await undoShoppingNeedFulfillmentsFromReceipt(receiptId);
   await deleteReceiptExpenses(receiptId, userData.user.id, lineItemIds);
+  await deleteReceiptActivityEvents(receiptId);
 
   const { error } = await supabase
     .from('receipts')
@@ -857,6 +1019,18 @@ export async function deleteReceipt(receiptId: string): Promise<void> {
     if (storageError) {
       throw new Error(storageError.message);
     }
+  }
+}
+
+async function deleteReceiptActivityEvents(receiptId: string): Promise<void> {
+  const { error } = await supabase
+    .from('activity_events')
+    .delete()
+    .eq('source_table', 'receipts')
+    .eq('source_id', receiptId);
+
+  if (error) {
+    throw new Error(error.message);
   }
 }
 

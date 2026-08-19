@@ -3,9 +3,17 @@ import { fetchJobs } from '@/src/lib/jobs';
 import { supabase } from '@/src/lib/supabase';
 import type { Job } from '@/src/types/job';
 
-export type GlobalActivityType = 'expense' | 'hours' | 'job' | 'note' | 'payment' | 'receipt';
+export type GlobalActivityType =
+  | 'activity_event'
+  | 'expense'
+  | 'hours'
+  | 'job'
+  | 'note'
+  | 'payment'
+  | 'receipt';
 
 export type GlobalActivityItem = {
+  activityEventId?: string;
   capturedAt?: string | null;
   date: string | null;
   detail: string;
@@ -47,7 +55,14 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
   const jobs = await fetchJobs();
   const jobsById = new Map(jobs.map((job) => [job.id, job]));
 
-  const [hoursResult, paymentsResult, expensesResult, receiptsResult, notesResult] = await Promise.all([
+  const [eventsResult, hoursResult, paymentsResult, expensesResult, receiptsResult, notesResult] = await Promise.all([
+    supabase
+      .from('activity_events')
+      .select(
+        'id, business_id, owner_id, actor_user_id, job_id, event_type, status, severity, source_table, source_id, title, detail, metadata, occurred_at, created_at'
+      )
+      .order('occurred_at', { ascending: false })
+      .limit(80),
     supabase
       .from('time_entries')
       .select('id, job_id, duration_minutes, hourly_rate, work_date, worker_name, description, created_at, started_at, stopped_at, status')
@@ -69,7 +84,7 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
       .limit(120),
     supabase
       .from('receipts')
-      .select('id, scan_context_job_id, vendor, total, receipt_date, status, review_status, category, error_message, created_at, updated_at')
+      .select('id, scan_context_job_id, vendor, total, receipt_date, status, review_status, processing_status, category, error_message, last_processing_error, created_at, updated_at')
       .eq('owner_id', userId)
       .order('created_at', { ascending: false })
       .limit(120),
@@ -80,6 +95,10 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
       .order('created_at', { ascending: false })
       .limit(80),
   ]);
+
+  if (eventsResult.error) {
+    throw new Error(eventsResult.error.message);
+  }
 
   if (hoursResult.error) {
     throw new Error(hoursResult.error.message);
@@ -103,6 +122,49 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
 
   const items: GlobalActivityItem[] = [];
   const needsReview: GlobalActivityItem[] = [];
+
+  for (const event of eventsResult.data ?? []) {
+    if (event.event_type === 'tell_contracktor_processed') {
+      continue;
+    }
+
+    const job = getJob(jobsById, event.job_id);
+    const receiptId =
+      event.source_table === 'receipts' && event.source_id ? event.source_id : undefined;
+    const needsAttention =
+      event.status === 'needs_attention' || event.status === 'review_recommended';
+    const reviewReason =
+      receiptId && needsAttention && event.title.toLowerCase().includes('destination')
+      ? 'Choose where this receipt belongs'
+      : receiptId && needsAttention
+          ? event.detail ?? 'Receipt needs attention'
+          : needsAttention
+            ? event.detail ?? 'Needs attention'
+            : undefined;
+
+    const item: GlobalActivityItem = {
+      activityEventId: event.id,
+      date: event.occurred_at,
+      capturedAt: event.created_at ?? event.occurred_at,
+      detail: event.detail ?? event.event_type,
+      id: `activity-event-${event.id}`,
+      job,
+      jobId: event.job_id,
+      jobName: receiptId && !event.job_id ? 'Receipt activity' : getJobName(job),
+      label: event.title,
+      needsReview: needsAttention,
+      receiptId,
+      reviewReason,
+      tone: getActivityEventTone(event.severity),
+      type: receiptId ? 'receipt' : 'activity_event',
+    };
+
+    items.push(item);
+
+    if (item.needsReview) {
+      needsReview.push(item);
+    }
+  }
 
   for (const job of jobs) {
     const hasTrackedActivity =
@@ -295,7 +357,32 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
   }
 
   for (const receipt of receiptsResult.data ?? []) {
-    const reviewReason = getReceiptReviewReason(receipt.status, receipt.review_status, receipt.error_message);
+    if (isReceiptProcessing(receipt.processing_status)) {
+      const job = getJob(jobsById, receipt.scan_context_job_id);
+
+      items.push({
+        date: receipt.created_at,
+        capturedAt: receipt.created_at,
+        detail: getReceiptProcessingDetail(receipt.processing_status),
+        id: `receipt-processing-${receipt.id}`,
+        job,
+        jobId: receipt.scan_context_job_id,
+        jobName: getJobName(job),
+        label: 'Receipt secured',
+        receiptId: receipt.id,
+        tone: 'normal',
+        type: 'receipt',
+      });
+      continue;
+    }
+
+    const reviewReason = getReceiptReviewReason(
+      receipt.processing_status,
+      receipt.status,
+      receipt.review_status,
+      Boolean(receipt.scan_context_job_id),
+      receipt.error_message ?? receipt.last_processing_error
+    );
 
     if (!reviewReason) {
       continue;
@@ -311,12 +398,18 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
       id: `receipt-review-${receipt.id}`,
       job,
       jobId: receipt.scan_context_job_id,
-      jobName: getJobName(job),
-      label: 'Receipt needs review',
+      jobName:
+        receipt.review_status === 'needs_destination' && !receipt.scan_context_job_id
+          ? 'Destination needed'
+          : getJobName(job),
+      label:
+        receipt.review_status === 'needs_destination' && !receipt.scan_context_job_id
+          ? 'Receipt needs destination'
+          : 'Receipt needs attention',
       needsReview: true,
       receiptId: receipt.id,
       reviewReason,
-      tone: receipt.status === 'error' ? 'danger' : 'warning',
+      tone: receipt.processing_status === 'failed' || receipt.status === 'error' ? 'danger' : 'warning',
       type: 'receipt',
     };
 
@@ -342,30 +435,13 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
     });
   }
 
-  const sortedItems = items.sort(sortNewestFirst).filter(dedupeGlobalReceiptItems()).slice(0, 80);
+  const sortedItems = collapseReceiptActivityItems(items).sort(sortNewestFirst).slice(0, 80);
   const sortedNeedsReview = needsReview.sort(sortNewestFirst).filter(dedupeNeedsReview()).slice(0, 20);
 
   return {
     items: sortedItems,
     needsReview: sortedNeedsReview,
     needsReviewCount: sortedNeedsReview.length,
-  };
-}
-
-function dedupeGlobalReceiptItems() {
-  const seenNeedsReviewReceiptIds = new Set<string>();
-
-  return (item: GlobalActivityItem) => {
-    if (!item.needsReview || !item.receiptId) {
-      return true;
-    }
-
-    if (seenNeedsReviewReceiptIds.has(item.receiptId)) {
-      return false;
-    }
-
-    seenNeedsReviewReceiptIds.add(item.receiptId);
-    return true;
   };
 }
 
@@ -382,6 +458,65 @@ function dedupeNeedsReview() {
     seenIds.add(key);
     return true;
   };
+}
+
+function collapseReceiptActivityItems(items: GlobalActivityItem[]): GlobalActivityItem[] {
+  const bestReceiptItems = new Map<string, GlobalActivityItem>();
+  const nonReceiptItems: GlobalActivityItem[] = [];
+
+  for (const item of items) {
+    if (!item.receiptId) {
+      nonReceiptItems.push(item);
+      continue;
+    }
+
+    const existing = bestReceiptItems.get(item.receiptId);
+
+    if (!existing || compareReceiptActivityItem(item, existing) > 0) {
+      bestReceiptItems.set(item.receiptId, item);
+    }
+  }
+
+  return [...nonReceiptItems, ...bestReceiptItems.values()];
+}
+
+function compareReceiptActivityItem(
+  candidate: GlobalActivityItem,
+  existing: GlobalActivityItem
+): number {
+  const priorityDelta = getReceiptActivityPriority(candidate) - getReceiptActivityPriority(existing);
+
+  if (priorityDelta !== 0) {
+    return priorityDelta;
+  }
+
+  return (candidate.capturedAt ?? candidate.date ?? '').localeCompare(
+    existing.capturedAt ?? existing.date ?? ''
+  );
+}
+
+function getReceiptActivityPriority(item: GlobalActivityItem): number {
+  if (item.needsReview) {
+    return 100;
+  }
+
+  if (item.id.startsWith('receipt-expense-') || item.label === 'Receipt saved') {
+    return 80;
+  }
+
+  if (item.label === 'Receipt read') {
+    return 60;
+  }
+
+  if (item.id.startsWith('receipt-processing-')) {
+    return 40;
+  }
+
+  if (item.label === 'Receipt secured') {
+    return 30;
+  }
+
+  return 10;
 }
 
 function sortNewestFirst(a: GlobalActivityItem, b: GlobalActivityItem) {
@@ -429,23 +564,57 @@ function hasUsableLaborBudget(job: Job): boolean {
 }
 
 function getReceiptReviewReason(
+  processingStatus: string | null,
   status: string | null,
   reviewStatus: string | null,
+  hasKnownDestination: boolean,
   errorMessage: string | null
 ): string | null {
-  if (status === 'error') {
+  if (processingStatus === 'failed' || status === 'error') {
     return errorMessage || 'Receipt parsing failed';
   }
 
-  if (status === 'needs_review' || reviewStatus === 'needs_review') {
-    return 'Receipt needs review';
+  if (reviewStatus === 'needs_destination') {
+    return hasKnownDestination ? 'Review and save this receipt' : 'Choose where this receipt belongs';
   }
 
-  if (status === 'processing') {
-    return 'Receipt is still processing';
+  if (status === 'needs_review' || reviewStatus === 'needs_review') {
+    return 'Receipt needs attention';
   }
 
   return null;
+}
+
+function isReceiptProcessing(processingStatus: string | null): boolean {
+  return (
+    processingStatus === 'uploading' ||
+    processingStatus === 'queued' ||
+    processingStatus === 'processing'
+  );
+}
+
+function getReceiptProcessingDetail(processingStatus: string | null): string {
+  if (processingStatus === 'uploading') {
+    return 'Receipt photo upload has not finished.';
+  }
+
+  if (processingStatus === 'queued') {
+    return 'Receipt is waiting to be read.';
+  }
+
+  return 'Receipt is being read in the background.';
+}
+
+function getActivityEventTone(severity: string | null): GlobalActivityItem['tone'] {
+  if (severity === 'danger') {
+    return 'danger';
+  }
+
+  if (severity === 'warning') {
+    return 'warning';
+  }
+
+  return 'normal';
 }
 
 function formatDurationMinutes(minutes: number | null): string {

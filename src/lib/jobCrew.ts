@@ -9,7 +9,7 @@ export type EditableJobCrewMember = {
 };
 
 const jobCrewFields =
-  'id, owner_id, job_id, name, hourly_rate, active, created_at, updated_at';
+  'id, owner_id, business_id, created_by_user_id, job_id, name, hourly_rate, active, created_at, updated_at';
 
 export async function fetchJobCrewMembers(jobId: string): Promise<JobCrewMember[]> {
   const { data, error } = await supabase

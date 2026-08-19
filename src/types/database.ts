@@ -14,9 +14,114 @@ export type Database = {
   }
   public: {
     Tables: {
+      activity_events: {
+        Row: {
+          actor_user_id: string | null
+          business_id: string
+          created_at: string | null
+          created_by_user_id: string | null
+          detail: string | null
+          event_type: string
+          id: string
+          job_id: string | null
+          metadata: Json
+          occurred_at: string
+          owner_id: string
+          resolved_at: string | null
+          severity: string
+          source_id: string | null
+          source_table: string | null
+          status: string
+          title: string
+        }
+        Insert: {
+          actor_user_id?: string | null
+          business_id: string
+          created_at?: string | null
+          created_by_user_id?: string | null
+          detail?: string | null
+          event_type: string
+          id?: string
+          job_id?: string | null
+          metadata?: Json
+          occurred_at?: string
+          owner_id: string
+          resolved_at?: string | null
+          severity?: string
+          source_id?: string | null
+          source_table?: string | null
+          status?: string
+          title: string
+        }
+        Update: {
+          actor_user_id?: string | null
+          business_id?: string
+          created_at?: string | null
+          created_by_user_id?: string | null
+          detail?: string | null
+          event_type?: string
+          id?: string
+          job_id?: string | null
+          metadata?: Json
+          occurred_at?: string
+          owner_id?: string
+          resolved_at?: string | null
+          severity?: string
+          source_id?: string | null
+          source_table?: string | null
+          status?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_events_actor_user_id_fkey"
+            columns: ["actor_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_events_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_events_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_events_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "job_financial_snapshots"
+            referencedColumns: ["job_id"]
+          },
+          {
+            foreignKeyName: "activity_events_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_events_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       attachments: {
         Row: {
+          business_id: string
           created_at: string | null
+          created_by_user_id: string | null
           description: string | null
           file_type: string | null
           id: string
@@ -27,7 +132,9 @@ export type Database = {
           storage_path: string
         }
         Insert: {
+          business_id?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           description?: string | null
           file_type?: string | null
           id?: string
@@ -38,7 +145,9 @@ export type Database = {
           storage_path: string
         }
         Update: {
+          business_id?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           description?: string | null
           file_type?: string | null
           id?: string
@@ -49,6 +158,20 @@ export type Database = {
           storage_path?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "attachments_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attachments_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "attachments_job_id_fkey"
             columns: ["job_id"]
@@ -64,26 +187,216 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "attachments_owner_id_fkey"
-            columns: ["owner_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "attachments_note_id_fkey"
             columns: ["note_id"]
             isOneToOne: false
             referencedRelation: "job_notes"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "attachments_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      business_entitlement_overrides: {
+        Row: {
+          business_id: string
+          config: Json
+          created_at: string
+          enabled: boolean | null
+          expires_at: string | null
+          feature_id: string
+          has_limit_override: boolean
+          limit_value: number | null
+          reason: string | null
+          updated_at: string
+        }
+        Insert: {
+          business_id: string
+          config?: Json
+          created_at?: string
+          enabled?: boolean | null
+          expires_at?: string | null
+          feature_id: string
+          has_limit_override?: boolean
+          limit_value?: number | null
+          reason?: string | null
+          updated_at?: string
+        }
+        Update: {
+          business_id?: string
+          config?: Json
+          created_at?: string
+          enabled?: boolean | null
+          expires_at?: string | null
+          feature_id?: string
+          has_limit_override?: boolean
+          limit_value?: number | null
+          reason?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "business_entitlement_overrides_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "business_entitlement_overrides_feature_id_fkey"
+            columns: ["feature_id"]
+            isOneToOne: false
+            referencedRelation: "subscription_features"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      business_members: {
+        Row: {
+          business_id: string
+          created_at: string | null
+          id: string
+          role: string
+          status: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          business_id: string
+          created_at?: string | null
+          id?: string
+          role?: string
+          status?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          business_id?: string
+          created_at?: string | null
+          id?: string
+          role?: string
+          status?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "business_members_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "business_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      business_subscriptions: {
+        Row: {
+          billing_provider: string | null
+          business_id: string
+          cancel_at_period_end: boolean
+          created_at: string
+          current_period_ends_at: string | null
+          plan_id: string
+          provider_customer_id: string | null
+          provider_subscription_id: string | null
+          status: string
+          trial_ends_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          billing_provider?: string | null
+          business_id: string
+          cancel_at_period_end?: boolean
+          created_at?: string
+          current_period_ends_at?: string | null
+          plan_id: string
+          provider_customer_id?: string | null
+          provider_subscription_id?: string | null
+          status?: string
+          trial_ends_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          billing_provider?: string | null
+          business_id?: string
+          cancel_at_period_end?: boolean
+          created_at?: string
+          current_period_ends_at?: string | null
+          plan_id?: string
+          provider_customer_id?: string | null
+          provider_subscription_id?: string | null
+          status?: string
+          trial_ends_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "business_subscriptions_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: true
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "business_subscriptions_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "subscription_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      businesses: {
+        Row: {
+          created_at: string | null
+          id: string
+          name: string
+          owner_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          name: string
+          owner_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          name?: string
+          owner_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "businesses_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       contacts: {
         Row: {
+          business_id: string
           company_name: string | null
           contact_type: string
           created_at: string | null
+          created_by_user_id: string | null
           display_name: string
           email: string | null
           id: string
@@ -93,9 +406,11 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          business_id?: string
           company_name?: string | null
           contact_type?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           display_name: string
           email?: string | null
           id?: string
@@ -105,9 +420,11 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          business_id?: string
           company_name?: string | null
           contact_type?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           display_name?: string
           email?: string | null
           id?: string
@@ -117,6 +434,20 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "contacts_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contacts_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "contacts_owner_id_fkey"
             columns: ["owner_id"]
@@ -129,7 +460,9 @@ export type Database = {
       customer_payments: {
         Row: {
           amount: number
+          business_id: string
           created_at: string | null
+          created_by_user_id: string | null
           id: string
           job_id: string | null
           method: string | null
@@ -141,7 +474,9 @@ export type Database = {
         }
         Insert: {
           amount: number
+          business_id?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           id?: string
           job_id?: string | null
           method?: string | null
@@ -153,7 +488,9 @@ export type Database = {
         }
         Update: {
           amount?: number
+          business_id?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           id?: string
           job_id?: string | null
           method?: string | null
@@ -164,6 +501,20 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "customer_payments_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_payments_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "customer_payments_job_id_fkey"
             columns: ["job_id"]
@@ -190,7 +541,9 @@ export type Database = {
       expenses: {
         Row: {
           billable: boolean
+          business_id: string
           created_at: string | null
+          created_by_user_id: string | null
           description: string
           expense_date: string
           expense_type: string
@@ -209,7 +562,9 @@ export type Database = {
         }
         Insert: {
           billable?: boolean
+          business_id?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           description: string
           expense_date?: string
           expense_type?: string
@@ -228,7 +583,9 @@ export type Database = {
         }
         Update: {
           billable?: boolean
+          business_id?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           description?: string
           expense_date?: string
           expense_type?: string
@@ -246,6 +603,20 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "expenses_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expenses_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "expenses_job_id_fkey"
             columns: ["job_id"]
@@ -286,7 +657,10 @@ export type Database = {
       job_activity: {
         Row: {
           activity_type: string
+          actor_user_id: string | null
+          business_id: string
           created_at: string | null
+          created_by_user_id: string | null
           detail: string | null
           id: string
           job_id: string | null
@@ -298,7 +672,10 @@ export type Database = {
         }
         Insert: {
           activity_type: string
+          actor_user_id?: string | null
+          business_id?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           detail?: string | null
           id?: string
           job_id?: string | null
@@ -310,7 +687,10 @@ export type Database = {
         }
         Update: {
           activity_type?: string
+          actor_user_id?: string | null
+          business_id?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           detail?: string | null
           id?: string
           job_id?: string | null
@@ -321,6 +701,27 @@ export type Database = {
           title?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "job_activity_actor_user_id_fkey"
+            columns: ["actor_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_activity_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_activity_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "job_activity_job_id_fkey"
             columns: ["job_id"]
@@ -344,65 +745,12 @@ export type Database = {
           },
         ]
       }
-      job_crew_members: {
-        Row: {
-          active: boolean
-          created_at: string | null
-          hourly_rate: number
-          id: string
-          job_id: string
-          name: string
-          owner_id: string
-          updated_at: string | null
-        }
-        Insert: {
-          active?: boolean
-          created_at?: string | null
-          hourly_rate?: number
-          id?: string
-          job_id: string
-          name: string
-          owner_id: string
-          updated_at?: string | null
-        }
-        Update: {
-          active?: boolean
-          created_at?: string | null
-          hourly_rate?: number
-          id?: string
-          job_id?: string
-          name?: string
-          owner_id?: string
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "job_crew_members_job_id_fkey"
-            columns: ["job_id"]
-            isOneToOne: false
-            referencedRelation: "job_financial_snapshots"
-            referencedColumns: ["job_id"]
-          },
-          {
-            foreignKeyName: "job_crew_members_job_id_fkey"
-            columns: ["job_id"]
-            isOneToOne: false
-            referencedRelation: "jobs"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "job_crew_members_owner_id_fkey"
-            columns: ["owner_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       job_contacts: {
         Row: {
+          business_id: string
           contact_id: string
           created_at: string | null
+          created_by_user_id: string | null
           id: string
           is_primary: boolean
           job_id: string
@@ -410,8 +758,10 @@ export type Database = {
           role: string
         }
         Insert: {
+          business_id?: string
           contact_id: string
           created_at?: string | null
+          created_by_user_id?: string | null
           id?: string
           is_primary?: boolean
           job_id: string
@@ -419,8 +769,10 @@ export type Database = {
           role?: string
         }
         Update: {
+          business_id?: string
           contact_id?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           id?: string
           is_primary?: boolean
           job_id?: string
@@ -429,10 +781,24 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "job_contacts_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "job_contacts_contact_id_fkey"
             columns: ["contact_id"]
             isOneToOne: false
             referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_contacts_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
@@ -458,9 +824,86 @@ export type Database = {
           },
         ]
       }
+      job_crew_members: {
+        Row: {
+          active: boolean
+          business_id: string
+          created_at: string | null
+          created_by_user_id: string | null
+          hourly_rate: number
+          id: string
+          job_id: string
+          name: string
+          owner_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          active?: boolean
+          business_id?: string
+          created_at?: string | null
+          created_by_user_id?: string | null
+          hourly_rate?: number
+          id?: string
+          job_id: string
+          name: string
+          owner_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          active?: boolean
+          business_id?: string
+          created_at?: string | null
+          created_by_user_id?: string | null
+          hourly_rate?: number
+          id?: string
+          job_id?: string
+          name?: string
+          owner_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_crew_members_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_crew_members_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_crew_members_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "job_financial_snapshots"
+            referencedColumns: ["job_id"]
+          },
+          {
+            foreignKeyName: "job_crew_members_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_crew_members_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       job_notes: {
         Row: {
+          business_id: string
           created_at: string | null
+          created_by_user_id: string | null
           id: string
           job_id: string | null
           note: string
@@ -468,7 +911,9 @@ export type Database = {
           owner_id: string
         }
         Insert: {
+          business_id?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           id?: string
           job_id?: string | null
           note: string
@@ -476,7 +921,9 @@ export type Database = {
           owner_id: string
         }
         Update: {
+          business_id?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           id?: string
           job_id?: string | null
           note?: string
@@ -484,6 +931,20 @@ export type Database = {
           owner_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "job_notes_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_notes_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "job_notes_job_id_fkey"
             columns: ["job_id"]
@@ -510,7 +971,9 @@ export type Database = {
       job_plans: {
         Row: {
           assumptions: string | null
+          business_id: string
           created_at: string | null
+          created_by_user_id: string | null
           estimated_labor_hours: number | null
           estimated_material_cost: number | null
           estimated_other_cost: number | null
@@ -524,7 +987,9 @@ export type Database = {
         }
         Insert: {
           assumptions?: string | null
+          business_id?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           estimated_labor_hours?: number | null
           estimated_material_cost?: number | null
           estimated_other_cost?: number | null
@@ -538,7 +1003,9 @@ export type Database = {
         }
         Update: {
           assumptions?: string | null
+          business_id?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           estimated_labor_hours?: number | null
           estimated_material_cost?: number | null
           estimated_other_cost?: number | null
@@ -551,6 +1018,20 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "job_plans_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_plans_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "job_plans_job_id_fkey"
             columns: ["job_id"]
@@ -576,7 +1057,9 @@ export type Database = {
       }
       job_snapshots: {
         Row: {
+          business_id: string
           created_at: string | null
+          created_by_user_id: string | null
           financial_summary: string | null
           generated_at: string | null
           generated_by: string | null
@@ -591,7 +1074,9 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          business_id?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           financial_summary?: string | null
           generated_at?: string | null
           generated_by?: string | null
@@ -606,7 +1091,9 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          business_id?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           financial_summary?: string | null
           generated_at?: string | null
           generated_by?: string | null
@@ -621,6 +1108,20 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "job_snapshots_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_snapshots_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "job_snapshots_job_id_fkey"
             columns: ["job_id"]
@@ -646,8 +1147,10 @@ export type Database = {
       }
       jobs: {
         Row: {
+          business_id: string
           client_name: string | null
           created_at: string | null
+          created_by_user_id: string | null
           end_date: string | null
           estimated_labor_hours: number | null
           estimated_material_cost: number | null
@@ -666,8 +1169,10 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          business_id?: string
           client_name?: string | null
           created_at?: string | null
+          created_by_user_id?: string | null
           end_date?: string | null
           estimated_labor_hours?: number | null
           estimated_material_cost?: number | null
@@ -686,8 +1191,10 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          business_id?: string
           client_name?: string | null
           created_at?: string | null
+          created_by_user_id?: string | null
           end_date?: string | null
           estimated_labor_hours?: number | null
           estimated_material_cost?: number | null
@@ -707,6 +1214,20 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "jobs_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "jobs_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "jobs_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
@@ -715,13 +1236,58 @@ export type Database = {
           },
         ]
       }
+      plan_entitlements: {
+        Row: {
+          config: Json
+          created_at: string
+          enabled: boolean
+          feature_id: string
+          limit_value: number | null
+          plan_id: string
+          updated_at: string
+        }
+        Insert: {
+          config?: Json
+          created_at?: string
+          enabled?: boolean
+          feature_id: string
+          limit_value?: number | null
+          plan_id: string
+          updated_at?: string
+        }
+        Update: {
+          config?: Json
+          created_at?: string
+          enabled?: boolean
+          feature_id?: string
+          limit_value?: number | null
+          plan_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_entitlements_feature_id_fkey"
+            columns: ["feature_id"]
+            isOneToOne: false
+            referencedRelation: "subscription_features"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_entitlements_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "subscription_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
-          company_name: string | null
-          created_at: string | null
           address_line_1: string | null
           address_line_2: string | null
           city: string | null
+          company_name: string | null
+          created_at: string | null
           default_hourly_rate: number | null
           default_invoice_note: string | null
           default_invoice_terms: string | null
@@ -773,10 +1339,12 @@ export type Database = {
         Row: {
           assigned_job_id: string | null
           assignment_type: string
+          business_id: string
           category: string | null
           cleaned_name: string
           confidence: number | null
           created_at: string | null
+          created_by_user_id: string | null
           id: string
           line_number: number
           line_total: number
@@ -792,10 +1360,12 @@ export type Database = {
         Insert: {
           assigned_job_id?: string | null
           assignment_type?: string
+          business_id?: string
           category?: string | null
           cleaned_name: string
           confidence?: number | null
           created_at?: string | null
+          created_by_user_id?: string | null
           id?: string
           line_number: number
           line_total?: number
@@ -811,10 +1381,12 @@ export type Database = {
         Update: {
           assigned_job_id?: string | null
           assignment_type?: string
+          business_id?: string
           category?: string | null
           cleaned_name?: string
           confidence?: number | null
           created_at?: string | null
+          created_by_user_id?: string | null
           id?: string
           line_number?: number
           line_total?: number
@@ -843,6 +1415,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "receipt_line_items_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "receipt_line_items_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "receipt_line_items_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
@@ -861,13 +1447,19 @@ export type Database = {
       receipts: {
         Row: {
           ai_confidence: number | null
+          business_id: string
           category: string | null
           created_at: string | null
+          created_by_user_id: string | null
           error_message: string | null
           extracted_json: Json | null
           id: string
+          last_processing_error: string | null
           original_filename: string | null
           owner_id: string
+          processing_attempts: number
+          processing_started_at: string | null
+          processing_status: string
           receipt_date: string | null
           review_status: string
           scan_context_job_id: string | null
@@ -881,13 +1473,19 @@ export type Database = {
         }
         Insert: {
           ai_confidence?: number | null
+          business_id?: string
           category?: string | null
           created_at?: string | null
+          created_by_user_id?: string | null
           error_message?: string | null
           extracted_json?: Json | null
           id?: string
+          last_processing_error?: string | null
           original_filename?: string | null
           owner_id: string
+          processing_attempts?: number
+          processing_started_at?: string | null
+          processing_status?: string
           receipt_date?: string | null
           review_status?: string
           scan_context_job_id?: string | null
@@ -901,13 +1499,19 @@ export type Database = {
         }
         Update: {
           ai_confidence?: number | null
+          business_id?: string
           category?: string | null
           created_at?: string | null
+          created_by_user_id?: string | null
           error_message?: string | null
           extracted_json?: Json | null
           id?: string
+          last_processing_error?: string | null
           original_filename?: string | null
           owner_id?: string
+          processing_attempts?: number
+          processing_started_at?: string | null
+          processing_status?: string
           receipt_date?: string | null
           review_status?: string
           scan_context_job_id?: string | null
@@ -920,6 +1524,20 @@ export type Database = {
           vendor?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "receipts_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "receipts_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "receipts_owner_id_fkey"
             columns: ["owner_id"]
@@ -943,10 +1561,435 @@ export type Database = {
           },
         ]
       }
+      shopping_need_fulfillments: {
+        Row: {
+          business_id: string
+          created_at: string | null
+          id: string
+          initiated_by_user_id: string | null
+          performed_by_type: string
+          performed_by_user_id: string | null
+          quantity: number | null
+          receipt_line_item_id: string | null
+          shopping_need_id: string
+          source_id: string | null
+          source_type: string | null
+        }
+        Insert: {
+          business_id: string
+          created_at?: string | null
+          id?: string
+          initiated_by_user_id?: string | null
+          performed_by_type?: string
+          performed_by_user_id?: string | null
+          quantity?: number | null
+          receipt_line_item_id?: string | null
+          shopping_need_id: string
+          source_id?: string | null
+          source_type?: string | null
+        }
+        Update: {
+          business_id?: string
+          created_at?: string | null
+          id?: string
+          initiated_by_user_id?: string | null
+          performed_by_type?: string
+          performed_by_user_id?: string | null
+          quantity?: number | null
+          receipt_line_item_id?: string | null
+          shopping_need_id?: string
+          source_id?: string | null
+          source_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopping_need_fulfillments_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopping_need_fulfillments_initiated_by_user_id_fkey"
+            columns: ["initiated_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopping_need_fulfillments_performed_by_user_id_fkey"
+            columns: ["performed_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopping_need_fulfillments_receipt_line_item_id_fkey"
+            columns: ["receipt_line_item_id"]
+            isOneToOne: false
+            referencedRelation: "receipt_line_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopping_need_fulfillments_shopping_need_id_fkey"
+            columns: ["shopping_need_id"]
+            isOneToOne: false
+            referencedRelation: "shopping_needs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopping_needs: {
+        Row: {
+          assigned_to_user_id: string | null
+          business_id: string
+          completed_at: string | null
+          created_at: string | null
+          description: string
+          dismissed_at: string | null
+          id: string
+          initiated_by_user_id: string | null
+          job_id: string | null
+          needed_by: string | null
+          normalized_name: string | null
+          notes: string | null
+          owner_id: string
+          performed_by_type: string
+          performed_by_user_id: string | null
+          quantity: number | null
+          source_id: string | null
+          source_type: string | null
+          status: string
+          unit: string | null
+          updated_at: string | null
+          user_display_text: string | null
+          user_edited_at: string | null
+          user_edited_by_user_id: string | null
+        }
+        Insert: {
+          assigned_to_user_id?: string | null
+          business_id?: string
+          completed_at?: string | null
+          created_at?: string | null
+          description: string
+          dismissed_at?: string | null
+          id?: string
+          initiated_by_user_id?: string | null
+          job_id?: string | null
+          needed_by?: string | null
+          normalized_name?: string | null
+          notes?: string | null
+          owner_id: string
+          performed_by_type?: string
+          performed_by_user_id?: string | null
+          quantity?: number | null
+          source_id?: string | null
+          source_type?: string | null
+          status?: string
+          unit?: string | null
+          updated_at?: string | null
+          user_display_text?: string | null
+          user_edited_at?: string | null
+          user_edited_by_user_id?: string | null
+        }
+        Update: {
+          assigned_to_user_id?: string | null
+          business_id?: string
+          completed_at?: string | null
+          created_at?: string | null
+          description?: string
+          dismissed_at?: string | null
+          id?: string
+          initiated_by_user_id?: string | null
+          job_id?: string | null
+          needed_by?: string | null
+          normalized_name?: string | null
+          notes?: string | null
+          owner_id?: string
+          performed_by_type?: string
+          performed_by_user_id?: string | null
+          quantity?: number | null
+          source_id?: string | null
+          source_type?: string | null
+          status?: string
+          unit?: string | null
+          updated_at?: string | null
+          user_display_text?: string | null
+          user_edited_at?: string | null
+          user_edited_by_user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopping_needs_assigned_to_user_id_fkey"
+            columns: ["assigned_to_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopping_needs_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopping_needs_initiated_by_user_id_fkey"
+            columns: ["initiated_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopping_needs_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "job_financial_snapshots"
+            referencedColumns: ["job_id"]
+          },
+          {
+            foreignKeyName: "shopping_needs_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopping_needs_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopping_needs_performed_by_user_id_fkey"
+            columns: ["performed_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopping_needs_user_edited_by_user_id_fkey"
+            columns: ["user_edited_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      subscription_features: {
+        Row: {
+          category: string
+          created_at: string
+          description: string | null
+          display_order: number
+          feature_key: string
+          id: string
+          is_active: boolean
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          feature_key: string
+          id?: string
+          is_active?: boolean
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          feature_key?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      subscription_plans: {
+        Row: {
+          annual_price_cents: number | null
+          created_at: string
+          description: string | null
+          display_order: number
+          id: string
+          is_active: boolean
+          is_default: boolean
+          is_public: boolean
+          monthly_price_cents: number | null
+          name: string
+          plan_key: string
+          updated_at: string
+        }
+        Insert: {
+          annual_price_cents?: number | null
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          is_default?: boolean
+          is_public?: boolean
+          monthly_price_cents?: number | null
+          name: string
+          plan_key: string
+          updated_at?: string
+        }
+        Update: {
+          annual_price_cents?: number | null
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          is_default?: boolean
+          is_public?: boolean
+          monthly_price_cents?: number | null
+          name?: string
+          plan_key?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      subscription_usage: {
+        Row: {
+          business_id: string
+          created_at: string
+          metric_key: string
+          period_end: string
+          period_start: string
+          quantity: number
+          updated_at: string
+        }
+        Insert: {
+          business_id: string
+          created_at?: string
+          metric_key: string
+          period_end: string
+          period_start: string
+          quantity?: number
+          updated_at?: string
+        }
+        Update: {
+          business_id?: string
+          created_at?: string
+          metric_key?: string
+          period_end?: string
+          period_start?: string
+          quantity?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscription_usage_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tell_contracktor_entries: {
+        Row: {
+          business_id: string
+          cleaned_note: string | null
+          created_at: string | null
+          created_by_user_id: string | null
+          created_note_id: string | null
+          extraction: Json
+          id: string
+          job_id: string | null
+          owner_id: string
+          raw_text: string
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          business_id?: string
+          cleaned_note?: string | null
+          created_at?: string | null
+          created_by_user_id?: string | null
+          created_note_id?: string | null
+          extraction?: Json
+          id?: string
+          job_id?: string | null
+          owner_id: string
+          raw_text: string
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          business_id?: string
+          cleaned_note?: string | null
+          created_at?: string | null
+          created_by_user_id?: string | null
+          created_note_id?: string | null
+          extraction?: Json
+          id?: string
+          job_id?: string | null
+          owner_id?: string
+          raw_text?: string
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tell_contracktor_entries_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tell_contracktor_entries_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tell_contracktor_entries_created_note_id_fkey"
+            columns: ["created_note_id"]
+            isOneToOne: false
+            referencedRelation: "job_notes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tell_contracktor_entries_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "job_financial_snapshots"
+            referencedColumns: ["job_id"]
+          },
+          {
+            foreignKeyName: "tell_contracktor_entries_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tell_contracktor_entries_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       time_entries: {
         Row: {
           billable: boolean
+          business_id: string
           created_at: string | null
+          created_by_user_id: string | null
           description: string | null
           duration_minutes: number
           hourly_rate: number
@@ -963,7 +2006,9 @@ export type Database = {
         }
         Insert: {
           billable?: boolean
+          business_id?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           description?: string | null
           duration_minutes?: number
           hourly_rate?: number
@@ -980,7 +2025,9 @@ export type Database = {
         }
         Update: {
           billable?: boolean
+          business_id?: string
           created_at?: string | null
+          created_by_user_id?: string | null
           description?: string | null
           duration_minutes?: number
           hourly_rate?: number
@@ -996,6 +2043,20 @@ export type Database = {
           worker_name?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "time_entries_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "time_entries_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "time_entries_job_id_fkey"
             columns: ["job_id"]
@@ -1023,6 +2084,7 @@ export type Database = {
     Views: {
       job_financial_snapshots: {
         Row: {
+          business_id: string | null
           client_name: string | null
           job_id: string | null
           labor_cost: number | null
@@ -1038,6 +2100,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "jobs_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "jobs_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
@@ -1049,6 +2118,7 @@ export type Database = {
       tools_inventory_expenses: {
         Row: {
           billable: boolean | null
+          business_id: string | null
           created_at: string | null
           description: string | null
           expense_date: string | null
@@ -1069,6 +2139,13 @@ export type Database = {
           updated_at: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "expenses_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "expenses_owner_id_fkey"
             columns: ["owner_id"]
@@ -1094,7 +2171,147 @@ export type Database = {
       }
     }
     Functions: {
-      [_ in never]: never
+      business_has_feature: {
+        Args: { p_business_id: string; p_feature_key: string }
+        Returns: boolean
+      }
+      claim_receipt_processing_jobs: {
+        Args: { p_limit?: number; p_visibility_timeout?: number }
+        Returns: {
+          msg_id: number
+          receipt_id: string
+        }[]
+      }
+      default_business_for_user: {
+        Args: { p_user_id: string }
+        Returns: string
+      }
+      delete_receipt_processing_job: {
+        Args: { p_msg_id: number }
+        Returns: boolean
+      }
+      finalize_receipt_capture: {
+        Args: { p_receipt_id: string }
+        Returns: {
+          ai_confidence: number | null
+          business_id: string
+          category: string | null
+          created_at: string | null
+          created_by_user_id: string | null
+          error_message: string | null
+          extracted_json: Json | null
+          id: string
+          last_processing_error: string | null
+          original_filename: string | null
+          owner_id: string
+          processing_attempts: number
+          processing_started_at: string | null
+          processing_status: string
+          receipt_date: string | null
+          review_status: string
+          scan_context_job_id: string | null
+          status: string
+          storage_path: string | null
+          subtotal: number | null
+          tax: number | null
+          total: number | null
+          updated_at: string | null
+          vendor: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "receipts"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      get_my_entitlements: { Args: { p_business_id?: string }; Returns: Json }
+      mark_receipt_processing: {
+        Args: { p_receipt_id: string }
+        Returns: {
+          ai_confidence: number | null
+          business_id: string
+          category: string | null
+          created_at: string | null
+          created_by_user_id: string | null
+          error_message: string | null
+          extracted_json: Json | null
+          id: string
+          last_processing_error: string | null
+          original_filename: string | null
+          owner_id: string
+          processing_attempts: number
+          processing_started_at: string | null
+          processing_status: string
+          receipt_date: string | null
+          review_status: string
+          scan_context_job_id: string | null
+          status: string
+          storage_path: string | null
+          subtotal: number | null
+          tax: number | null
+          total: number | null
+          updated_at: string | null
+          vendor: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "receipts"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      upsert_activity_event: {
+        Args: {
+          p_actor_user_id: string
+          p_business_id: string
+          p_created_by_user_id: string
+          p_detail: string
+          p_event_type: string
+          p_job_id: string
+          p_metadata?: Json
+          p_occurred_at?: string
+          p_owner_id: string
+          p_severity: string
+          p_source_id: string
+          p_source_table: string
+          p_status: string
+          p_title: string
+        }
+        Returns: {
+          actor_user_id: string | null
+          business_id: string
+          created_at: string | null
+          created_by_user_id: string | null
+          detail: string | null
+          event_type: string
+          id: string
+          job_id: string | null
+          metadata: Json
+          occurred_at: string
+          owner_id: string
+          resolved_at: string | null
+          severity: string
+          source_id: string | null
+          source_table: string | null
+          status: string
+          title: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "activity_events"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      user_can_manage_business: {
+        Args: { p_business_id: string }
+        Returns: boolean
+      }
+      user_is_business_member: {
+        Args: { p_business_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       [_ in never]: never

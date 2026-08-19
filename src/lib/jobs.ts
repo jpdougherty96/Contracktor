@@ -27,7 +27,7 @@ export type UpdateJobInput = CreateJobInput & {
 };
 
 const jobFields =
-  'id, owner_id, name, client_name, location, job_type, quote_amount, hourly_rate, time_clock_enabled, estimated_labor_hours, estimated_material_cost, estimated_sub_cost, estimated_misc_cost, status, start_date, end_date, created_at, updated_at';
+  'id, owner_id, business_id, created_by_user_id, name, client_name, location, job_type, quote_amount, hourly_rate, time_clock_enabled, estimated_labor_hours, estimated_material_cost, estimated_sub_cost, estimated_misc_cost, status, start_date, end_date, created_at, updated_at';
 
 export async function fetchJobs(): Promise<Job[]> {
   const user = await getAuthenticatedUser();

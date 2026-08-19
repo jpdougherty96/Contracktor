@@ -29,6 +29,7 @@ type JobDashboardScreenProps = {
   onEditNote: (noteId: string) => void;
   onEditPayment: (paymentId: string) => void;
   onReviewReceipt: (receiptId: string) => void;
+  onShoppingList: () => void;
   refreshKey?: number;
 };
 
@@ -43,6 +44,7 @@ export function JobDashboardScreen({
   onEditNote,
   onEditPayment,
   onReviewReceipt,
+  onShoppingList,
   refreshKey = 0,
 }: JobDashboardScreenProps) {
   const snapshot = calculateJobFinancialSnapshot(job);
@@ -273,6 +275,9 @@ export function JobDashboardScreen({
         </Pressable>
         <Pressable style={styles.invoiceButton} onPress={onExportReport}>
           <Text style={styles.invoiceButtonText}>Export job report</Text>
+        </Pressable>
+        <Pressable style={styles.invoiceButton} onPress={onShoppingList}>
+          <Text style={styles.invoiceButtonText}>Shopping list</Text>
         </Pressable>
 
         <View style={styles.panel}>

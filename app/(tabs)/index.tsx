@@ -9,6 +9,7 @@ import {
   clearPasswordRecoveryRequested,
   hasPendingPasswordRecoveryRequest,
 } from '@/src/lib/passwordRecovery';
+import { setReceiptDraftDestination } from '@/src/lib/receipts';
 import { AddExpenseMethodScreen } from '@/src/screens/AddExpenseMethodScreen';
 import { AddHoursHubScreen } from '@/src/screens/AddHoursHubScreen';
 import { AddHoursScreen } from '@/src/screens/AddHoursScreen';
@@ -32,6 +33,8 @@ import { JobReportScreen } from '@/src/screens/JobReportScreen';
 import { JobPickerScreen } from '@/src/screens/JobPickerScreen';
 import { JobsListScreen } from '@/src/screens/JobsListScreen';
 import { ReceiptReviewScreen } from '@/src/screens/ReceiptReviewScreen';
+import { ShoppingListScreen } from '@/src/screens/ShoppingListScreen';
+import { TellContracktorScreen } from '@/src/screens/TellContracktorScreen';
 import { ToolsInventoryScreen } from '@/src/screens/ToolsInventoryScreen';
 import { UpdatePasswordScreen } from '@/src/screens/UpdatePasswordScreen';
 import type { Job } from '@/src/types/job';
@@ -63,6 +66,8 @@ type Screen =
   | 'selectJobForHours'
   | 'selectJobForNote'
   | 'selectJobForPayment'
+  | 'shoppingList'
+  | 'tellContracktor'
   | 'toolsInventory'
   | 'updatePassword';
 
@@ -218,7 +223,22 @@ export default function HomeScreen() {
     setSelectedJob(item.job ?? null);
 
     if (item.receiptId) {
+      if (!item.needsReview && item.label === 'Receipt secured') {
+        return;
+      }
+
       setSelectedReceiptId(item.receiptId);
+      if (item.reviewReason === 'Choose where this receipt belongs') {
+        setSelectedJob(null);
+        setSelectedReceiptJobs([]);
+        setIsSelectedReceiptInventoryMode(false);
+        setReceiptEditInitialJobIds([]);
+        setReceiptEditInitialInventorySelected(false);
+        setReceiptReviewBackScreen('activity');
+        setScreen('selectJobsForReceiptEdit');
+        return;
+      }
+
       setSelectedReceiptJobs(item.receiptJobs ?? (item.job ? [item.job] : []));
       setIsSelectedReceiptInventoryMode(
         item.receiptIncludesInventoryDestination ?? !item.job
@@ -296,6 +316,7 @@ export default function HomeScreen() {
     return renderScreen(
       <ActivityScreen
         onBack={() => setScreen('home')}
+        onChanged={() => setDashboardRefreshKey((key) => key + 1)}
         onOpenItem={handleOpenActivityItem}
         refreshKey={dashboardRefreshKey + jobsRefreshKey}
       />
@@ -315,12 +336,24 @@ export default function HomeScreen() {
           setCreateBackScreen('home');
           setScreen('createJob');
         }}
-        onAddNote={() => setScreen('selectJobForNote')}
         onAddPayment={() => setScreen('selectJobForPayment')}
         onAccountSettings={() => setScreen('accountSettings')}
+        onCaptureReceipt={() => {
+          setSelectedJob(null);
+          setSelectedReceiptId(null);
+          setSelectedReceiptJobs([]);
+          setIsSelectedReceiptInventoryMode(false);
+          setAddBackScreen('home');
+          setAddCompleteScreen('home');
+          setScreen('addReceipt');
+        }}
         onGoToActivity={() => setScreen('activity')}
         onGoToJobs={() => setScreen('jobs')}
         onGoToToolsInventory={() => setScreen('toolsInventory')}
+        onTellContracktor={() => {
+          setSelectedJob(null);
+          setScreen('tellContracktor');
+        }}
         onLogout={handleLogout}
         userEmail={session.user.email}
       />
@@ -339,7 +372,19 @@ export default function HomeScreen() {
         }
         initialSelectedJobIds={screen === 'selectJobsForReceiptEdit' ? receiptEditInitialJobIds : []}
         multiSelect={screen === 'selectJobForExpense' || screen === 'selectJobsForReceiptEdit'}
-        onBack={() => setScreen(screen === 'selectJobsForReceiptEdit' ? 'reviewReceipt' : 'home')}
+        onBack={() => {
+          if (
+            screen === 'selectJobsForReceiptEdit' &&
+            selectedReceiptId &&
+            selectedReceiptJobs.length === 0 &&
+            !isSelectedReceiptInventoryMode
+          ) {
+            setScreen('home');
+            return;
+          }
+
+          setScreen(screen === 'selectJobsForReceiptEdit' ? 'reviewReceipt' : 'home');
+        }}
         onCreateJob={() => {
           setCreateBackScreen(screen);
           setScreen('createJob');
@@ -354,7 +399,7 @@ export default function HomeScreen() {
           setAddCompleteScreen('home');
           setScreen(getAddScreenForPicker(screen));
         }}
-        onSelectJobs={(jobs, includesInventory = false) => {
+        onSelectJobs={async (jobs, includesInventory = false) => {
           if (jobs.length === 0 && !includesInventory) {
             return;
           }
@@ -364,6 +409,15 @@ export default function HomeScreen() {
           setIsSelectedReceiptInventoryMode(includesInventory);
 
           if (screen === 'selectJobsForReceiptEdit') {
+            if (selectedReceiptId && jobs.length === 1 && !includesInventory) {
+              await setReceiptDraftDestination(selectedReceiptId, jobs[0].id).catch((error) => {
+                setAuthError(
+                  error instanceof Error
+                    ? error.message
+                    : 'Unable to save receipt destination.'
+                );
+              });
+            }
             setScreen('reviewReceipt');
             return;
           }
@@ -376,6 +430,20 @@ export default function HomeScreen() {
           setSelectedJob(null);
           setSelectedReceiptJobs([]);
           setIsSelectedReceiptInventoryMode(true);
+          if (screen === 'selectJobsForReceiptEdit') {
+            if (selectedReceiptId) {
+              void setReceiptDraftDestination(selectedReceiptId, null).catch((error) => {
+                setAuthError(
+                  error instanceof Error
+                    ? error.message
+                    : 'Unable to save receipt destination.'
+                );
+              });
+            }
+            setScreen('reviewReceipt');
+            return;
+          }
+
           setAddBackScreen(screen);
           setAddCompleteScreen('toolsInventory');
           setScreen('addExpenseMethod');
@@ -418,7 +486,18 @@ export default function HomeScreen() {
           setReceiptReviewBackScreen('dashboard');
           setScreen('reviewReceipt');
         }}
+        onShoppingList={() => setScreen('shoppingList')}
         refreshKey={dashboardRefreshKey}
+      />
+    );
+  }
+
+  if (screen === 'shoppingList' && selectedJob) {
+    return renderScreen(
+      <ShoppingListScreen
+        contextJob={selectedJob}
+        onBack={() => setScreen('dashboard')}
+        onChanged={() => setDashboardRefreshKey((key) => key + 1)}
       />
     );
   }
@@ -463,6 +542,19 @@ export default function HomeScreen() {
           setScreen('addExpenseMethod');
         }}
         onBack={() => setScreen('home')}
+      />
+    );
+  }
+
+  if (screen === 'tellContracktor') {
+    return renderScreen(
+      <TellContracktorScreen
+        contextJob={selectedJob}
+        onBack={() => setScreen(selectedJob ? 'dashboard' : 'home')}
+        onDone={() => {
+          setDashboardRefreshKey((key) => key + 1);
+          setScreen(selectedJob ? 'dashboard' : 'home');
+        }}
       />
     );
   }
@@ -540,11 +632,7 @@ export default function HomeScreen() {
     );
   }
 
-  if (
-    screen === 'reviewReceipt' &&
-    selectedReceiptId &&
-    (selectedJob || selectedReceiptJobs.length > 0 || isSelectedReceiptInventoryMode)
-  ) {
+  if (screen === 'reviewReceipt' && selectedReceiptId) {
     const isInventoryOnlyReceipt = isSelectedReceiptInventoryMode && !selectedJob;
     const receiptJobs =
       isInventoryOnlyReceipt
@@ -611,11 +699,17 @@ export default function HomeScreen() {
     );
   }
 
-  if (screen === 'addReceipt' && (selectedJob || isSelectedReceiptInventoryMode)) {
+  if (screen === 'addReceipt') {
     const isInventoryOnlyReceipt = isSelectedReceiptInventoryMode && !selectedJob;
 
     return renderScreen(
       <AddReceiptScreen
+        autoStartCamera={
+          addBackScreen === 'home' &&
+          !selectedJob &&
+          selectedReceiptJobs.length === 0 &&
+          !isSelectedReceiptInventoryMode
+        }
         backLabel={getAddBackLabel(addBackScreen)}
         doneLabel={getAddDoneLabel(addCompleteScreen)}
         includeInventoryDestination={isSelectedReceiptInventoryMode}
@@ -629,8 +723,16 @@ export default function HomeScreen() {
         }}
         onReviewReceipt={(receiptId) => {
           setSelectedReceiptId(receiptId);
-          setReceiptReviewBackScreen('addReceipt');
           setDashboardRefreshKey((key) => key + 1);
+          if (!selectedJob && selectedReceiptJobs.length === 0 && !isSelectedReceiptInventoryMode) {
+            setReceiptEditInitialJobIds([]);
+            setReceiptEditInitialInventorySelected(false);
+            setReceiptReviewBackScreen('home');
+            setScreen('selectJobsForReceiptEdit');
+            return;
+          }
+
+          setReceiptReviewBackScreen('addReceipt');
           setScreen('reviewReceipt');
         }}
       />

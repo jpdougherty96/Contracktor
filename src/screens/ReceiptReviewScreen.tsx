@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -32,6 +32,10 @@ import {
   type ReceiptCategory,
   type ReceiptLineAssignmentType,
 } from '@/src/lib/receipts';
+import {
+  suggestReceiptLineAssignmentsFromShoppingNeeds,
+  type ShoppingNeedLineAssignmentSuggestion,
+} from '@/src/lib/shoppingNeeds';
 import type { Tables } from '@/src/types/database';
 import type { Job } from '@/src/types/job';
 
@@ -81,16 +85,28 @@ export function ReceiptReviewScreen({
   const [imageZoom, setImageZoom] = useState(1);
   const [lineItems, setLineItems] = useState<Tables<'receipt_line_items'>[]>([]);
   const [lineAssignments, setLineAssignments] = useState<Record<string, LineAssignmentState>>({});
+  const [lineAssignmentSuggestions, setLineAssignmentSuggestions] = useState<
+    Record<string, ShoppingNeedLineAssignmentSuggestion>
+  >({});
   const [jobs, setJobs] = useState<Job[]>([]);
   const [potentialDuplicates, setPotentialDuplicates] = useState<PotentialDuplicateReceipt[]>([]);
   const [isDeletingReceiptId, setIsDeletingReceiptId] = useState<string | null>(null);
   const [isEditingLineAssignments, setIsEditingLineAssignments] = useState(false);
   const [isReviewingSingleJobLines, setIsReviewingSingleJobLines] = useState(false);
+  const [receiptPollKey, setReceiptPollKey] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
+  const [isAutoFinalizing, setIsAutoFinalizing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const hasLoadedReceiptRef = useRef(false);
+  const loadedImageStoragePathRef = useRef<string | null>(null);
+  const autoFinalizedReceiptIdsRef = useRef<Set<string>>(new Set());
   const shouldUseInlineImageZoom = viewportWidth < 768;
   const needsManualReceiptReview = receipt?.status === 'error' || receipt?.review_status === 'error';
   const hasLineItems = lineItems.length > 0;
+  const isReceiptStillProcessing = isReceiptProcessingStatus(receipt?.processing_status);
+  const selectedReceiptJobs =
+    contextJobs && contextJobs.length > 0 ? contextJobs : job && !inventoryMode ? [job] : [];
+  const receiptAdjustment = receipt ? getReceiptAdjustmentDecision(lineItems, receipt) : null;
   const lineItemsTotal = receipt ? getLineItemsTotal(lineItems, receipt.tax) : 0;
   const lineItemsExceedReceiptTotal =
     hasLineItems &&
@@ -103,10 +119,14 @@ export function ReceiptReviewScreen({
     hasLineItems &&
     typeof receipt?.total === 'number' &&
     assignedLineItemsTotal > receipt.total + 0.05;
-  const selectedReceiptJobs =
-    contextJobs && contextJobs.length > 0 ? contextJobs : job && !inventoryMode ? [job] : [];
   const isSingleJobLineReceipt = selectedReceiptJobs.length === 1 && hasLineItems;
-  const hasUntrustedLineItems = lineItemsExceedReceiptTotal;
+  const hasReceiptAdjustmentDecision =
+    Boolean(receiptAdjustment) &&
+    lineItemsExceedReceiptTotal &&
+    selectedReceiptJobs.length === 1 &&
+    !inventoryMode &&
+    !includeInventoryDestination;
+  const hasUntrustedLineItems = lineItemsExceedReceiptTotal && !hasReceiptAdjustmentDecision;
   const requiresLineItems =
     (selectedReceiptJobs.length > 1 ||
       (includeInventoryDestination && selectedReceiptJobs.length > 0)) &&
@@ -141,12 +161,31 @@ export function ReceiptReviewScreen({
     hasLineItems &&
     !hasUntrustedLineItems &&
     (!isSavedReceipt || isEditingLineAssignments || isSingleJobLineReceipt);
+  const canAutoFinalizeSingleJobReceipt =
+    Boolean(receipt) &&
+    !isLoading &&
+    !isSaving &&
+    !isAutoFinalizing &&
+    !isReceiptStillProcessing &&
+    !isSavedReceipt &&
+    !inventoryMode &&
+    !includeInventoryDestination &&
+    selectedReceiptJobs.length === 1 &&
+    hasLineItems &&
+    !hasReceiptAdjustmentDecision &&
+    !hasUntrustedLineItems &&
+    receipt?.processing_status === 'complete';
 
   useEffect(() => {
     let isMounted = true;
 
     const loadReceipt = async () => {
-      setIsLoading(true);
+      const isPollingRefresh = receiptPollKey > 0 && hasLoadedReceiptRef.current;
+
+      if (!isPollingRefresh) {
+        setIsLoading(true);
+      }
+
       setErrorMessage(null);
 
       try {
@@ -174,6 +213,27 @@ export function ReceiptReviewScreen({
         const displayReceipt = needsLineItemReset
           ? await requireReceiptLineItems(nextReceipt.id)
           : nextReceipt;
+        const initialAssignments = getInitialLineAssignments(
+          nextLineItems,
+          displayReceipt,
+          job?.id ?? null,
+          inventoryMode,
+          assignmentJobs.length > 1 || (includeInventoryDestination && assignmentJobs.length > 0)
+        );
+        const shoppingNeedSuggestions =
+          !inventoryMode && nextLineItems.length > 0 && assignmentJobs.length > 0
+            ? await suggestReceiptLineAssignmentsFromShoppingNeeds(
+                nextLineItems,
+                assignmentJobs.map((assignmentJob) => assignmentJob.id)
+              )
+            : [];
+        const shoppingNeedSuggestionsByLineId = Object.fromEntries(
+          shoppingNeedSuggestions.map((suggestion) => [suggestion.lineItemId, suggestion])
+        );
+        const suggestedAssignments = applyShoppingNeedAssignmentSuggestions(
+          initialAssignments,
+          shoppingNeedSuggestions
+        );
 
         if (isMounted) {
           setIsEditingLineAssignments(false);
@@ -181,15 +241,8 @@ export function ReceiptReviewScreen({
           setReceipt(displayReceipt);
           setLineItems(nextLineItems);
           setJobs(assignmentJobs);
-          setLineAssignments(
-            getInitialLineAssignments(
-              nextLineItems,
-              displayReceipt,
-              job?.id ?? null,
-              inventoryMode,
-              assignmentJobs.length > 1 || (includeInventoryDestination && assignmentJobs.length > 0)
-            )
-          );
+          setLineAssignments(suggestedAssignments);
+          setLineAssignmentSuggestions(shoppingNeedSuggestionsByLineId);
           setVendor(displayReceipt.vendor ?? '');
           setReceiptDate(displayReceipt.receipt_date ?? '');
           setSubtotal(formatEditableMoney(displayReceipt.subtotal));
@@ -221,13 +274,19 @@ export function ReceiptReviewScreen({
               }
             });
 
-          if (displayReceipt.storage_path) {
+          hasLoadedReceiptRef.current = true;
+
+          if (
+            displayReceipt.storage_path &&
+            displayReceipt.storage_path !== loadedImageStoragePathRef.current
+          ) {
             setIsImageLoading(true);
             setImageError(null);
 
             createReceiptImageSignedUrl(displayReceipt.storage_path)
               .then((signedUrl) => {
                 if (isMounted) {
+                  loadedImageStoragePathRef.current = displayReceipt.storage_path;
                   setImageUrl(signedUrl);
                   Image.getSize(
                     signedUrl,
@@ -256,7 +315,8 @@ export function ReceiptReviewScreen({
                   setIsImageLoading(false);
                 }
               });
-          } else {
+          } else if (!displayReceipt.storage_path) {
+            loadedImageStoragePathRef.current = null;
             setImageUrl(null);
             setImageDimensions(null);
             setImageError(null);
@@ -268,7 +328,7 @@ export function ReceiptReviewScreen({
           setErrorMessage(error instanceof Error ? error.message : 'Unable to load receipt.');
         }
       } finally {
-        if (isMounted) {
+        if (isMounted && !isPollingRefresh) {
           setIsLoading(false);
         }
       }
@@ -279,7 +339,76 @@ export function ReceiptReviewScreen({
     return () => {
       isMounted = false;
     };
-  }, [contextJobs, includeInventoryDestination, inventoryMode, job, receiptId]);
+  }, [
+    contextJobs,
+    includeInventoryDestination,
+    inventoryMode,
+    job,
+    receiptId,
+    receiptPollKey,
+  ]);
+
+  useEffect(() => {
+    if (!isReceiptStillProcessing) {
+      return;
+    }
+
+    const pollTimer = setTimeout(() => setReceiptPollKey((key) => key + 1), 2500);
+
+    return () => clearTimeout(pollTimer);
+  }, [isReceiptStillProcessing, receiptPollKey]);
+
+  useEffect(() => {
+    if (!receipt || !canAutoFinalizeSingleJobReceipt) {
+      return;
+    }
+
+    if (autoFinalizedReceiptIdsRef.current.has(receipt.id)) {
+      return;
+    }
+
+    let isMounted = true;
+    autoFinalizedReceiptIdsRef.current.add(receipt.id);
+    setIsAutoFinalizing(true);
+    setErrorMessage(null);
+
+    const finalizeReceipt = async () => {
+      try {
+        await confirmReceiptLineAssignments(
+          receipt.id,
+          getReceiptLineAssignmentInputs(lineItems, lineAssignments)
+        );
+
+        if (isMounted) {
+          onSaved();
+        }
+      } catch (error) {
+        autoFinalizedReceiptIdsRef.current.delete(receipt.id);
+
+        if (isMounted) {
+          setErrorMessage(
+            error instanceof Error ? error.message : 'Unable to finalize this receipt.'
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsAutoFinalizing(false);
+        }
+      }
+    };
+
+    void finalizeReceipt();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    canAutoFinalizeSingleJobReceipt,
+    lineAssignments,
+    lineItems,
+    onSaved,
+    receipt,
+  ]);
 
   const handleSave = async () => {
     setErrorMessage(null);
@@ -308,7 +437,11 @@ export function ReceiptReviewScreen({
         return;
       }
 
-      if (assignedLineItemsExceedReceiptTotal && typeof receipt?.total === 'number') {
+      if (
+        assignedLineItemsExceedReceiptTotal &&
+        !hasReceiptAdjustmentDecision &&
+        typeof receipt?.total === 'number'
+      ) {
         setErrorMessage(
           `Assigned receipt lines add up to ${formatCurrency(assignedLineItemsTotal, {
             showCents: true,
@@ -324,11 +457,10 @@ export function ReceiptReviewScreen({
       try {
         await confirmReceiptLineAssignments(
           receiptId,
-          lineItems.map((lineItem) => ({
-            assignedJobId: lineAssignments[lineItem.id]?.assignedJobId ?? null,
-            assignmentType: lineAssignments[lineItem.id]?.assignmentType ?? 'ignore',
-            lineItemId: lineItem.id,
-          }))
+          getReceiptLineAssignmentInputs(lineItems, lineAssignments),
+          {
+            allowAssignedTotalAboveReceiptTotal: hasReceiptAdjustmentDecision,
+          }
         );
         onSaved();
       } catch (error) {
@@ -393,6 +525,11 @@ export function ReceiptReviewScreen({
     try {
       await updateReceipt(receiptId, {
         category,
+        destinationJobId: getWholeReceiptDestinationJobId(
+          inventoryMode,
+          selectedReceiptJobs,
+          receipt
+        ),
         jobCostAmount: parsedJobCostAmount,
         ignoreLineItems: hasUntrustedLineItems,
         receiptDate,
@@ -404,6 +541,78 @@ export function ReceiptReviewScreen({
       onSaved();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to save receipt.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleUseAmountPaidForAdjustment = async () => {
+    setErrorMessage(null);
+
+    if (!receipt) {
+      return;
+    }
+
+    if (!receipt.vendor?.trim()) {
+      setErrorMessage('Vendor is required.');
+      return;
+    }
+
+    if (!receipt.receipt_date) {
+      setErrorMessage('Receipt date is required.');
+      return;
+    }
+
+    if (receipt.total === null || receipt.total <= 0) {
+      setErrorMessage('Receipt total is required and must be greater than 0.');
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      await updateReceipt(receiptId, {
+        category,
+        destinationJobId: getWholeReceiptDestinationJobId(
+          inventoryMode,
+          selectedReceiptJobs,
+          receipt
+        ),
+        ignoreLineItems: true,
+        jobCostAmount: receipt.total,
+        receiptDate: receipt.receipt_date,
+        subtotal: receipt.subtotal,
+        tax: receipt.tax,
+        total: receipt.total,
+        vendor: receipt.vendor.trim(),
+      });
+      onSaved();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to save receipt.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleUseFullItemPricesForAdjustment = async () => {
+    setErrorMessage(null);
+
+    if (!hasReceiptAdjustmentDecision) {
+      setErrorMessage('Review this receipt before saving line items.');
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      await confirmReceiptLineAssignments(
+        receiptId,
+        getReceiptLineAssignmentInputs(lineItems, lineAssignments),
+        { allowAssignedTotalAboveReceiptTotal: true }
+      );
+      onSaved();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to save receipt lines.');
     } finally {
       setIsSaving(false);
     }
@@ -592,6 +801,21 @@ export function ReceiptReviewScreen({
                     </Text>
                   </View>
                 ) : null}
+                {isReceiptStillProcessing || isAutoFinalizing ? (
+                  <View style={styles.processingPanel}>
+                    <ActivityIndicator color="#335C43" />
+                    <View style={styles.processingTextColumn}>
+                      <Text style={styles.processingTitle}>
+                        {isAutoFinalizing ? 'Saving receipt' : 'Reading receipt'}
+                      </Text>
+                      <Text style={styles.processingText}>
+                        {isAutoFinalizing
+                          ? 'conTRACKtor is assigning this receipt to the selected job.'
+                          : 'conTRACKtor is extracting the receipt details. You can leave this screen; it will continue in the background.'}
+                      </Text>
+                    </View>
+                  </View>
+                ) : null}
                 {requiresLineItems ? (
                   <View style={styles.retakePanel}>
                     <Text style={styles.retakeTitle}>Line items required</Text>
@@ -663,7 +887,71 @@ export function ReceiptReviewScreen({
                   </View>
                 ) : null}
 
-                {lineItemsExceedReceiptTotal && receipt?.total ? (
+                {hasReceiptAdjustmentDecision && receiptAdjustment ? (
+                  <View style={styles.adjustmentDecisionPanel}>
+                    <Text style={styles.adjustmentDecisionTitle}>
+                      This receipt includes a {formatCurrency(receiptAdjustment.adjustmentTotal, {
+                        showCents: true,
+                      })}{' '}
+                      rebate, credit, or discount.
+                    </Text>
+                    <View style={styles.adjustmentDecisionRows}>
+                      <View style={styles.adjustmentDecisionRow}>
+                        <Text style={styles.adjustmentDecisionLabel}>Items before adjustment</Text>
+                        <Text style={styles.adjustmentDecisionValue}>
+                          {formatCurrency(receiptAdjustment.itemsBeforeAdjustment, {
+                            showCents: true,
+                          })}
+                        </Text>
+                      </View>
+                      <View style={styles.adjustmentDecisionRow}>
+                        <Text style={styles.adjustmentDecisionLabel}>Tax</Text>
+                        <Text style={styles.adjustmentDecisionValue}>
+                          {formatCurrency(receiptAdjustment.tax, { showCents: true })}
+                        </Text>
+                      </View>
+                      <View style={styles.adjustmentDecisionRow}>
+                        <Text style={styles.adjustmentDecisionLabel}>Amount paid</Text>
+                        <Text style={styles.adjustmentDecisionValue}>
+                          {formatCurrency(receiptAdjustment.amountPaid, { showCents: true })}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.adjustmentDecisionHelp}>
+                      Choose how conTRACKtor should save this job cost.
+                    </Text>
+                    <View style={styles.adjustmentDecisionActions}>
+                      <Pressable
+                        disabled={isSaving}
+                        onPress={handleUseAmountPaidForAdjustment}
+                        style={[styles.adjustmentPrimaryButton, isSaving && styles.disabledButton]}>
+                        <Text style={styles.adjustmentPrimaryButtonText}>
+                          Use amount paid:{' '}
+                          {formatCurrency(receiptAdjustment.amountPaid, { showCents: true })}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        disabled={isSaving}
+                        onPress={handleUseFullItemPricesForAdjustment}
+                        style={[styles.adjustmentSecondaryButton, isSaving && styles.disabledButton]}>
+                        <Text style={styles.adjustmentSecondaryButtonText}>
+                          Use full item prices + tax:{' '}
+                          {formatCurrency(receiptAdjustment.fullItemCostWithTax, {
+                            showCents: true,
+                          })}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        disabled={isSaving}
+                        onPress={() => setIsReviewingSingleJobLines(true)}
+                        style={styles.adjustmentReviewButton}>
+                        <Text style={styles.adjustmentReviewButtonText}>Review receipt</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : null}
+
+                {lineItemsExceedReceiptTotal && !hasReceiptAdjustmentDecision && receipt?.total ? (
                   <View style={styles.warningPanel}>
                     <Text style={styles.warningTitle}>Line items need review</Text>
                     <Text style={styles.warningText}>
@@ -675,7 +963,13 @@ export function ReceiptReviewScreen({
                   </View>
                 ) : null}
 
-                {hasLineItems && !hasUntrustedLineItems && isSingleJobLineReceipt && !shouldShowLineEditor ? (
+                {!isReceiptStillProcessing &&
+                !isAutoFinalizing &&
+                hasLineItems &&
+                !hasReceiptAdjustmentDecision &&
+                !hasUntrustedLineItems &&
+                isSingleJobLineReceipt &&
+                !shouldShowLineEditor ? (
                   <View style={styles.quickConfirmPanel}>
                     <View style={styles.quickConfirmText}>
                       <Text style={styles.quickConfirmTitle}>Materials total</Text>
@@ -690,15 +984,18 @@ export function ReceiptReviewScreen({
                     </Text>
                     <View style={styles.quickConfirmActions}>
                       <Pressable
-                        disabled={isSaving}
+                        disabled={isSaving || isAutoFinalizing}
                         onPress={handleSave}
-                        style={[styles.quickSaveButton, isSaving && styles.disabledButton]}>
+                        style={[
+                          styles.quickSaveButton,
+                          (isSaving || isAutoFinalizing) && styles.disabledButton,
+                        ]}>
                         <Text style={styles.quickSaveButtonText}>
-                          {isSaving ? 'Saving...' : 'Save'}
+                          {isSaving || isAutoFinalizing ? 'Saving...' : 'Save'}
                         </Text>
                       </Pressable>
                       <Pressable
-                        disabled={isSaving}
+                        disabled={isSaving || isAutoFinalizing}
                         onPress={() => setIsReviewingSingleJobLines(true)}
                         style={styles.quickEditButton}>
                         <Text style={styles.quickEditButtonText}>Edit</Text>
@@ -707,7 +1004,7 @@ export function ReceiptReviewScreen({
                   </View>
                 ) : null}
 
-                {shouldShowLineEditor ? (
+                {!isReceiptStillProcessing && shouldShowLineEditor ? (
                   <View style={styles.lineItemsPanel}>
                     <Text style={styles.sectionTitle}>Line items</Text>
                     <Text style={styles.helpText}>
@@ -719,6 +1016,7 @@ export function ReceiptReviewScreen({
                         jobs={jobs}
                         key={lineItem.id}
                         lineItem={lineItem}
+                        suggestion={lineAssignmentSuggestions[lineItem.id]}
                         taxAmount={getLineAllocatedTax(lineItem, lineItems, receipt.tax)}
                         readOnly={isSavedReceipt && !isEditingLineAssignments}
                         onChange={(nextAssignment) =>
@@ -727,7 +1025,7 @@ export function ReceiptReviewScreen({
                       />
                     ))}
                   </View>
-                ) : requiresLineItems ? null : (
+                ) : isReceiptStillProcessing || requiresLineItems ? null : (
                   <>
                     {hasUntrustedLineItems ? (
                       <>
@@ -750,6 +1048,7 @@ export function ReceiptReviewScreen({
                               jobs={jobs}
                               key={lineItem.id}
                               lineItem={lineItem}
+                              suggestion={lineAssignmentSuggestions[lineItem.id]}
                               taxAmount={getLineAllocatedTax(lineItem, lineItems, receipt.tax)}
                               readOnly
                               showAssignments={false}
@@ -836,7 +1135,11 @@ export function ReceiptReviewScreen({
 
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
-            {isSavedReceipt && !isEditingLineAssignments ? (
+            {isReceiptStillProcessing || isAutoFinalizing ? (
+              <Pressable onPress={onBack} style={styles.processingExitButton}>
+                <Text style={styles.processingExitButtonText}>Done for now</Text>
+              </Pressable>
+            ) : isSavedReceipt && !isEditingLineAssignments ? (
               <View style={styles.savedPanel}>
                 <Text style={styles.savedTitle}>Receipt saved</Text>
                 <Text style={styles.savedText}>
@@ -868,23 +1171,27 @@ export function ReceiptReviewScreen({
               <Pressable
                 disabled={
                   isSaving ||
+                  isAutoFinalizing ||
                   isLoading ||
                   !receipt ||
                   requiresLineItems ||
+                  isReceiptStillProcessing ||
                   (hasLineItems && !hasUntrustedLineItems && !canSaveLineAssignments)
                 }
                 onPress={handleSave}
                 style={[
                   styles.saveButton,
                   (isSaving ||
+                    isAutoFinalizing ||
                     isLoading ||
                     !receipt ||
                     requiresLineItems ||
+                    isReceiptStillProcessing ||
                     (hasLineItems && !hasUntrustedLineItems && !canSaveLineAssignments)) &&
                     styles.disabledButton,
                 ]}>
                 <Text style={styles.saveButtonText}>
-                  {isSaving
+                  {isSaving || isAutoFinalizing
                     ? 'Saving...'
                     : hasLineItems && !hasUntrustedLineItems
                       ? 'Save line assignments'
@@ -895,7 +1202,7 @@ export function ReceiptReviewScreen({
 
             {isEditingLineAssignments ? (
               <Pressable
-                disabled={isSaving}
+                disabled={isSaving || isAutoFinalizing}
                 onPress={() => setIsEditingLineAssignments(false)}
                 style={styles.cancelEditButton}>
                 <Text style={styles.cancelEditButtonText}>Cancel edit</Text>
@@ -903,7 +1210,7 @@ export function ReceiptReviewScreen({
             ) : null}
             {isReviewingSingleJobLines ? (
               <Pressable
-                disabled={isSaving}
+                disabled={isSaving || isAutoFinalizing}
                 onPress={() => setIsReviewingSingleJobLines(false)}
                 style={styles.cancelEditButton}>
                 <Text style={styles.cancelEditButtonText}>Hide line details</Text>
@@ -912,11 +1219,11 @@ export function ReceiptReviewScreen({
 
             {receipt ? (
               <Pressable
-                disabled={isDeletingReceiptId === receipt.id}
+                disabled={isDeletingReceiptId === receipt.id || isAutoFinalizing}
                 onPress={() => confirmDeleteReceipt(receipt.id, true)}
                 style={[
                   styles.deleteCurrentButton,
-                  isDeletingReceiptId === receipt.id && styles.disabledButton,
+                  (isDeletingReceiptId === receipt.id || isAutoFinalizing) && styles.disabledButton,
                 ]}>
                 <Text style={styles.deleteCurrentButtonText}>
                   {isDeletingReceiptId === receipt.id ? 'Deleting receipt...' : 'Delete receipt'}
@@ -1037,6 +1344,7 @@ function LineItemCard({
   onChange,
   readOnly = false,
   showAssignments = true,
+  suggestion,
   taxAmount = 0,
 }: {
   assignment: LineAssignmentState | undefined;
@@ -1045,6 +1353,7 @@ function LineItemCard({
   onChange: (assignment: LineAssignmentState) => void;
   readOnly?: boolean;
   showAssignments?: boolean;
+  suggestion?: ShoppingNeedLineAssignmentSuggestion;
   taxAmount?: number;
 }) {
   const currentAssignment = assignment ?? {
@@ -1053,6 +1362,11 @@ function LineItemCard({
   };
   const canAssignToJob = jobs.length > 0;
   const originalText = getLineItemOriginalText(lineItem);
+  const hasActiveSuggestion =
+    showAssignments &&
+    currentAssignment.assignmentType === 'job' &&
+    Boolean(suggestion?.assignedJobId) &&
+    currentAssignment.assignedJobId === suggestion?.assignedJobId;
 
   return (
     <View style={styles.lineItemCard}>
@@ -1065,7 +1379,7 @@ function LineItemCard({
         </View>
         <View style={styles.lineItemAmountColumn}>
           <Text style={styles.lineItemAmount}>
-            {formatCurrency(lineItem.line_total, { showCents: true })}
+            {formatLineItemAmount(lineItem)}
           </Text>
           {taxAmount > 0 ? (
             <Text style={styles.lineItemTaxAmount}>
@@ -1081,6 +1395,13 @@ function LineItemCard({
           ? ` · ${formatCurrency(lineItem.unit_price, { showCents: true })} each`
           : ''}
       </Text>
+      {hasActiveSuggestion ? (
+        <View style={styles.suggestionPill}>
+          <Text style={styles.suggestionPillText}>
+            Suggested from shopping list: {suggestion?.shoppingNeedDescription}
+          </Text>
+        </View>
+      ) : null}
 
       {showAssignments ? (
         <View style={styles.assignmentGrid}>
@@ -1159,6 +1480,7 @@ function LineItemCard({
               style={[
                 styles.jobChoiceButton,
                 currentAssignment.assignedJobId === jobOption.id && styles.selectedJobChoiceButton,
+                suggestion?.assignedJobId === jobOption.id && styles.suggestedJobChoiceButton,
                 readOnly && styles.readOnlyButton,
               ]}>
               <Text
@@ -1195,6 +1517,12 @@ function getLineItemOriginalText(lineItem: Tables<'receipt_line_items'>): string
     .trim();
 
   return displayText && displayText !== lineItem.cleaned_name ? displayText : null;
+}
+
+function formatLineItemAmount(lineItem: Tables<'receipt_line_items'>): string {
+  const amount = formatCurrency(lineItem.line_total, { showCents: true });
+
+  return lineItem.line_type === 'discount' ? `-${amount}` : amount;
 }
 
 function formatLineAmountPattern(amount: number): RegExp {
@@ -1272,7 +1600,9 @@ function getInitialLineAssignments(
         ];
       }
 
-      const assignmentType = inventoryMode
+      const assignmentType = receipt.review_status === 'needs_destination' && fallbackJobId
+        ? 'job'
+        : inventoryMode
         ? 'tools_inventory'
         : isReceiptLineAssignmentType(lineItem.assignment_type)
         ? lineItem.assignment_type
@@ -1293,8 +1623,94 @@ function getInitialLineAssignments(
   );
 }
 
+function getReceiptLineAssignmentInputs(
+  lineItems: Tables<'receipt_line_items'>[],
+  lineAssignments: Record<string, LineAssignmentState>
+) {
+  return lineItems.map((lineItem) => ({
+    assignedJobId: lineAssignments[lineItem.id]?.assignedJobId ?? null,
+    assignmentType: lineAssignments[lineItem.id]?.assignmentType ?? 'ignore',
+    lineItemId: lineItem.id,
+  }));
+}
+
+function applyShoppingNeedAssignmentSuggestions(
+  assignments: Record<string, LineAssignmentState>,
+  suggestions: ShoppingNeedLineAssignmentSuggestion[]
+): Record<string, LineAssignmentState> {
+  if (suggestions.length === 0) {
+    return assignments;
+  }
+
+  const nextAssignments = { ...assignments };
+
+  for (const suggestion of suggestions) {
+    const currentAssignment = nextAssignments[suggestion.lineItemId];
+
+    if (currentAssignment?.assignmentType === 'ignore') {
+      continue;
+    }
+
+    nextAssignments[suggestion.lineItemId] = {
+      assignedJobId: suggestion.assignedJobId,
+      assignmentType: 'job',
+    };
+  }
+
+  return nextAssignments;
+}
+
 function isReceiptLineAssignmentType(value: string): value is ReceiptLineAssignmentType {
   return value === 'job' || value === 'tools_inventory' || value === 'ignore';
+}
+
+function isReceiptProcessingStatus(value: string | null | undefined): boolean {
+  return value === 'uploading' || value === 'queued' || value === 'processing';
+}
+
+function getReceiptAdjustmentDecision(
+  lineItems: Tables<'receipt_line_items'>[],
+  receipt: Tables<'receipts'>
+): {
+  adjustmentTotal: number;
+  amountPaid: number;
+  fullItemCostWithTax: number;
+  itemsBeforeAdjustment: number;
+  tax: number;
+} | null {
+  if (receipt.total === null || lineItems.length === 0) {
+    return null;
+  }
+
+  const itemsBeforeAdjustment = roundMoney(
+    lineItems
+      .filter((lineItem) => lineItem.line_type === 'item')
+      .reduce((sum, lineItem) => sum + lineItem.line_total, 0)
+  );
+  const adjustmentTotal = roundMoney(
+    lineItems
+      .filter((lineItem) => lineItem.line_type === 'discount')
+      .reduce((sum, lineItem) => sum + lineItem.line_total, 0)
+  );
+  const tax = roundMoney(receipt.tax ?? 0);
+
+  if (itemsBeforeAdjustment <= 0 || adjustmentTotal <= 0) {
+    return null;
+  }
+
+  const adjustedTotal = roundMoney(itemsBeforeAdjustment - adjustmentTotal + tax);
+
+  if (Math.abs(adjustedTotal - receipt.total) > 0.05) {
+    return null;
+  }
+
+  return {
+    adjustmentTotal,
+    amountPaid: receipt.total,
+    fullItemCostWithTax: roundMoney(itemsBeforeAdjustment + tax),
+    itemsBeforeAdjustment,
+    tax,
+  };
 }
 
 function getLineItemsTotal(
@@ -1402,6 +1818,18 @@ function getReceiptHasInventoryDestination(
   inventoryMode: boolean
 ): boolean {
   return inventoryMode || lineItems.some((lineItem) => lineItem.assignment_type === 'tools_inventory');
+}
+
+function getWholeReceiptDestinationJobId(
+  inventoryMode: boolean,
+  selectedReceiptJobs: Job[],
+  receipt: Tables<'receipts'> | null
+): string | null {
+  if (inventoryMode) {
+    return null;
+  }
+
+  return selectedReceiptJobs[0]?.id ?? receipt?.scan_context_job_id ?? null;
 }
 
 function formatCategory(value: string): string {
@@ -1684,6 +2112,92 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
   },
+  adjustmentDecisionPanel: {
+    backgroundColor: '#F8FAF8',
+    borderColor: '#BCD7C4',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 12,
+    padding: 12,
+  },
+  adjustmentDecisionTitle: {
+    color: '#1F2933',
+    fontSize: 17,
+    fontWeight: '900',
+    lineHeight: 23,
+  },
+  adjustmentDecisionRows: {
+    borderColor: '#DDE7DE',
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  adjustmentDecisionRow: {
+    alignItems: 'center',
+    borderBottomColor: '#DDE7DE',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 38,
+    paddingHorizontal: 10,
+  },
+  adjustmentDecisionLabel: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  adjustmentDecisionValue: {
+    color: '#1F2933',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  adjustmentDecisionHelp: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  adjustmentDecisionActions: {
+    gap: 8,
+  },
+  adjustmentPrimaryButton: {
+    alignItems: 'center',
+    backgroundColor: '#335C43',
+    borderRadius: 8,
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: 12,
+  },
+  adjustmentPrimaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  adjustmentSecondaryButton: {
+    alignItems: 'center',
+    borderColor: '#335C43',
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: 12,
+  },
+  adjustmentSecondaryButtonText: {
+    color: '#335C43',
+    fontSize: 15,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  adjustmentReviewButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  adjustmentReviewButtonText: {
+    color: '#335C43',
+    fontSize: 15,
+    fontWeight: '900',
+  },
   quickConfirmPanel: {
     backgroundColor: '#F8FAF8',
     borderColor: '#BCD7C4',
@@ -1714,6 +2228,44 @@ const styles = StyleSheet.create({
   quickConfirmActions: {
     flexDirection: 'row',
     gap: 8,
+  },
+  processingPanel: {
+    alignItems: 'center',
+    backgroundColor: '#F8FAF8',
+    borderColor: '#BCD7C4',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    padding: 12,
+  },
+  processingTextColumn: {
+    flex: 1,
+    gap: 3,
+  },
+  processingTitle: {
+    color: '#1F2933',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  processingText: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  processingExitButton: {
+    alignItems: 'center',
+    borderColor: '#335C43',
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 52,
+  },
+  processingExitButtonText: {
+    color: '#335C43',
+    fontSize: 16,
+    fontWeight: '900',
   },
   quickSaveButton: {
     alignItems: 'center',
@@ -1792,6 +2344,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  suggestionPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  suggestionPillText: {
+    color: '#276749',
+    fontSize: 12,
+    fontWeight: '900',
+  },
   assignmentGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1839,6 +2405,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDF4',
     borderColor: '#335C43',
     borderWidth: 2,
+  },
+  suggestedJobChoiceButton: {
+    borderColor: '#2F855A',
   },
   jobChoiceButtonText: {
     color: '#475569',

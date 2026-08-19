@@ -9,6 +9,10 @@ type WebCameraCaptureProps = {
   onError: (message: string) => void;
 };
 
+const receiptWebcamJpegQuality = 0.95;
+const receiptWebcamIdealWidth = 2560;
+const receiptWebcamIdealHeight = 1440;
+
 export function WebCameraCapture({
   isBusy = false,
   onCancel,
@@ -34,6 +38,8 @@ export function WebCameraCapture({
           audio: false,
           video: {
             facingMode: { ideal: 'environment' },
+            height: { ideal: receiptWebcamIdealHeight },
+            width: { ideal: receiptWebcamIdealWidth },
           },
         });
 
@@ -88,7 +94,7 @@ export function WebCameraCapture({
 
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.86);
+    const dataUrl = canvas.toDataURL('image/jpeg', receiptWebcamJpegQuality);
     const base64 = dataUrl.split(',')[1];
 
     if (!base64) {

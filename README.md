@@ -18,7 +18,7 @@ The active app covers:
 - Fixed bid and time & materials job types.
 - Job budgets: material budget, estimated labor hours, hourly rate, other estimated costs, quote amount.
 - Quote helper with markup buttons for fixed bid jobs.
-- Job crew members with individual hourly rates.
+- Job crew-member records with individual hourly rates; authenticated multi-user business/team accounts are not yet implemented.
 - Open jobs dashboard with triage-style job cards.
 - Job detail dashboard with financial summary, labor drill-down, materials drill-down, recent activity, invoices, reports, and editing.
 - Receipt capture from mobile camera, mobile library, web upload, and web camera.
@@ -31,7 +31,7 @@ The active app covers:
 - Tools / Inventory expense tracking with no job attached.
 - Manual hours.
 - Optional time clock per job.
-- Customer payments.
+- Manual customer-payment ledger entries; online payment processing is not yet implemented.
 - Job notes with photo attachments.
 - Basic invoice draft/export.
 - Contractor-facing job report export.
@@ -60,7 +60,23 @@ supabase/functions/          Edge Functions, including receipt extraction
 supabase/migrations/         Database, RLS, view, and storage migrations
 supabase/README.md           Supabase setup/deploy notes
 docs/phase-1-test-plan.md    Current Phase 1 manual and automation test plan
+docs/product-rulebook.md     Dynamic product rules for UX, AI, and workflow design
+docs/development-roadmap.md  Definitive planned sequence for near-term product work
 ```
+
+## Product Rulebook
+
+Workflow and AI-related changes should be evaluated against the [conTRACKtor Product Rulebook](docs/product-rulebook.md).
+
+Core rule:
+
+```txt
+Users capture or describe reality. conTRACKtor turns it into records.
+```
+
+Before adding a screen, form field, confirmation, required decision, or AI-specific workflow, ask whether conTRACKtor can infer it, automate it, prepare it, defer it, process it in the background, or ask only later if it is genuinely needed.
+
+The planned build sequence is documented in [docs/development-roadmap.md](docs/development-roadmap.md).
 
 ## Prerequisites
 
@@ -228,6 +244,8 @@ Receipt-backed expenses and manual expenses both write to `expenses`. Manual exp
 
 ## Active Workflows To Know
 
+The workflows below describe the current implementation, not necessarily preferred future UX. For new workflow design, the Product Rulebook is authoritative.
+
 Jobs:
 - Create fixed bid, time & materials, or basic jobs.
 - Add budgets and quote information.
@@ -282,29 +300,6 @@ Not included in Phase 1:
 - store pricing integrations
 - advanced AI job health
 - standalone Job Plan workflow
-
-## Future Features
-
-### Lightweight Tools / Inventory Expense Suggestions
-
-Avoid building a full inventory ledger unless the product clearly needs it. Quantity-on-hand tracking, returns, waste, price changes, and unit matching can get messy quickly.
-
-A simpler future workflow:
-
-- A bulk purchase receipt is saved to Tools / Inventory.
-- Parsed receipt line items keep useful unit details when available, such as `8 ft 2x4` at `$4.15 each`.
-- Later, when a user writes a job note like `Used 15 2x4x8 on this wall`, conTRACKtor can suggest a job material expense.
-- Example suggestion: `15 x 8 ft 2x4 @ $4.15 = $62.25`.
-- The user must confirm or edit the suggestion before any expense is created.
-- The original Tools / Inventory receipt stays unchanged.
-- This should create a normal job material expense, not decrement inventory.
-
-Rules for this feature:
-
-- Never auto-add the expense.
-- Always ask for confirmation.
-- Let the user edit quantity, unit cost, and description.
-- Treat it as `Suggest expense from inventory`, not true inventory tracking.
 
 ## Before Shipping Or Testing A Build
 

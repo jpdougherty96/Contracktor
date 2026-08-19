@@ -1,3 +1,4 @@
+import { recordActivityEvent } from '@/src/lib/activityEvents';
 import { supabase } from '@/src/lib/supabase';
 import type { Tables } from '@/src/types/database';
 
@@ -20,7 +21,7 @@ export type UpdateJobHoursInput = {
 };
 
 const timeEntryFields =
-  'id, job_id, owner_id, started_at, stopped_at, work_date, duration_minutes, hourly_rate, worker_name, description, billable, source, status, created_at, updated_at';
+  'id, job_id, owner_id, business_id, created_by_user_id, started_at, stopped_at, work_date, duration_minutes, hourly_rate, worker_name, description, billable, source, status, created_at, updated_at';
 
 export async function createJobHours(
   jobId: string,
@@ -55,6 +56,27 @@ export async function createJobHours(
   if (error) {
     throw new Error(error.message);
   }
+
+  await recordActivityEventSafely({
+    businessId: data.business_id,
+    createdByUserId: data.created_by_user_id ?? data.owner_id,
+    detail: `${minutesToHours(data.duration_minutes)} hrs${
+      data.worker_name ? ` - ${data.worker_name}` : ''
+    }${data.description ? ` - ${data.description}` : ''}`,
+    eventType: 'hours_logged',
+    jobId: data.job_id,
+    metadata: {
+      durationMinutes: data.duration_minutes,
+      hourlyRate: data.hourly_rate,
+      source: data.source,
+      workDate: data.work_date,
+      workerName: data.worker_name,
+    },
+    ownerId: data.owner_id,
+    sourceId: data.id,
+    sourceTable: 'time_entries',
+    title: 'Hours logged',
+  });
 
   return data;
 }
@@ -149,4 +171,14 @@ export function minutesToHours(minutes: number): number {
 
 function hoursToMinutes(hours: number): number {
   return Math.round(hours * 60);
+}
+
+async function recordActivityEventSafely(
+  input: Parameters<typeof recordActivityEvent>[0]
+): Promise<void> {
+  try {
+    await recordActivityEvent(input);
+  } catch {
+    // Activity is an audit aid; the time entry is the source of truth.
+  }
 }

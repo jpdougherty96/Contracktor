@@ -1,5 +1,6 @@
 import type { ImagePickerAsset } from 'expo-image-picker';
 
+import { recordActivityEvent } from '@/src/lib/activityEvents';
 import { supabase } from '@/src/lib/supabase';
 import type { Tables } from '@/src/types/database';
 
@@ -35,12 +36,27 @@ export async function createJobNote(
       note_type: 'general',
       owner_id: userData.user.id,
     })
-    .select('id, job_id, owner_id, note, note_type, created_at')
+    .select('id, job_id, owner_id, business_id, created_by_user_id, note, note_type, created_at')
     .single();
 
   if (error) {
     throw new Error(error.message);
   }
+
+  await recordActivityEventSafely({
+    businessId: data.business_id,
+    createdByUserId: data.created_by_user_id ?? data.owner_id,
+    detail: truncateActivityDetail(data.note),
+    eventType: 'note_added',
+    jobId: data.job_id,
+    metadata: {
+      noteType: data.note_type,
+    },
+    ownerId: data.owner_id,
+    sourceId: data.id,
+    sourceTable: 'job_notes',
+    title: 'Note added',
+  });
 
   return data;
 }
@@ -58,7 +74,7 @@ export async function fetchJobNote(noteId: string): Promise<Tables<'job_notes'>>
 
   const { data, error } = await supabase
     .from('job_notes')
-    .select('id, job_id, owner_id, note, note_type, created_at')
+    .select('id, job_id, owner_id, business_id, created_by_user_id, note, note_type, created_at')
     .eq('id', noteId)
     .eq('owner_id', userData.user.id)
     .single();
@@ -91,7 +107,7 @@ export async function updateJobNote(
     })
     .eq('id', noteId)
     .eq('owner_id', userData.user.id)
-    .select('id, job_id, owner_id, note, note_type, created_at')
+    .select('id, job_id, owner_id, business_id, created_by_user_id, note, note_type, created_at')
     .single();
 
   if (error) {
@@ -148,7 +164,9 @@ export async function uploadJobNotePhoto(
       owner_id: userData.user.id,
       storage_path: storagePath,
     })
-    .select('id, owner_id, job_id, note_id, storage_path, original_filename, file_type, description, created_at')
+    .select(
+      'id, owner_id, business_id, created_by_user_id, job_id, note_id, storage_path, original_filename, file_type, description, created_at'
+    )
     .single();
 
   if (error) {
@@ -171,7 +189,9 @@ export async function fetchJobNoteAttachments(noteId: string): Promise<JobNoteAt
 
   const { data, error } = await supabase
     .from('attachments')
-    .select('id, owner_id, job_id, note_id, storage_path, original_filename, file_type, description, created_at')
+    .select(
+      'id, owner_id, business_id, created_by_user_id, job_id, note_id, storage_path, original_filename, file_type, description, created_at'
+    )
     .eq('note_id', noteId)
     .eq('owner_id', userData.user.id)
     .order('created_at', { ascending: true });
@@ -237,4 +257,18 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
   }
 
   return bytes.buffer;
+}
+
+async function recordActivityEventSafely(
+  input: Parameters<typeof recordActivityEvent>[0]
+): Promise<void> {
+  try {
+    await recordActivityEvent(input);
+  } catch {
+    // Activity is an audit aid; the note is the source of truth.
+  }
+}
+
+function truncateActivityDetail(value: string): string {
+  return value.length > 180 ? `${value.slice(0, 177)}...` : value;
 }
