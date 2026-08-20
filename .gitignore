@@ -33,7 +33,6 @@ yarn-error.*
 # local env files
 .env
 .env*.local
-.staging-secrets/
 
 # Supabase local CLI state
 supabase/.temp/

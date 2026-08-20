@@ -1,88 +1,92 @@
 # Developing Free and Pro Safely
 
-conTRACKtor uses one codebase and one deployable app. Free and Pro behavior is
-selected at runtime from a business's effective feature entitlements. Do not
-maintain separate long-lived Free and Pro branches: they will drift and make a
-production regression much more likely.
+conTRACKtor uses one codebase, one deployable app, and the existing
+`contracktor-dev` Supabase project (`spdhsfkiejdrctclbudv`). Free and Pro are
+selected at runtime from each business's effective feature entitlements. Do
+not maintain separate long-lived Free and Pro branches.
 
-## Environments
+## Shared Development Backend
 
-- Production continues to run from `main` and must remain usable throughout
-  Pro development.
-- Feature work happens on a short-lived `codex/` or developer branch.
-- A staging Supabase project is the default backend for tier development.
-- Preview deployments point only at staging, never at the production service
-  role key.
+- The deployed app and local development currently use the same Supabase
+  project.
+- Application work happens on a short-lived `codex/` or developer branch.
+- Local Expo reads the existing project URL and public key from `.env`.
+- Start Expo Go with `npm start`; start the browser version with `npm run web`.
+- Never place a service-role key or database password in an `EXPO_PUBLIC_`
+  variable.
 
-Database migrations must be backward-compatible with the currently deployed
-client before they are applied. Prefer additive tables, columns, functions, and
-policies. Remove or rename old contracts only after every active client has
-moved away from them.
+Because the backend is shared, every migration and Edge Function deployment
+can affect the currently deployed client before new application code is
+released. Backend changes must therefore remain backward-compatible. Prefer
+additive tables, columns, functions, feature keys, and policies. Do not remove
+or rename a contract until every deployed client has moved away from it.
 
-Create `.staging-secrets/client.config` from `.env.staging.example`, then
-launch the app against staging with:
+## Real Free and Pro Accounts
 
-```sh
-npm run start:staging
+Use two real accounts in `contracktor-dev`:
+
+1. Keep one business assigned to `free` with no overrides.
+2. Assign the other business to `pro`.
+
+New accounts automatically receive a business, owner membership, and active
+Free subscription. No repository script generates test users or stores their
+passwords.
+
+To find the two businesses in the Supabase Dashboard:
+
+1. Open **Authentication > Users** and copy the account's user ID.
+2. Open **Table Editor > businesses** and find the row whose `owner_id` equals
+   that user ID. Copy its business `id`.
+3. Open **subscription_plans** and note the `id` for the `free` or `pro` row.
+4. Open **business_subscriptions**, find the matching `business_id`, and set
+   `plan_id` to the chosen plan's ID. Keep `status` set to `active`.
+
+The same change can be made in the SQL Editor. Replace the email and plan key:
+
+```sql
+update public.business_subscriptions bs
+set
+  plan_id = p.id,
+  status = 'active'
+from public.subscription_plans p,
+     public.businesses b,
+     auth.users u
+where bs.business_id = b.id
+  and b.owner_id = u.id
+  and lower(u.email) = lower('ACCOUNT_EMAIL')
+  and p.plan_key = 'pro';
 ```
 
-Scan that Expo server's QR code with Expo Go. For a staging browser session,
-use `npm run web:staging`. Both commands refuse to start if the staging URL
-matches the production URL in `.env`.
+Use `p.plan_key = 'free'` to return the account to the Free baseline.
 
-## Test Businesses
+## Verification
 
-Keep two staging businesses with separate test users:
+Run the same core workflow checklist in both accounts. Then verify:
 
-1. **Free baseline** — assigned to `free` with no overrides.
-2. **Pro development** — assigned to `pro`, or Free plus a deliberate beta
-   override when testing one feature in isolation.
+- Free can use jobs, financials, hours/time clock, receipts, existing receipt
+  extraction, expenses, payments, notes/photos, and invoices/reports.
+- Free has no Activity, Shopping, Tell, or smart-allocation entry point.
+- Direct paid operations are rejected by the server for Free.
+- Pro exposes Activity, Shopping, Tell, and smart receipt allocation.
+- A Pro failure does not block sign-in or any existing Free workflow.
+- Downgrading Pro to Free preserves read/export access to historical records.
 
-Run the same core workflow checklist in both businesses. Then run the Pro-only
-checks and verify that the corresponding entry points are absent for Free.
-
-The shared staging project is `contracktor-staging`
-(`wdcyjppumkhqxithcplu`). Generate or refresh its two confirmed test accounts
-with `npm run staging:seed-users`. Their emails, generated passwords, user IDs,
-and business IDs are written only to `.staging-secrets/test-users.env`.
-
-Verify authentication, resolved plans, Free core writes, and paid enforcement:
+Automated tier-boundary checks remain available with:
 
 ```sh
-npm run staging:verify-tiers
+npm run test:tiers
 ```
-
-## Switching a Staging Business
-
-The repository includes a guarded administrative helper. It reads the ignored
-`.staging-secrets/admin.env` file created during setup:
-
-```sh
-npm run dev:set-plan -- --business BUSINESS_UUID --plan pro
-```
-
-Use `--plan free` to return the business to the Free baseline. The helper only
-accepts `free` or `pro`, requires staging-named environment variables, and
-refuses to run if the staging project reference/URL do not match or if staging
-matches `.env` production. Service-role credentials
-belong in the shell or a private staging secret store; never put them in an
-`EXPO_PUBLIC_` variable or commit them.
 
 ## Release Gate
 
 Before merging a tiered change:
 
-- TypeScript, lint, and the web production build pass.
-- Database changes pass a migration dry run against staging.
-- Free can sign in and complete jobs, financials, hours/time clock, receipts,
-  current extraction, expenses, payments, notes/photos, and invoices/reports.
-- Free has no Activity, Shopping, Tell, or smart-allocation entry point.
-- Direct paid operations are rejected by the server for Free.
-- Pro can use each newly enabled feature.
-- Temporarily blocking entitlement lookup leaves Free core available and hides
-  Pro features.
-- Downgrading Pro to Free preserves read/export access to historical records.
+- TypeScript, lint, tier tests, and the production web build pass.
+- The linked migration list is synchronized.
+- Backend changes have been reviewed for compatibility with the deployed app.
+- Both real accounts pass the Free/Pro checklist above.
+- No credential, service-role key, database password, or account password is
+  present in the Git diff.
 
-Only after these checks should the branch be reviewed and merged. Production
-database and Edge Function deployment remains a separate, deliberate release
-step from application code review.
+Production application deployment remains a separate, deliberate step from
+backend migration and feature-branch review.

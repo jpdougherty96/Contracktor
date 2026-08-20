@@ -63,7 +63,7 @@ docs/phase-1-test-plan.md    Current Phase 1 manual and automation test plan
 docs/product-rulebook.md     Dynamic product rules for UX, AI, and workflow design
 docs/development-roadmap.md  Definitive planned sequence for near-term product work
 docs/subscription-tiers.md   Free/Pro feature boundary and entitlement rules
-docs/tier-development.md     Safe local/staging workflow for both plans
+docs/tier-development.md     Safe single-project workflow for both plans
 ```
 
 ## Product Rulebook
@@ -124,14 +124,9 @@ Start web for PC/browser use:
 npm run web
 ```
 
-Start Expo against the isolated tier-development environment:
-
-```sh
-npm run start:staging
-```
-
-See [docs/tier-development.md](docs/tier-development.md) for staging setup and
-the Free/Pro test-account workflow.
+Expo uses the linked `contracktor-dev` Supabase project configured in `.env`.
+See [docs/tier-development.md](docs/tier-development.md) for the Free/Pro
+real-account workflow.
 
 Useful Expo options after `npx expo start`:
 
