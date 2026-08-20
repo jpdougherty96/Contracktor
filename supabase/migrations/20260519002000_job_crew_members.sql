@@ -15,12 +15,16 @@ create table if not exists public.job_crew_members (
 
 alter table public.job_crew_members enable row level security;
 
+drop policy if exists "Users can read their own job crew members"
+on public.job_crew_members;
 create policy "Users can read their own job crew members"
 on public.job_crew_members
 for select
 to authenticated
 using (auth.uid() = owner_id);
 
+drop policy if exists "Users can create valid job crew members"
+on public.job_crew_members;
 create policy "Users can create valid job crew members"
 on public.job_crew_members
 for insert
@@ -33,6 +37,8 @@ with check (
   )
 );
 
+drop policy if exists "Users can update valid job crew members"
+on public.job_crew_members;
 create policy "Users can update valid job crew members"
 on public.job_crew_members
 for update
@@ -46,6 +52,8 @@ with check (
   )
 );
 
+drop policy if exists "Users can delete their own job crew members"
+on public.job_crew_members;
 create policy "Users can delete their own job crew members"
 on public.job_crew_members
 for delete

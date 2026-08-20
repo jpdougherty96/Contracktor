@@ -31,6 +31,7 @@ type JobDashboardScreenProps = {
   onReviewReceipt: (receiptId: string) => void;
   onShoppingList: () => void;
   refreshKey?: number;
+  showShoppingList?: boolean;
 };
 
 export function JobDashboardScreen({
@@ -46,6 +47,7 @@ export function JobDashboardScreen({
   onReviewReceipt,
   onShoppingList,
   refreshKey = 0,
+  showShoppingList = false,
 }: JobDashboardScreenProps) {
   const snapshot = calculateJobFinancialSnapshot(job);
   const isTimeAndMaterials = job.jobType === 'time_and_materials';
@@ -276,9 +278,11 @@ export function JobDashboardScreen({
         <Pressable style={styles.invoiceButton} onPress={onExportReport}>
           <Text style={styles.invoiceButtonText}>Export job report</Text>
         </Pressable>
-        <Pressable style={styles.invoiceButton} onPress={onShoppingList}>
-          <Text style={styles.invoiceButtonText}>Shopping list</Text>
-        </Pressable>
+        {showShoppingList ? (
+          <Pressable style={styles.invoiceButton} onPress={onShoppingList}>
+            <Text style={styles.invoiceButtonText}>Shopping list</Text>
+          </Pressable>
+        ) : null}
 
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Recent activity</Text>

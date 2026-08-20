@@ -13,6 +13,8 @@ export const subscriptionFeatureKeys = [
   'core.payments',
   'core.notes_photos',
   'core.invoices_reports',
+  'activity.feed',
+  'receipt.smart_allocation',
   'tell.basic',
   'tell.conversation',
   'tell.voice',

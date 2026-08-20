@@ -21,6 +21,11 @@ Remove obvious friction
 
 Do not let future architecture prevent obvious friction reductions today. In particular, one-tap receipt capture should not wait for team accounts, shopping needs, or voice.
 
+All roadmap work ships from one codebase. The version deployed from `main`
+before Pro development is the protected Free baseline. Pro work must remain
+behind runtime entitlements until release, and a broken or unavailable Pro
+capability must not prevent a business from completing a Free workflow.
+
 ## 1. Rulebook / README Alignment
 
 Goal: keep the documentation roles clean.
@@ -175,17 +180,23 @@ Done when:
 
 ## 4A. Dynamic Subscription Entitlements
 
-Goal: preserve the complete deployed product as Free while allowing new intelligence features to move dynamically between Free, Pro, and future plans.
+Goal: preserve the production-`main` baseline as Free while allowing new
+features to move dynamically between Free, Pro, and future plans.
 
 Implementation direction:
 
 - Plans, features, plan entitlements, business assignments, and business overrides live in the database.
 - Existing and new businesses default to Free.
-- The currently deployed feature set remains enabled in Free.
-- New conversational job-understanding features begin in Pro.
+- The production-`main` baseline remains enabled in Free.
+- Activity, Shopping, smart receipt allocation, and Tell conTRACKtor begin in
+  Pro because they were added after that baseline.
 - Product code checks feature entitlements, not hardcoded plan names.
 - UI gating is convenience; server capabilities enforce paid access and usage.
 - No existing record becomes inaccessible after downgrade.
+- Shared security, ownership, processing durability, and data-integrity work is
+  available to both plans and is never treated as a paid feature.
+- Entitlement lookup failures fall back to known Free client capabilities while
+  paid server operations fail closed.
 
 The working tier definition and management examples are in [subscription-tiers.md](subscription-tiers.md).
 
@@ -194,7 +205,8 @@ Done when:
 - Free and Pro can be reconfigured without an app release.
 - A business can receive a temporary feature override for beta testing.
 - The app can retrieve one effective entitlement snapshot for the current business.
-- Adding the entitlement foundation does not gate any currently deployed workflow.
+- An automated and manual regression matrix verifies the production Free baseline.
+- Adding or changing a Pro feature does not gate any Free baseline workflow.
 
 ## 5. Activity + Needs Attention
 

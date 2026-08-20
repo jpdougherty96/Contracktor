@@ -18,6 +18,8 @@ type HomeActionsScreenProps = {
   onGoToToolsInventory: () => void;
   onTellContracktor: () => void;
   onLogout?: () => void;
+  showActivity?: boolean;
+  showTellContracktor?: boolean;
   userEmail?: string;
 };
 
@@ -79,6 +81,8 @@ export function HomeActionsScreen({
   onGoToToolsInventory,
   onTellContracktor,
   onLogout,
+  showActivity = false,
+  showTellContracktor = false,
   userEmail,
 }: HomeActionsScreenProps) {
   const [isAccountOpen, setIsAccountOpen] = useState(false);
@@ -167,40 +171,44 @@ export function HomeActionsScreen({
             </View>
           </Pressable>
 
-          <Pressable onPress={onTellContracktor} style={styles.tellButton}>
-            <View style={styles.tellIconBlock}>
-              <Feather color={colors.primaryGreen} name="message-circle" size={30} />
-            </View>
-            <View style={styles.captureText}>
-              <Text style={styles.tellLabel}>Tell conTRACKtor</Text>
-              <Text style={styles.tellDescription}>
-                Type or dictate what happened. Add photos if useful.
-              </Text>
-            </View>
-          </Pressable>
+          {showTellContracktor ? (
+            <Pressable onPress={onTellContracktor} style={styles.tellButton}>
+              <View style={styles.tellIconBlock}>
+                <Feather color={colors.primaryGreen} name="message-circle" size={30} />
+              </View>
+              <View style={styles.captureText}>
+                <Text style={styles.tellLabel}>Tell conTRACKtor</Text>
+                <Text style={styles.tellDescription}>
+                  Type or dictate what happened. Add photos if useful.
+                </Text>
+              </View>
+            </Pressable>
+          ) : null}
 
           <View style={styles.actionList}>
-            {primaryActions.map((action) => (
-              <Pressable
-                key={action.key}
-                onPress={() => handlePress(action.key)}
-                style={styles.actionButton}>
-                <View style={styles.iconBlock}>
-                  <Feather color={colors.warmWhite} name={action.icon} size={28} />
-                </View>
-                <View style={styles.actionText}>
-                  <View style={styles.actionLabelRow}>
-                    <Text style={styles.actionLabel}>{action.label}</Text>
-                    {action.key === 'activity' && needsReviewCount > 0 ? (
-                      <View style={styles.reviewBadge}>
-                        <Text style={styles.reviewBadgeText}>{needsReviewCount}</Text>
-                      </View>
-                    ) : null}
+            {primaryActions
+              .filter((action) => action.key !== 'activity' || showActivity)
+              .map((action) => (
+                <Pressable
+                  key={action.key}
+                  onPress={() => handlePress(action.key)}
+                  style={styles.actionButton}>
+                  <View style={styles.iconBlock}>
+                    <Feather color={colors.warmWhite} name={action.icon} size={28} />
                   </View>
-                  <Text style={styles.actionDescription}>{action.description}</Text>
-                </View>
-              </Pressable>
-            ))}
+                  <View style={styles.actionText}>
+                    <View style={styles.actionLabelRow}>
+                      <Text style={styles.actionLabel}>{action.label}</Text>
+                      {action.key === 'activity' && needsReviewCount > 0 ? (
+                        <View style={styles.reviewBadge}>
+                          <Text style={styles.reviewBadgeText}>{needsReviewCount}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={styles.actionDescription}>{action.description}</Text>
+                  </View>
+                </Pressable>
+              ))}
           </View>
         </View>
       </ScrollView>

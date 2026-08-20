@@ -62,6 +62,8 @@ supabase/README.md           Supabase setup/deploy notes
 docs/phase-1-test-plan.md    Current Phase 1 manual and automation test plan
 docs/product-rulebook.md     Dynamic product rules for UX, AI, and workflow design
 docs/development-roadmap.md  Definitive planned sequence for near-term product work
+docs/subscription-tiers.md   Free/Pro feature boundary and entitlement rules
+docs/tier-development.md     Safe local/staging workflow for both plans
 ```
 
 ## Product Rulebook
@@ -77,6 +79,7 @@ Users capture or describe reality. conTRACKtor turns it into records.
 Before adding a screen, form field, confirmation, required decision, or AI-specific workflow, ask whether conTRACKtor can infer it, automate it, prepare it, defer it, process it in the background, or ask only later if it is genuinely needed.
 
 The planned build sequence is documented in [docs/development-roadmap.md](docs/development-roadmap.md).
+The dynamic Free/Pro boundary is documented in [docs/subscription-tiers.md](docs/subscription-tiers.md).
 
 ## Prerequisites
 
@@ -120,6 +123,15 @@ Start web for PC/browser use:
 ```sh
 npm run web
 ```
+
+Start Expo against the isolated tier-development environment:
+
+```sh
+npm run start:staging
+```
+
+See [docs/tier-development.md](docs/tier-development.md) for staging setup and
+the Free/Pro test-account workflow.
 
 Useful Expo options after `npx expo start`:
 

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useEntitlements } from '@/src/contexts/EntitlementsContext';
 import { getCurrentAuthState, signOut } from '@/src/lib/auth';
 import { fetchGlobalActivity, type GlobalActivityItem } from '@/src/lib/globalActivity';
 import {
@@ -73,6 +74,7 @@ type Screen =
 
 export default function HomeScreen() {
   const { width: viewportWidth } = useWindowDimensions();
+  const { hasFeature, refresh: refreshEntitlements } = useEntitlements();
   const [session, setSession] = useState<Session | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -96,6 +98,10 @@ export default function HomeScreen() {
   const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
   const isPasswordRecoveryFlowRef = useRef(false);
+  const canUseActivity = hasFeature('activity.feed');
+  const canUseSmartAllocation = hasFeature('receipt.smart_allocation');
+  const canUseShopping = hasFeature('core.shopping');
+  const canUseTell = hasFeature('tell.basic');
   const renderScreen = (content: ReactNode) => (
     <View style={styles.appShell}>
       <View style={[styles.screenFrame, viewportWidth >= 768 && styles.desktopScreenFrame]}>
@@ -173,10 +179,32 @@ export default function HomeScreen() {
   }, []);
 
   useEffect(() => {
+    if (session) {
+      void refreshEntitlements();
+    }
+  }, [refreshEntitlements, session]);
+
+  useEffect(() => {
+    if (screen === 'activity' && !canUseActivity) {
+      setScreen('home');
+      return;
+    }
+
+    if (screen === 'shoppingList' && !canUseShopping) {
+      setScreen(selectedJob ? 'dashboard' : 'home');
+      return;
+    }
+
+    if (screen === 'tellContracktor' && !canUseTell) {
+      setScreen(selectedJob ? 'dashboard' : 'home');
+    }
+  }, [canUseActivity, canUseShopping, canUseTell, screen, selectedJob]);
+
+  useEffect(() => {
     let isMounted = true;
 
     const loadNeedsReviewCount = async () => {
-      if (!session) {
+      if (!session || !canUseActivity) {
         setNeedsReviewCount(0);
         return;
       }
@@ -199,7 +227,7 @@ export default function HomeScreen() {
     return () => {
       isMounted = false;
     };
-  }, [dashboardRefreshKey, jobsRefreshKey, session]);
+  }, [canUseActivity, dashboardRefreshKey, jobsRefreshKey, session]);
 
   const handleLogout = async () => {
     try {
@@ -287,6 +315,14 @@ export default function HomeScreen() {
     return renderScreen(<AuthScreen configError={authError} />);
   }
 
+  if (
+    (screen === 'activity' && !canUseActivity) ||
+    (screen === 'shoppingList' && !canUseShopping) ||
+    (screen === 'tellContracktor' && !canUseTell)
+  ) {
+    return <LoadingScreen />;
+  }
+
   if (screen === 'updatePassword') {
     return renderScreen(
       <UpdatePasswordScreen
@@ -312,7 +348,7 @@ export default function HomeScreen() {
     );
   }
 
-  if (screen === 'activity') {
+  if (screen === 'activity' && canUseActivity) {
     return renderScreen(
       <ActivityScreen
         onBack={() => setScreen('home')}
@@ -355,6 +391,8 @@ export default function HomeScreen() {
           setScreen('tellContracktor');
         }}
         onLogout={handleLogout}
+        showActivity={canUseActivity}
+        showTellContracktor={canUseTell}
         userEmail={session.user.email}
       />
     );
@@ -488,11 +526,12 @@ export default function HomeScreen() {
         }}
         onShoppingList={() => setScreen('shoppingList')}
         refreshKey={dashboardRefreshKey}
+        showShoppingList={canUseShopping}
       />
     );
   }
 
-  if (screen === 'shoppingList' && selectedJob) {
+  if (screen === 'shoppingList' && selectedJob && canUseShopping) {
     return renderScreen(
       <ShoppingListScreen
         contextJob={selectedJob}
@@ -546,7 +585,7 @@ export default function HomeScreen() {
     );
   }
 
-  if (screen === 'tellContracktor') {
+  if (screen === 'tellContracktor' && canUseTell) {
     return renderScreen(
       <TellContracktorScreen
         contextJob={selectedJob}
@@ -645,6 +684,7 @@ export default function HomeScreen() {
 
     return renderScreen(
       <ReceiptReviewScreen
+        enableSmartAllocation={canUseSmartAllocation}
         includeInventoryDestination={isSelectedReceiptInventoryMode}
         inventoryMode={isInventoryOnlyReceipt}
         job={selectedJob}
@@ -661,7 +701,13 @@ export default function HomeScreen() {
         }}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setScreen(getReceiptCompleteScreen(selectedReceiptJobs, isSelectedReceiptInventoryMode));
+          setScreen(
+            getReceiptCompleteScreen(
+              selectedReceiptJobs,
+              isSelectedReceiptInventoryMode,
+              canUseActivity
+            )
+          );
         }}
         receiptId={selectedReceiptId}
       />
@@ -719,7 +765,13 @@ export default function HomeScreen() {
         onBack={() => setScreen(addBackScreen)}
         onDone={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setScreen(getReceiptCompleteScreen(selectedReceiptJobs, isSelectedReceiptInventoryMode));
+          setScreen(
+            getReceiptCompleteScreen(
+              selectedReceiptJobs,
+              isSelectedReceiptInventoryMode,
+              canUseActivity
+            )
+          );
         }}
         onReviewReceipt={(receiptId) => {
           setSelectedReceiptId(receiptId);
@@ -953,7 +1005,11 @@ function getAddDoneLabel(screen: Screen): string {
   return 'Back home';
 }
 
-function getReceiptCompleteScreen(receiptJobs: Job[], includesInventoryDestination: boolean): Screen {
+function getReceiptCompleteScreen(
+  receiptJobs: Job[],
+  includesInventoryDestination: boolean,
+  canUseActivity: boolean
+): Screen {
   if (receiptJobs.length === 1 && !includesInventoryDestination) {
     return 'dashboard';
   }
@@ -962,7 +1018,7 @@ function getReceiptCompleteScreen(receiptJobs: Job[], includesInventoryDestinati
     return 'toolsInventory';
   }
 
-  return 'activity';
+  return canUseActivity ? 'activity' : 'home';
 }
 
 function isPasswordRecoveryUrl(): boolean {

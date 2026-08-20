@@ -33,6 +33,29 @@ Build reversible foundations. Prefer small, composable changes that let conTRACK
 
 The rulebook is a living constitution, not a museum piece.
 
+## 0A. Free Baseline Compatibility
+
+The product deployed from `main` before Pro development began is the protected
+Free baseline. New work may be assigned to Pro, but it must not make an existing
+Free workflow unavailable, less reliable, or dependent on a paid service.
+
+Apply these rules to every tiered change:
+
+- maintain one codebase and resolve access through feature entitlements
+- default authenticated businesses to Free
+- let the client fall back to known Free capabilities when entitlement lookup
+  is unavailable
+- enforce paid access again at the database or server boundary
+- fail closed for paid AI usage and paid data mutations
+- keep security, permissions, ownership, durability, auditability, and data
+  integrity shared across every plan
+- preserve read/export access to historical records after downgrade
+- use expand-first migrations so the currently deployed client remains usable
+  while a new release is being introduced
+
+A tier definition can change. The promise that Free remains usable cannot be
+silently changed.
+
 ## 1. North Star
 
 Users capture or describe reality. conTRACKtor turns it into records.

@@ -112,9 +112,25 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: userError?.message ?? 'Invalid user token' }, 401);
   }
 
+  const { data: entitlementSnapshot, error: entitlementError } = await supabase.rpc(
+    'get_my_entitlements',
+    {}
+  );
+
+  if (entitlementError) {
+    return jsonResponse({ error: 'Unable to verify Tell conTRACKtor access.' }, 403);
+  }
+
+  const entitlementBusinessId = readEntitlementBusinessId(entitlementSnapshot);
+
+  if (!entitlementBusinessId || !snapshotHasFeature(entitlementSnapshot, 'tell.basic')) {
+    return jsonResponse({ error: 'Tell conTRACKtor requires conTRACKtor Pro.' }, 403);
+  }
+
   const { data: jobs, error: jobsError } = await supabase
     .from('jobs')
     .select('id, owner_id, business_id, name, client_name, status')
+    .eq('business_id', entitlementBusinessId)
     .order('created_at', { ascending: false })
     .limit(80);
 
@@ -323,6 +339,36 @@ function readPhotoInputs(value: unknown): TellPhotoInput[] {
       };
     })
     .filter((photo): photo is TellPhotoInput => Boolean(photo));
+}
+
+function readEntitlementBusinessId(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const businessId = (value as Record<string, unknown>).business_id;
+  return typeof businessId === 'string' && businessId ? businessId : null;
+}
+
+function snapshotHasFeature(value: unknown, featureKey: string): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+
+  const features = (value as Record<string, unknown>).features;
+
+  if (!features || typeof features !== 'object' || Array.isArray(features)) {
+    return false;
+  }
+
+  const feature = (features as Record<string, unknown>)[featureKey];
+
+  return Boolean(
+    feature &&
+      typeof feature === 'object' &&
+      !Array.isArray(feature) &&
+      (feature as Record<string, unknown>).enabled === true
+  );
 }
 
 function applyDefaultJobToParsedInput(

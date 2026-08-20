@@ -1,6 +1,6 @@
 # Supabase Setup Notes
 
-conTRACKtor relies on Supabase Auth, Postgres, Storage, and one Edge Function.
+conTRACKtor relies on Supabase Auth, Postgres, Storage, and Edge Functions.
 
 Use migrations as the source of truth. The current migrations create the app tables, RLS policies, financial views, `receipts` storage bucket, and `attachments` storage bucket.
 
@@ -71,12 +71,12 @@ supabase secrets set OPENAI_RECEIPT_MODEL=gpt-5.4-mini
 
 The function uses the signed-in user's JWT for receipt reads, storage downloads, and receipt updates, so normal RLS policies still apply. A service role key is not required for this receipt extraction flow.
 
-## Deploy Receipt Parser
+## Deploy Edge Functions
 
-Deploy after any change to `supabase/functions/extract-receipt/index.ts`:
+Deploy all repository functions to the currently linked project:
 
 ```sh
-supabase functions deploy extract-receipt --project-ref spdhsfkiejdrctclbudv
+supabase functions deploy --project-ref TARGET_PROJECT_REF
 ```
 
 Verify the deployed function:
@@ -85,7 +85,13 @@ Verify the deployed function:
 supabase functions list
 ```
 
-The recent parser safeguards only run remotely after this deploy. That includes:
+The deployed functions are:
+
+- `extract-receipt`
+- `process-receipt-queue`
+- `tell-contracktor`
+
+The recent parser safeguards only run remotely after deployment. That includes:
 
 - rejecting or flagging parsed line totals that exceed the receipt total
 - avoiding subtotal, tax, fee, total, payment, card, and rebate lines as expense line items

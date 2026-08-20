@@ -45,6 +45,7 @@ type LineAssignmentState = {
 };
 
 type ReceiptReviewScreenProps = {
+  enableSmartAllocation?: boolean;
   includeInventoryDestination?: boolean;
   inventoryMode?: boolean;
   job?: Job | null;
@@ -57,6 +58,7 @@ type ReceiptReviewScreenProps = {
 };
 
 export function ReceiptReviewScreen({
+  enableSmartAllocation = false,
   includeInventoryDestination = false,
   inventoryMode = false,
   job,
@@ -221,7 +223,10 @@ export function ReceiptReviewScreen({
           assignmentJobs.length > 1 || (includeInventoryDestination && assignmentJobs.length > 0)
         );
         const shoppingNeedSuggestions =
-          !inventoryMode && nextLineItems.length > 0 && assignmentJobs.length > 0
+          enableSmartAllocation &&
+          !inventoryMode &&
+          nextLineItems.length > 0 &&
+          assignmentJobs.length > 0
             ? await suggestReceiptLineAssignmentsFromShoppingNeeds(
                 nextLineItems,
                 assignmentJobs.map((assignmentJob) => assignmentJob.id)
@@ -341,6 +346,7 @@ export function ReceiptReviewScreen({
     };
   }, [
     contextJobs,
+    enableSmartAllocation,
     includeInventoryDestination,
     inventoryMode,
     job,
