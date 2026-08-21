@@ -19,6 +19,12 @@ export type JobMaterialCostEntry = Pick<
   | 'receipt_line_item_id'
 >;
 
+export type BasicJobTruthSummary = {
+  lastActivityAt: string | null;
+  openAttentionCount: number;
+  openShoppingNeedCount: number;
+};
+
 export async function fetchJobFinancialSnapshot(
   jobId: string
 ): Promise<JobFinancialSnapshotRow | null> {
@@ -46,6 +52,56 @@ export async function fetchJobFinancialSnapshot(
   }
 
   return data;
+}
+
+export async function fetchBasicJobTruthSummary(jobId: string): Promise<BasicJobTruthSummary> {
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw new Error(userError.message);
+  }
+
+  if (!userData.user) {
+    return { lastActivityAt: null, openAttentionCount: 0, openShoppingNeedCount: 0 };
+  }
+
+  const [attentionResult, shoppingResult, activityResult] = await Promise.all([
+    supabase
+      .from('attention_items')
+      .select('id', { count: 'exact', head: true })
+      .eq('job_id', jobId)
+      .eq('status', 'open'),
+    supabase
+      .from('shopping_needs')
+      .select('id', { count: 'exact', head: true })
+      .eq('job_id', jobId)
+      .eq('status', 'open'),
+    supabase
+      .from('activity_events')
+      .select('occurred_at')
+      .eq('job_id', jobId)
+      .order('occurred_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  if (attentionResult.error) {
+    throw new Error(attentionResult.error.message);
+  }
+
+  if (shoppingResult.error) {
+    throw new Error(shoppingResult.error.message);
+  }
+
+  if (activityResult.error) {
+    throw new Error(activityResult.error.message);
+  }
+
+  return {
+    lastActivityAt: activityResult.data?.occurred_at ?? null,
+    openAttentionCount: attentionResult.count ?? 0,
+    openShoppingNeedCount: shoppingResult.count ?? 0,
+  };
 }
 
 export async function fetchJobLaborCostEntries(jobId: string): Promise<JobLaborCostEntry[]> {

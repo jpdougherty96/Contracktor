@@ -87,6 +87,14 @@ export type TellContracktorCommitResult = {
   replayed: boolean;
 };
 
+export type TellContracktorUndoResult = {
+  attachment_storage_paths: string[];
+  entry_id: string;
+  records: TellContracktorCommitResult['records'];
+  replayed: boolean;
+  undone_at: string;
+};
+
 export async function submitTellContracktorText({
   jobId,
   photos = [],
@@ -159,4 +167,28 @@ export async function commitTellContracktorEntry(
   }
 
   return data as unknown as TellContracktorCommitResult;
+}
+
+export async function undoTellContracktorEntry(entryId: string): Promise<TellContracktorUndoResult> {
+  const { data, error } = await supabase.rpc('undo_tell_contracktor_entry', {
+    p_entry_id: entryId,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const result = data as unknown as TellContracktorUndoResult;
+
+  if (result.attachment_storage_paths.length > 0) {
+    const { error: storageError } = await supabase.storage
+      .from('attachments')
+      .remove(result.attachment_storage_paths);
+
+    if (storageError) {
+      console.warn('Tell records were undone, but attachment cleanup failed.', storageError);
+    }
+  }
+
+  return result;
 }

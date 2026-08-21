@@ -113,6 +113,21 @@ Pass criteria:
 
 Goal: prove the app opens and the main routes are not broken.
 
+Verify the Job Snapshot for both canonical job types:
+
+- Fixed bid shows attention, shopping, hours, recorded cost, recorded balance,
+  projected profit, and last activity from existing records.
+- Time & materials does not infer a customer balance before invoicing.
+
+Verify Tell correction and Undo:
+
+- Edit or remove a proposal before approval and confirm only the reviewed
+  proposal is committed.
+- Undo an unchanged Tell update and confirm all of its notes, hours, shopping
+  needs, and attachment records are removed.
+- Edit one committed record directly, then confirm Tell Undo refuses to delete
+  the human correction.
+
 Web:
 - Start `npm run web`.
 - Sign in.

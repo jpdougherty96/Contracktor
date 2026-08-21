@@ -50,6 +50,32 @@ test('Tell photo retries use deterministic storage and attachment identities', a
   assert.match(screen, /idempotencyKey: `\$\{result\.entry_id\}-\$\{photoIndex \+ 1\}`/);
 });
 
+test('Tell Undo reverses only unchanged records and preserves an audit trail', async () => {
+  const [migration, photoProtection, screen, tellApi] = await Promise.all([
+    readRepoFile('supabase/migrations/20260820093000_tell_undo.sql'),
+    readRepoFile('supabase/migrations/20260820094000_protect_tell_note_additions.sql'),
+    readRepoFile('src/screens/TellContracktorScreen.tsx'),
+    readRepoFile('src/lib/tellContracktor.ts'),
+  ]);
+
+  assert.match(migration, /function public\.undo_tell_contracktor_entry/);
+  assert.match(migration, /if v_entry_status = 'undone' then/);
+  assert.match(migration, /revoke all on function public\.commit_tell_contracktor_entry_once/);
+  assert.match(migration, /for update;/);
+  assert.match(migration, /v_commit\.committed_by_user_id <> v_auth_user/);
+  assert.match(migration, /A Tell-created note was edited after approval/);
+  assert.match(migration, /shopping need changed after approval/);
+  assert.match(migration, /Tell-created hours changed after approval/);
+  assert.match(photoProtection, /A photo was added to a Tell-created note after approval/);
+  assert.match(photoProtection, /revoke all on function public\.undo_tell_contracktor_entry_once/);
+  assert.match(migration, /'tell_contracktor_undone'/);
+  assert.match(migration, /status = 'undone'/);
+  assert.match(tellApi, /rpc\('undo_tell_contracktor_entry'/);
+  assert.match(tellApi, /remove\(result\.attachment_storage_paths\)/);
+  assert.match(screen, /undoTellContracktorEntry\(result\.entry_id\)/);
+  assert.match(screen, /isSaving \? 'Undoing\.\.\.' : 'Undo'/);
+});
+
 async function readRepoFile(relativePath) {
   return readFile(new URL(relativePath, `file://${repoRoot}/`), 'utf8');
 }

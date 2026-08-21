@@ -2024,6 +2024,10 @@ export type Database = {
           owner_id: string
           proposal_payload: Json
           result: Json
+          status: string
+          undo_result: Json | null
+          undone_at: string | null
+          undone_by_user_id: string | null
         }
         Insert: {
           business_id: string
@@ -2033,6 +2037,10 @@ export type Database = {
           owner_id: string
           proposal_payload: Json
           result: Json
+          status?: string
+          undo_result?: Json | null
+          undone_at?: string | null
+          undone_by_user_id?: string | null
         }
         Update: {
           business_id?: string
@@ -2042,6 +2050,10 @@ export type Database = {
           owner_id?: string
           proposal_payload?: Json
           result?: Json
+          status?: string
+          undo_result?: Json | null
+          undone_at?: string | null
+          undone_by_user_id?: string | null
         }
         Relationships: [
           {
@@ -2068,6 +2080,13 @@ export type Database = {
           {
             foreignKeyName: "tell_contracktor_commits_owner_id_fkey"
             columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tell_contracktor_commits_undone_by_user_id_fkey"
+            columns: ["undone_by_user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -2364,6 +2383,10 @@ export type Database = {
         Args: { p_entry_id: string; p_proposals: Json }
         Returns: Json
       }
+      commit_tell_contracktor_entry_once: {
+        Args: { p_entry_id: string; p_proposals: Json }
+        Returns: Json
+      }
       default_business_for_user: {
         Args: { p_user_id: string }
         Returns: string
@@ -2481,6 +2504,14 @@ export type Database = {
       resolve_receipt_attention: {
         Args: { p_receipt_id: string }
         Returns: number
+      }
+      undo_tell_contracktor_entry: {
+        Args: { p_entry_id: string }
+        Returns: Json
+      }
+      undo_tell_contracktor_entry_once: {
+        Args: { p_entry_id: string }
+        Returns: Json
       }
       upsert_activity_event: {
         Args: {

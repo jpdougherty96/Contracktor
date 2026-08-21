@@ -9,9 +9,11 @@ import {
 } from '@/src/lib/financials';
 import { fetchJobActivity, type JobActivityItem } from '@/src/lib/jobActivity';
 import {
-  fetchJobLaborCostEntries,
+  fetchBasicJobTruthSummary,
   fetchJobFinancialSnapshot,
+  fetchJobLaborCostEntries,
   fetchJobMaterialCostEntries,
+  type BasicJobTruthSummary,
   type JobLaborCostEntry,
   type JobFinancialSnapshotRow,
   type JobMaterialCostEntry,
@@ -52,6 +54,7 @@ export function JobDashboardScreen({
   const snapshot = calculateJobFinancialSnapshot(job);
   const isTimeAndMaterials = job.jobType === 'time_and_materials';
   const [databaseSnapshot, setDatabaseSnapshot] = useState<JobFinancialSnapshotRow | null>(null);
+  const [truthSummary, setTruthSummary] = useState<BasicJobTruthSummary | null>(null);
   const [isSnapshotLoading, setIsSnapshotLoading] = useState(true);
   const [snapshotError, setSnapshotError] = useState<string | null>(null);
   const [laborEntries, setLaborEntries] = useState<JobLaborCostEntry[]>([]);
@@ -70,16 +73,19 @@ export function JobDashboardScreen({
       setSnapshotError(null);
 
       try {
-        const [nextSnapshot, nextLaborEntries, nextMaterialEntries] = await Promise.all([
-          fetchJobFinancialSnapshot(job.id),
-          fetchJobLaborCostEntries(job.id),
-          fetchJobMaterialCostEntries(job.id),
-        ]);
+        const [nextSnapshot, nextLaborEntries, nextMaterialEntries, nextTruthSummary] =
+          await Promise.all([
+            fetchJobFinancialSnapshot(job.id),
+            fetchJobLaborCostEntries(job.id),
+            fetchJobMaterialCostEntries(job.id),
+            fetchBasicJobTruthSummary(job.id),
+          ]);
 
         if (isMounted) {
           setDatabaseSnapshot(nextSnapshot);
           setLaborEntries(nextLaborEntries);
           setMaterialEntries(nextMaterialEntries);
+          setTruthSummary(nextTruthSummary);
         }
       } catch (error) {
         if (isMounted) {
@@ -100,6 +106,12 @@ export function JobDashboardScreen({
       isMounted = false;
     };
   }, [job.id, refreshKey]);
+
+  const paymentsReceived = databaseSnapshot?.payments_received ?? snapshot.paymentsReceived;
+  const totalCost = databaseSnapshot?.total_cost ?? snapshot.totalCost;
+  const totalHours = databaseSnapshot?.total_hours ?? totalLocalHours(job);
+  const projectedProfit = databaseSnapshot?.projected_profit ?? snapshot.projectedProfit;
+  const recordedBalance = (databaseSnapshot?.quote_amount ?? snapshot.quoteAmount) - paymentsReceived;
 
   useEffect(() => {
     let isMounted = true;
@@ -152,8 +164,77 @@ export function JobDashboardScreen({
           </Pressable>
         </View>
 
+        <View style={styles.snapshotPanel}>
+          <View style={styles.snapshotHeader}>
+            <View>
+              <Text style={styles.snapshotEyebrow}>JOB SNAPSHOT</Text>
+              <Text style={styles.snapshotTitle}>Where this job stands</Text>
+            </View>
+            <View style={styles.statusBadge}>
+              <Text style={styles.statusBadgeText}>{formatCostType(job.status)}</Text>
+            </View>
+          </View>
+          {isSnapshotLoading ? (
+            <Text style={styles.snapshotMessage}>Loading job truth...</Text>
+          ) : null}
+          {!isSnapshotLoading && snapshotError ? (
+            <Text style={styles.snapshotError}>{snapshotError}</Text>
+          ) : null}
+          {!isSnapshotLoading && !snapshotError ? (
+            <>
+              <View style={styles.snapshotGrid}>
+                <SnapshotMetric
+                  label="Needs attention"
+                  tone={truthSummary?.openAttentionCount ? 'warning' : 'normal'}
+                  value={String(truthSummary?.openAttentionCount ?? 0)}
+                />
+                <SnapshotMetric
+                  label="Open shopping"
+                  value={String(truthSummary?.openShoppingNeedCount ?? 0)}
+                />
+                <SnapshotMetric label="Total hours" value={formatNumber(totalHours)} />
+                <SnapshotMetric
+                  label="Job cost"
+                  value={formatCurrency(totalCost, { showCents: true })}
+                />
+                {!isTimeAndMaterials ? (
+                  <SnapshotMetric
+                    label="Recorded balance"
+                    tone={recordedBalance < 0 ? 'warning' : 'normal'}
+                    value={formatCurrency(recordedBalance, { showCents: true })}
+                  />
+                ) : null}
+                {!isTimeAndMaterials ? (
+                  <SnapshotMetric
+                    label="Projected profit"
+                    tone={projectedProfit < 0 ? 'warning' : 'normal'}
+                    value={formatCurrency(projectedProfit, { showCents: true })}
+                  />
+                ) : null}
+              </View>
+              <Text style={styles.snapshotFootnote}>
+                {truthSummary?.openAttentionCount
+                  ? `${truthSummary.openAttentionCount} record${truthSummary.openAttentionCount === 1 ? '' : 's'} need review.`
+                  : 'No records currently need attention.'}
+                {truthSummary?.lastActivityAt
+                  ? ` Last activity ${formatActivityDate(truthSummary.lastActivityAt)}.`
+                  : ' No activity has been recorded yet.'}
+              </Text>
+              {isTimeAndMaterials ? (
+                <Text style={styles.snapshotFootnote}>
+                  Customer balance appears after invoicing; conTRACKtor will not infer it from unbilled time and materials.
+                </Text>
+              ) : (
+                <Text style={styles.snapshotFootnote}>
+                  Recorded balance is the fixed bid less payments entered for this job.
+                </Text>
+              )}
+            </>
+          ) : null}
+        </View>
+
         <View style={styles.panel}>
-          <Text style={styles.panelTitle}>Live financial snapshot</Text>
+          <Text style={styles.panelTitle}>Financial details</Text>
           {isSnapshotLoading ? <Text style={styles.panelMessage}>Loading snapshot...</Text> : null}
           {!isSnapshotLoading && snapshotError ? (
             <Text style={styles.panelError}>{snapshotError}</Text>
@@ -377,6 +458,29 @@ function MetricRow({
   );
 }
 
+function SnapshotMetric({
+  label,
+  tone = 'normal',
+  value,
+}: {
+  label: string;
+  tone?: 'normal' | 'warning';
+  value: string;
+}) {
+  return (
+    <View style={styles.snapshotMetric}>
+      <Text style={styles.snapshotMetricLabel}>{label}</Text>
+      <Text
+        style={[
+          styles.snapshotMetricValue,
+          tone === 'warning' ? styles.snapshotMetricValueWarning : null,
+        ]}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
 function CostDetailPanel({
   emptyText,
   items,
@@ -497,6 +601,87 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     padding: 16,
+  },
+  snapshotPanel: {
+    backgroundColor: '#173D2A',
+    borderRadius: 12,
+    marginBottom: 14,
+    padding: 18,
+  },
+  snapshotHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  snapshotEyebrow: {
+    color: '#B7D4BF',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+  },
+  snapshotTitle: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '900',
+    marginTop: 3,
+  },
+  statusBadge: {
+    backgroundColor: '#E7F0E9',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  statusBadgeText: {
+    color: '#173D2A',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  snapshotGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  snapshotMetric: {
+    backgroundColor: '#244E38',
+    borderColor: '#3C684F',
+    borderRadius: 10,
+    borderWidth: 1,
+    minWidth: 140,
+    padding: 12,
+    width: '48%',
+  },
+  snapshotMetricLabel: {
+    color: '#C9DDCE',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  snapshotMetricValue: {
+    color: '#FFFFFF',
+    fontSize: 21,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+  snapshotMetricValueWarning: {
+    color: '#FFD38A',
+  },
+  snapshotFootnote: {
+    color: '#C9DDCE',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 19,
+    marginTop: 12,
+  },
+  snapshotMessage: {
+    color: '#C9DDCE',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  snapshotError: {
+    color: '#FFD0C7',
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
   },
   panelTitle: {
     color: '#1F2933',

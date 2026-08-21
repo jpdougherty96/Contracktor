@@ -48,24 +48,27 @@ What is already implemented:
 - Supervision uses separate, server-owned `attention_items`; Activity remains
   permanent history while the attention queue can be resolved.
 - Reviewed Tell proposals commit through one atomic, idempotent server
-  capability. Payments are deliberately outside the initial Tell scope.
+  capability. Tell can undo unchanged records without overriding later human
+  corrections. Payments are deliberately outside the initial Tell scope.
+- Each Job opens with a deterministic Snapshot of required attention, shopping,
+  hours, recorded cost, fixed-bid balance/profit, and latest activity.
 - The current local Home revision presents Capture Receipt, Tell conTRACKtor,
   and Start Work as the primary capture methods. Payments, inventory, and
   manual record entry remain available in deeper job workflows.
 
 What is only partially complete:
 
-- Tell correction and Undo behavior is not acceptance-complete.
-- Steps 8-11 are useful prototypes, but focused follow-up and the deterministic
-  basic Snapshot still need to be finished against the MVP definition.
+- Focused Tell follow-up for ambiguous fields is still limited to choosing a job
+  and editing the reviewed proposals.
+- The MVP has not yet passed the one-real-job end-to-end acceptance run.
 - Step 12 voice input has not been implemented as a first-class pipeline.
 
 Current sequence:
 
 ```txt
-Complete Tell correction/Undo behavior
--> build the basic Job Snapshot from existing job truth
--> run one real job end to end
+Run one real job end to end
+-> fix only the friction or truth gaps found in that run
+-> declare the MVP acceptance loop complete
 ```
 
 First-class voice, proactive automation, and broader business-assistant

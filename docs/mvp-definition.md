@@ -65,10 +65,15 @@ All three inputs feed the same job history and financial model.
 
 ### Job
 
-- basic Snapshot
+- basic deterministic Snapshot: attention, shopping, hours, recorded cost,
+  fixed-bid balance/profit, and latest activity
 - History
 - Financials
 - Shopping and relevant source records
+
+The Snapshot explains only recorded facts and deterministic calculations. For
+time-and-materials work, customer balance remains unknown until invoicing; the
+Free Snapshot must not invent it from unbilled labor or materials.
 
 ## MVP Scope
 

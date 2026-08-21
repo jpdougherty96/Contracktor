@@ -18,6 +18,7 @@ import { uploadJobNotePhoto } from '@/src/lib/jobNotes';
 import {
   commitTellContracktorEntry,
   submitTellContracktorText,
+  undoTellContracktorEntry,
   type TellContracktorCandidateJob,
   type TellContracktorCommitProposal,
   type TellContracktorPhotoInput,
@@ -77,6 +78,7 @@ export function TellContracktorScreen({
   const [result, setResult] = useState<TellContracktorResult | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isApproved, setIsApproved] = useState(false);
 
@@ -84,6 +86,7 @@ export function TellContracktorScreen({
     const cleanText = text.trim();
 
     setErrorMessage(null);
+    setNoticeMessage(null);
     setResult(null);
     setProposals([]);
     setIsApproved(false);
@@ -147,6 +150,7 @@ export function TellContracktorScreen({
 
     setIsSaving(true);
     setErrorMessage(null);
+    setNoticeMessage(null);
 
     try {
       const commitProposals = buildCommitProposals(proposals, selectedJobId, result);
@@ -169,6 +173,29 @@ export function TellContracktorScreen({
       setIsApproved(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to approve these entries.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleUndo = async () => {
+    if (!result) {
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMessage(null);
+
+    try {
+      await undoTellContracktorEntry(result.entry_id);
+      setIsApproved(false);
+      setResult(null);
+      setProposals([]);
+      setNoticeMessage('Update undone. Adjust what you wrote and send it again when ready.');
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Unable to undo this Tell conTRACKtor update.'
+      );
     } finally {
       setIsSaving(false);
     }
@@ -254,6 +281,7 @@ export function TellContracktorScreen({
 
           {!hasProposals && !isApproved ? (
             <View style={styles.form}>
+              {noticeMessage ? <Text style={styles.noticeText}>{noticeMessage}</Text> : null}
               <TextInput
                 multiline
                 onChangeText={setText}
@@ -414,9 +442,18 @@ export function TellContracktorScreen({
           ) : null}
 
           {isApproved ? (
-            <Pressable style={styles.sendButton} onPress={onDone}>
-              <Text style={styles.sendButtonText}>Done</Text>
-            </Pressable>
+            <View style={styles.savedActions}>
+              {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+              <Pressable
+                disabled={isSaving}
+                onPress={handleUndo}
+                style={[styles.undoButton, isSaving ? styles.disabledButton : null]}>
+                <Text style={styles.undoButtonText}>{isSaving ? 'Undoing...' : 'Undo'}</Text>
+              </Pressable>
+              <Pressable disabled={isSaving} style={styles.sendButton} onPress={onDone}>
+                <Text style={styles.sendButtonText}>Done</Text>
+              </Pressable>
+            </View>
           ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -999,6 +1036,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 20,
   },
+  noticeText: {
+    color: colors.primaryGreen,
+    fontSize: 15,
+    fontWeight: '800',
+    lineHeight: 20,
+  },
   savedPanel: {
     alignItems: 'flex-start',
     backgroundColor: colors.cardBackground,
@@ -1023,6 +1066,22 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     lineHeight: 20,
+  },
+  savedActions: {
+    gap: 10,
+  },
+  undoButton: {
+    alignItems: 'center',
+    borderColor: colors.danger,
+    borderRadius: 12,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 52,
+  },
+  undoButtonText: {
+    color: colors.danger,
+    fontSize: 17,
+    fontWeight: '900',
   },
   proposalStack: {
     gap: 14,
