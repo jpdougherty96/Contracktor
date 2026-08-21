@@ -245,7 +245,7 @@ export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
               placeholder="Optional"
             />
             <ToggleRow
-              description="Show Start and Stop controls for this job in Add hours."
+              description="Show Start and Stop controls for this job in Start work."
               isEnabled={timeClockEnabled}
               label="Time clock"
               onPress={() => setTimeClockEnabled((isEnabled) => !isEnabled)}

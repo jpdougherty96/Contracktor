@@ -124,7 +124,7 @@ Deno.serve(async (req) => {
   const entitlementBusinessId = readEntitlementBusinessId(entitlementSnapshot);
 
   if (!entitlementBusinessId || !snapshotHasFeature(entitlementSnapshot, 'tell.basic')) {
-    return jsonResponse({ error: 'Tell conTRACKtor requires conTRACKtor Pro.' }, 403);
+    return jsonResponse({ error: 'Tell conTRACKtor is not available for this business.' }, 403);
   }
 
   const { data: jobs, error: jobsError } = await supabase
@@ -151,14 +151,34 @@ Deno.serve(async (req) => {
     const parsedWithJob = applyDefaultJobToParsedInput(parsed, matchedJob);
 
     if (!matchedJob) {
+      const tellEntry = await createTellEntry(supabase, {
+        cleanedNote: parsedWithJob.cleaned_note,
+        extraction: parsedWithJob,
+        jobId: null,
+        rawText: rawText || '[Photo update]',
+        status: 'needs_job',
+        userId: user.id,
+      });
+
       return jsonResponse({
         candidates: getLikelyJobCandidates(visibleJobs, rawText),
+        entry_id: tellEntry.id,
         needs_job: true,
         parsed: parsedWithJob,
       });
     }
 
+    const tellEntry = await createTellEntry(supabase, {
+      cleanedNote: parsedWithJob.cleaned_note,
+      extraction: parsedWithJob,
+      jobId: matchedJob.id,
+      rawText: rawText || '[Photo update]',
+      status: 'processed',
+      userId: user.id,
+    });
+
     return jsonResponse({
+      entry_id: tellEntry.id,
       job: matchedJob,
       needs_job: false,
       parsed: parsedWithJob,
@@ -187,7 +207,7 @@ async function parseTellInput(
     status: job.status,
   }));
   const instructions =
-    'You interpret contractor field updates and attached photos. Return only valid JSON. Preserve facts, uncertainty, quantities, dimensions, dates, names, and caveats. Clean filler words, false starts, and dictation artifacts. The cleaned_note is the proposed operational job note, not a transcript. Rewrite it in concise professional field-note language, using neutral third-person or impersonal phrasing when helpful. Do not aggressively summarize away useful context. If attached photos show a handwritten or printed materials list, extract the visible material needs as shopping_needs. If the user provides no meaningful typed note and the photos are only a materials list, return cleaned_note as an empty string and put the useful information in shopping_needs. Do not invent hidden items from a photo; only extract visible/readable material needs. If a job-site photo is attached with useful typed context, use the typed context for cleaned_note, but do not describe visual conditions unless they are clear from the image or text. Do not create or imply labor/time entries from narrative mentions of time or added time unless the user clearly says they worked/logged/add hours. Example: "We had to spend an additional 4 hours redoing framing" is a scope note, not an hours entry. Create hours only for definitive worked/logged time such as "I worked 6.5 hours today" or "log Mike 8 hours". Do not change quotes, invoices, budgets, or expenses. Extract payments only when the user clearly says money was received/paid by the customer and an amount is present. Extract shopping needs when text or photos state materials need to be bought/needed/short or list purchasable materials. Match job only from provided jobs; use null and needs_job_confirmation when ambiguous. If a context job is provided, use it unless the text clearly refers to a different provided job. Use the provided local date for "today". Shopping need descriptions should be checklist item names, not sentences, e.g. description "10-foot 2x4s", quantity 10, unit null. Do not include words like "more", "need", "additional", or "buy" in shopping need descriptions. Use quantity as a number when explicit. Use unit for true count or measurement units like boxes, sheets, gallons, bundles, tubes, feet, linear feet, yards, or rolls. Do not put total order length into the item description. Example: "110 feet of 1.5 inch PVC" should be description "1.5 inch PVC", quantity 110, unit "feet". Keep product dimensions inside the item description when they describe the product, such as "10-foot 2x4s" or "1.5 inch PVC". Use normalized_name as a generic item name such as "2x4 lumber" or "PVC pipe". Payments should include amount, method such as check/cash/card/ACH if stated, and memo for useful context. Flag scope_or_budget_impact when added labor/materials, rotten framing, unexpected damage, change of scope, or cost impact is mentioned. The summary should describe what was interpreted, not claim that conTRACKtor saved records.';
+    'You interpret contractor field updates and attached photos. Return only valid JSON. Preserve facts, uncertainty, quantities, dimensions, dates, names, and caveats. Clean filler words, false starts, and dictation artifacts. The cleaned_note is the proposed operational job note, not a transcript. Rewrite it in concise professional field-note language, using neutral third-person or impersonal phrasing when helpful. Do not aggressively summarize away useful context. If attached photos show a handwritten or printed materials list, extract the visible material needs as shopping_needs. If the user provides no meaningful typed note and the photos are only a materials list, return cleaned_note as an empty string and put the useful information in shopping_needs. Do not invent hidden items from a photo; only extract visible/readable material needs. If a job-site photo is attached with useful typed context, use the typed context for cleaned_note, but do not describe visual conditions unless they are clear from the image or text. Do not create or imply labor/time entries from narrative mentions of time or added time unless the user clearly says they worked/logged/add hours. Example: "We had to spend an additional 4 hours redoing framing" is a scope note, not an hours entry. Create hours only for definitive worked/logged time such as "I worked 6.5 hours today" or "log Mike 8 hours". Do not change quotes, invoices, budgets, expenses, or payments. Payments are outside the initial Tell workflow, so always return payments as an empty array. Extract shopping needs when text or photos state materials need to be bought/needed/short or list purchasable materials. Match job only from provided jobs; use null and needs_job_confirmation when ambiguous. If a context job is provided, use it unless the text clearly refers to a different provided job. Use the provided local date for "today". Shopping need descriptions should be checklist item names, not sentences, e.g. description "10-foot 2x4s", quantity 10, unit null. Do not include words like "more", "need", "additional", or "buy" in shopping need descriptions. Use quantity as a number when explicit. Use unit for true count or measurement units like boxes, sheets, gallons, bundles, tubes, feet, linear feet, yards, or rolls. Do not put total order length into the item description. Example: "110 feet of 1.5 inch PVC" should be description "1.5 inch PVC", quantity 110, unit "feet". Keep product dimensions inside the item description when they describe the product, such as "10-foot 2x4s" or "1.5 inch PVC". Use normalized_name as a generic item name such as "2x4 lumber" or "PVC pipe". Flag scope_or_budget_impact when added labor/materials, rotten framing, unexpected damage, change of scope, or cost impact is mentioned. The summary should describe what was interpreted, not claim that conTRACKtor saved records.';
   const content: Array<{ image_url?: string; text?: string; type: 'input_image' | 'input_text' }> = [
     {
       text: `${instructions}\n\nLocal date: ${localDate}\nContext job id: ${contextJob?.id ?? 'none'}\nVisible jobs:\n${JSON.stringify(jobContext)}\n\nRaw input:\n${rawText || '[No typed text provided. Interpret the attached photos.]'}`,

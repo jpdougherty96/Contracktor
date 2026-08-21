@@ -1,6 +1,9 @@
 import type { ImagePickerAsset } from 'expo-image-picker';
 
-import { recordReceiptActivityEvent } from '@/src/lib/activityEvents';
+import {
+  recordReceiptActivityEvent,
+  resolveReceiptAttention,
+} from '@/src/lib/activityEvents';
 import {
   fulfillShoppingNeedsFromReceipt,
   undoShoppingNeedFulfillmentsFromReceipt,
@@ -925,6 +928,14 @@ async function recordReceiptEventSafely(
     await recordReceiptActivityEvent(input);
   } catch {
     // Activity is an audit aid, not the source of truth for receipt completion.
+  }
+
+  if (input.eventType === 'receipt_saved' || input.eventType === 'receipt_split_saved') {
+    try {
+      await resolveReceiptAttention(input.receipt.id);
+    } catch {
+      // Receipt completion remains valid if supervision cleanup must retry later.
+    }
   }
 }
 

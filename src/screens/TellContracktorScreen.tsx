@@ -14,13 +14,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { createJobHours } from '@/src/lib/jobHours';
-import { createJobNote, uploadJobNotePhoto } from '@/src/lib/jobNotes';
-import { createPayment } from '@/src/lib/payments';
-import { createShoppingNeed } from '@/src/lib/shoppingNeeds';
+import { uploadJobNotePhoto } from '@/src/lib/jobNotes';
 import {
+  commitTellContracktorEntry,
   submitTellContracktorText,
   type TellContracktorCandidateJob,
+  type TellContracktorCommitProposal,
   type TellContracktorPhotoInput,
   type TellContracktorResult,
 } from '@/src/lib/tellContracktor';
@@ -57,15 +56,6 @@ type Proposal =
       note: string;
       type: 'hours';
       workerName: string;
-    }
-  | {
-      amount: string;
-      date: string;
-      id: string;
-      jobId: string | null;
-      memo: string;
-      method: string;
-      type: 'payment';
     };
 
 type ShoppingProposal = Extract<Proposal, { type: 'shopping' }>;
@@ -159,79 +149,20 @@ export function TellContracktorScreen({
     setErrorMessage(null);
 
     try {
-      const createdNoteIds: { jobId: string; noteId: string }[] = [];
+      const commitProposals = buildCommitProposals(proposals, selectedJobId, result);
+      const commitResult = await commitTellContracktorEntry(result.entry_id, commitProposals);
 
-      for (const proposal of proposals) {
-        const jobId = getProposalJobId(proposal, selectedJobId, result);
+      if (photos.length > 0 && commitResult.created_note_id) {
+        const noteRecord = commitResult.records.find(
+          (record) => record.record_id === commitResult.created_note_id
+        );
 
-        if (!jobId) {
-          throw new Error('Choose a job before approving these entries.');
-        }
-
-        if (proposal.type === 'note') {
-          if (!proposal.note.trim()) {
-            continue;
+        if (noteRecord) {
+          for (const [photoIndex, photo] of photos.entries()) {
+            await uploadJobNotePhoto(noteRecord.job_id, commitResult.created_note_id, photo, {
+              idempotencyKey: `${result.entry_id}-${photoIndex + 1}`,
+            });
           }
-
-          const note = await createJobNote(jobId, { note: proposal.note });
-          createdNoteIds.push({ jobId, noteId: note.id });
-          continue;
-        }
-
-        if (proposal.type === 'shopping') {
-          if (!proposal.description.trim()) {
-            continue;
-          }
-
-          await createShoppingNeed({
-            description: proposal.description,
-            jobId,
-            normalizedName: proposal.normalizedName,
-            quantity: parseOptionalNumber(proposal.quantity),
-            sourceType: 'tell_contracktor',
-            unit: proposal.unit.trim() || null,
-          });
-          continue;
-        }
-
-        if (proposal.type === 'hours') {
-          const hours = parseRequiredNumber(proposal.hours);
-
-          if (hours === null || hours <= 0) {
-            throw new Error('Hours entries need a valid number of hours.');
-          }
-
-          await createJobHours(jobId, {
-            hourlyRate: contextJob?.hourlyRate ?? 0,
-            hours,
-            note: proposal.note,
-            workDate: proposal.date || getTodayDate(),
-            workerName: proposal.workerName,
-          });
-          continue;
-        }
-
-        if (proposal.type === 'payment') {
-          const amount = parseRequiredNumber(proposal.amount);
-
-          if (amount === null || amount <= 0) {
-            throw new Error('Payment entries need a valid amount.');
-          }
-
-          await createPayment(jobId, {
-            amount,
-            method: proposal.method,
-            note: proposal.memo,
-            paymentDate: proposal.date || getTodayDate(),
-          });
-        }
-      }
-
-      if (photos.length > 0 && createdNoteIds.length > 0) {
-        const noteTarget = createdNoteIds[0];
-
-        for (const photo of photos) {
-          await uploadJobNotePhoto(noteTarget.jobId, noteTarget.noteId, photo);
         }
       }
 
@@ -558,33 +489,6 @@ function ProposalCard({
         </View>
       ) : null}
 
-      {proposal.type === 'payment' ? (
-        <View style={styles.proposalFields}>
-          <View style={styles.twoColumnFields}>
-            <FieldRow
-              inputMode="decimal"
-              label="Amount"
-              onChangeText={(amount) => onChange({ ...proposal, amount })}
-              value={proposal.amount}
-            />
-            <FieldRow
-              label="Date"
-              onChangeText={(date) => onChange({ ...proposal, date })}
-              value={proposal.date}
-            />
-          </View>
-          <FieldRow
-            label="Method"
-            onChangeText={(method) => onChange({ ...proposal, method })}
-            value={proposal.method}
-          />
-          <FieldRow
-            label="Memo"
-            onChangeText={(memo) => onChange({ ...proposal, memo })}
-            value={proposal.memo}
-          />
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -750,19 +654,73 @@ function buildProposals(result: TellContracktorResult, fallbackJobId: string | n
     });
   }
 
-  for (const payment of result.parsed.payments) {
-    proposals.push({
-      amount: payment.amount === null ? '' : String(payment.amount),
-      date: payment.date ?? getTodayDate(),
-      id: createLocalId('payment'),
-      jobId: payment.job_id ?? defaultJobId,
-      memo: payment.memo ?? '',
-      method: payment.method ?? '',
-      type: 'payment',
+  return proposals;
+}
+
+function buildCommitProposals(
+  proposals: Proposal[],
+  selectedJobId: string | null,
+  result: TellContracktorResult
+): TellContracktorCommitProposal[] {
+  const commitProposals: TellContracktorCommitProposal[] = [];
+
+  for (const proposal of proposals) {
+    const jobId = getProposalJobId(proposal, selectedJobId, result);
+
+    if (!jobId) {
+      throw new Error('Choose a job before approving these entries.');
+    }
+
+    if (proposal.type === 'note') {
+      const note = proposal.note.trim();
+
+      if (note) {
+        commitProposals.push({ id: proposal.id, job_id: jobId, note, type: 'note' });
+      }
+
+      continue;
+    }
+
+    if (proposal.type === 'shopping') {
+      const description = proposal.description.trim();
+
+      if (description) {
+        commitProposals.push({
+          description,
+          id: proposal.id,
+          job_id: jobId,
+          normalized_name: proposal.normalizedName,
+          quantity: parseOptionalNumber(proposal.quantity),
+          type: 'shopping',
+          unit: proposal.unit.trim() || null,
+        });
+      }
+
+      continue;
+    }
+
+    const hours = parseRequiredNumber(proposal.hours);
+
+    if (hours === null || hours <= 0 || hours > 24) {
+      throw new Error('Hours entries need a number greater than 0 and no more than 24.');
+    }
+
+    commitProposals.push({
+      date: proposal.date || getTodayDate(),
+      hours,
+      id: proposal.id,
+      job_id: jobId,
+      note: proposal.note.trim() || null,
+      type: 'hours',
+      worker_name: proposal.workerName.trim() || null,
     });
   }
 
-  return proposals;
+  if (commitProposals.length === 0) {
+    throw new Error('There is nothing to approve.');
+  }
+
+  return commitProposals;
 }
 
 function getShoppingProposalGroups(
@@ -826,10 +784,6 @@ function formatProposalKind(type: Proposal['type']): string {
 
   if (type === 'shopping') {
     return 'Shopping';
-  }
-
-  if (type === 'payment') {
-    return 'Payment';
   }
 
   return 'Job note';

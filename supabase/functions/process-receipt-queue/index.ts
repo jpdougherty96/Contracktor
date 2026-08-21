@@ -179,7 +179,7 @@ async function recordReceiptProcessedEvent(
     typeof row.total === 'number' ? ` - ${formatMoney(row.total)}` : ''
   }`;
 
-  await upsertActivityEvent(supabase, {
+  const event = {
     business_id: row.business_id,
     owner_id: row.owner_id,
     actor_user_id: row.created_by_user_id ?? row.owner_id,
@@ -197,7 +197,10 @@ async function recordReceiptProcessedEvent(
       processing_status: row.processing_status,
       review_status: row.review_status,
     },
-  });
+  } as const;
+  const activityEventId = await upsertActivityEvent(supabase, event);
+
+  await syncReceiptAttentionItem(supabase, event, activityEventId, needsAttention);
 }
 
 async function recordReceiptTerminalFailureEvent(
@@ -215,7 +218,7 @@ async function recordReceiptTerminalFailureEvent(
     return;
   }
 
-  await upsertActivityEvent(supabase, {
+  const event = {
     business_id: receipt.business_id,
     owner_id: receipt.owner_id,
     actor_user_id: receipt.created_by_user_id ?? receipt.owner_id,
@@ -232,7 +235,10 @@ async function recordReceiptTerminalFailureEvent(
       vendor: receipt.vendor,
       total: receipt.total,
     },
-  });
+  } as const;
+  const activityEventId = await upsertActivityEvent(supabase, event);
+
+  await syncReceiptAttentionItem(supabase, event, activityEventId, true);
 }
 
 async function upsertActivityEvent(
@@ -252,10 +258,88 @@ async function upsertActivityEvent(
     status: 'completed' | 'needs_attention' | 'review_recommended' | 'resolved';
     title: string;
   }
+): Promise<string> {
+  const { data, error } = await supabase
+    .from('activity_events')
+    .upsert(event, {
+      onConflict: 'business_id,event_type,source_table,source_id',
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return String(data.id);
+}
+
+async function syncReceiptAttentionItem(
+  supabase: ReturnType<typeof createClient>,
+  event: {
+    business_id: string;
+    owner_id: string;
+    job_id: string | null;
+    event_type: string;
+    severity: 'danger' | 'normal' | 'warning';
+    source_id: string;
+    source_table: string;
+    title: string;
+    detail: string | null;
+    metadata: Record<string, unknown>;
+  },
+  activityEventId: string,
+  needsAttention: boolean
 ): Promise<void> {
-  const { error } = await supabase.from('activity_events').upsert(event, {
-    onConflict: 'business_id,event_type,source_table,source_id',
-  });
+  if (!needsAttention) {
+    const { error } = await supabase
+      .from('attention_items')
+      .update({
+        activity_event_id: activityEventId,
+        resolution_note: 'Receipt processing completed without requiring attention.',
+        resolved_at: new Date().toISOString(),
+        resolved_by_user_id: null,
+        status: 'resolved',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('business_id', event.business_id)
+      .eq('item_type', event.event_type)
+      .eq('source_table', event.source_table)
+      .eq('source_id', event.source_id)
+      .eq('status', 'open');
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await supabase.from('attention_items').upsert(
+    {
+      activity_event_id: activityEventId,
+      business_id: event.business_id,
+      detail: event.detail,
+      job_id: event.job_id,
+      item_type: event.event_type,
+      metadata: event.metadata,
+      opened_at: now,
+      owner_id: event.owner_id,
+      resolution_note: null,
+      resolved_at: null,
+      resolved_by_user_id: null,
+      severity: event.severity === 'danger' ? 'danger' : 'warning',
+      source_id: event.source_id,
+      source_table: event.source_table,
+      status: 'open',
+      title: event.title,
+      updated_at: now,
+    },
+    {
+      onConflict: 'business_id,item_type,source_table,source_id',
+    }
+  );
 
   if (error) {
     throw new Error(error.message);

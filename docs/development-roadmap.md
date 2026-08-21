@@ -2,6 +2,10 @@
 
 This roadmap turns the Product Rulebook into a practical build sequence. It is intentionally iterative: implementation discoveries can change details, but changes to the sequence should be explicit and justified.
 
+The current finish line and scope test are defined in
+[mvp-definition.md](mvp-definition.md). The MVP definition takes priority over
+later roadmap ideas when deciding what to build next.
+
 Scope note: this roadmap excludes online payment processor implementation. "Get Paid" remains part of the product philosophy, but Stripe/ACH/card processing is not part of this immediate plan.
 
 ## Build Strategy
@@ -21,10 +25,51 @@ Remove obvious friction
 
 Do not let future architecture prevent obvious friction reductions today. In particular, one-tap receipt capture should not wait for team accounts, shopping needs, or voice.
 
-All roadmap work ships from one codebase. The version deployed from `main`
-before Pro development is the protected Free baseline. Pro work must remain
-behind runtime entitlements until release, and a broken or unavailable Pro
-capability must not prevent a business from completing a Free workflow.
+All roadmap work ships from one codebase. The accurate job-truth layer is the
+protected Free baseline. Pro intelligence and Business coordination remain
+behind runtime entitlements, and a broken or unavailable paid capability must
+not prevent a business from completing a Free workflow.
+
+## Current Implementation Checkpoint — August 20, 2026
+
+The codebase and shared `contracktor-dev` backend are stable through the
+ownership and dynamic-entitlement foundations. TypeScript, lint, tier tests,
+and the production web export pass locally. The Vercel/domain incident is an
+external hosting issue and is not part of this development sequence.
+
+What is already implemented:
+
+- Steps 1-4A are represented in the routed app and synchronized remote migrations.
+- Activity, Shopping Needs, and a single-turn Tell conTRACKtor flow exist as
+  Free truth-layer slices. Shopping-aware receipt suggestions remain Pro
+  intelligence.
+- The durable receipt worker and all three Edge Functions are active on the
+  shared development backend.
+- Supervision uses separate, server-owned `attention_items`; Activity remains
+  permanent history while the attention queue can be resolved.
+- Reviewed Tell proposals commit through one atomic, idempotent server
+  capability. Payments are deliberately outside the initial Tell scope.
+- The current local Home revision presents Capture Receipt, Tell conTRACKtor,
+  and Start Work as the primary capture methods. Payments, inventory, and
+  manual record entry remain available in deeper job workflows.
+
+What is only partially complete:
+
+- Tell correction and Undo behavior is not acceptance-complete.
+- Steps 8-11 are useful prototypes, but focused follow-up and the deterministic
+  basic Snapshot still need to be finished against the MVP definition.
+- Step 12 voice input has not been implemented as a first-class pipeline.
+
+Current sequence:
+
+```txt
+Complete Tell correction/Undo behavior
+-> build the basic Job Snapshot from existing job truth
+-> run one real job end to end
+```
+
+First-class voice, proactive automation, and broader business-assistant
+behavior wait until the real-job MVP test passes.
 
 ## 1. Rulebook / README Alignment
 
@@ -180,16 +225,19 @@ Done when:
 
 ## 4A. Dynamic Subscription Entitlements
 
-Goal: preserve the production-`main` baseline as Free while allowing new
-features to move dynamically between Free, Pro, and future plans.
+Goal: preserve a complete and accurate truth layer in Free while allowing
+intelligence and coordination features to move dynamically between Free, Pro,
+Business, and future plans.
 
 Implementation direction:
 
 - Plans, features, plan entitlements, business assignments, and business overrides live in the database.
 - Existing and new businesses default to Free.
-- The production-`main` baseline remains enabled in Free.
-- Activity, Shopping, smart receipt allocation, and Tell conTRACKtor begin in
-  Pro because they were added after that baseline.
+- Free includes Activity/required attention, Shopping, basic Tell, and every
+  capability needed for accurate source records and deterministic job truth.
+- Smart receipt allocation, proactive/cross-record intelligence, higher AI
+  usage, and AI Snapshot interpretation begin in Pro.
+- Multi-contributor coordination begins in Business.
 - Product code checks feature entitlements, not hardcoded plan names.
 - UI gating is convenience; server capabilities enforce paid access and usage.
 - No existing record becomes inaccessible after downgrade.

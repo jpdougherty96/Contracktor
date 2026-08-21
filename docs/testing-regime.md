@@ -23,6 +23,7 @@ These must pass before any serious manual test pass:
 ```sh
 npx tsc --noEmit
 npm run lint
+npm test
 supabase db push
 supabase migration list
 supabase functions list
@@ -96,6 +97,7 @@ Run:
 ```sh
 npx tsc --noEmit
 npm run lint
+npm test
 supabase migration list
 supabase functions list
 ```

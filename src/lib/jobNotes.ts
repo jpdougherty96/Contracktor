@@ -120,7 +120,8 @@ export async function updateJobNote(
 export async function uploadJobNotePhoto(
   jobId: string,
   noteId: string,
-  imageAsset: ImagePickerAsset
+  imageAsset: ImagePickerAsset,
+  options: { idempotencyKey?: string } = {}
 ): Promise<Tables<'attachments'>> {
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
@@ -139,31 +140,34 @@ export async function uploadJobNotePhoto(
   const contentType = imageAsset.mimeType ?? 'image/jpeg';
   const extension = getFileExtension(contentType);
   const originalFilename = imageAsset.fileName ?? `note-photo-${Date.now()}.${extension}`;
-  const storagePath = `${userData.user.id}/notes/${noteId}/${Date.now()}-${sanitizeFilename(
-    originalFilename
-  )}`;
+  const stableFilename = options.idempotencyKey
+    ? `${sanitizeFilename(options.idempotencyKey)}.${extension}`
+    : `${Date.now()}-${sanitizeFilename(originalFilename)}`;
+  const storagePath = `${userData.user.id}/notes/${noteId}/${stableFilename}`;
 
   const { error: uploadError } = await supabase.storage
     .from('attachments')
     .upload(storagePath, base64ToArrayBuffer(imageAsset.base64), {
       contentType,
-      upsert: false,
+      upsert: Boolean(options.idempotencyKey),
     });
 
   if (uploadError) {
     throw new Error(uploadError.message);
   }
 
-  const { data, error } = await supabase
-    .from('attachments')
-    .insert({
+  const attachment = {
       file_type: contentType,
       job_id: jobId,
       note_id: noteId,
       original_filename: originalFilename,
       owner_id: userData.user.id,
       storage_path: storagePath,
-    })
+    };
+  const query = options.idempotencyKey
+    ? supabase.from('attachments').upsert(attachment, { onConflict: 'storage_path' })
+    : supabase.from('attachments').insert(attachment);
+  const { data, error } = await query
     .select(
       'id, owner_id, business_id, created_by_user_id, job_id, note_id, storage_path, original_filename, file_type, description, created_at'
     )

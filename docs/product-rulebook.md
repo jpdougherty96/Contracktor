@@ -88,19 +88,53 @@ conTRACKtor is not trying to recreate every function of QuickBooks, Xero, Servic
 
 Its job is to make operating a small contracting business dramatically easier.
 
-The core loop is:
+The active MVP boundary is defined in [mvp-definition.md](mvp-definition.md).
+Until that finish line is met, the governing scope test is:
+
+```txt
+Does this help conTRACKtor capture reality, organize reality,
+or explain the financial reality of a job?
+```
+
+The MVP core loop is:
 
 ```txt
 Job
--> Work
--> Labor
--> Expenses
--> Know where the job stands
--> Invoice
--> Get paid
+-> Labor, receipts, notes, and shopping needs
+-> Organized job history
+-> Basic financial picture
 ```
 
-Features outside this loop should face a higher bar for inclusion.
+Invoices and the existing payments ledger may support the loop, but they do not
+expand the MVP into accounting, CRM, scheduling, payroll, fleet, or project
+management software. Features outside the MVP loop are deferred by default.
+
+## 2A. Pricing Principle
+
+The tier boundary follows one durable rule:
+
+> **Free preserves and explains reality.**
+>
+> **Pro works on that reality for the contractor.**
+>
+> **Business lets the whole crew contribute to it.**
+
+Free must be sufficient to accurately capture and understand the operational
+and financial truth of a contractor's jobs. Pro adds interpretation,
+prediction, suggestions, and clerical automation on top of those records.
+Business adds multi-person coordination, roles, permissions, crew capture,
+and owner oversight.
+
+Classify proposed capabilities with these questions:
+
+1. Is it necessary for the records to be true? It belongs in Free.
+2. Is conTRACKtor doing thinking or work on top of those records? It belongs in Pro.
+3. Is it about multiple humans operating together? It belongs in Business.
+
+Correctness always wins the classification. Extraction and reconciliation of
+discounts, rebates, store credit, tax, payment totals, corrections, and
+required attention cannot become premium merely because AI helps produce the
+accurate record.
 
 ## 3. Rule Priority
 

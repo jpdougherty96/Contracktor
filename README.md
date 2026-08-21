@@ -2,6 +2,10 @@
 
 conTRACKtor is an Expo / React Native app backed by Supabase for contractors who need to capture job costs, hours, payments, notes, receipts, and basic profitability without turning the app into full accounting software.
 
+Product direction is governed by the [MVP definition](docs/mvp-definition.md),
+the [Product Rulebook](docs/product-rulebook.md), and the
+[development roadmap](docs/development-roadmap.md).
+
 Phase 1 promise:
 
 ```txt
@@ -149,6 +153,12 @@ Run lint:
 
 ```sh
 npm run lint
+```
+
+Run boundary tests:
+
+```sh
+npm test
 ```
 
 Start web smoke test:
@@ -315,6 +325,8 @@ Run:
 ```sh
 npx tsc --noEmit
 npm run lint
+npm test
+npm run build:web
 supabase db push
 supabase migration list
 supabase functions list
@@ -346,6 +358,8 @@ npm run web
 npx expo start
 npx tsc --noEmit
 npm run lint
+npm test
+npm run build:web
 supabase db push
 supabase migration list
 supabase functions deploy extract-receipt --project-ref spdhsfkiejdrctclbudv

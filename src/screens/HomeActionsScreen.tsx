@@ -7,15 +7,12 @@ import { colors } from '@/src/styles/theme';
 
 type HomeActionsScreenProps = {
   needsReviewCount?: number;
-  onAddExpense: () => void;
-  onAddHours: () => void;
   onAddJob: () => void;
-  onAddPayment: () => void;
   onAccountSettings?: () => void;
   onCaptureReceipt: () => void;
   onGoToActivity: () => void;
   onGoToJobs: () => void;
-  onGoToToolsInventory: () => void;
+  onStartWork: () => void;
   onTellContracktor: () => void;
   onLogout?: () => void;
   showActivity?: boolean;
@@ -25,40 +22,16 @@ type HomeActionsScreenProps = {
 
 const primaryActions = [
   {
-    description: 'See active jobs, budgets, receipts, and hours.',
+    description: 'Current and completed jobs, history, and financials.',
     icon: 'grid',
-    key: 'dashboard',
-    label: 'Job dashboard',
+    key: 'jobs',
+    label: 'Jobs',
   },
   {
-    description: 'Review recent work and items that need attention.',
+    description: 'See what conTRACKtor handled and what needs you.',
     icon: 'activity',
     key: 'activity',
     label: 'Recent activity',
-  },
-  {
-    description: 'Scan a receipt or enter an expense manually.',
-    icon: 'file-text',
-    key: 'expense',
-    label: 'Add expense',
-  },
-  {
-    description: 'Log labor against an active job.',
-    icon: 'clock',
-    key: 'hours',
-    label: 'Add hours',
-  },
-  {
-    description: 'Record money received from a client.',
-    icon: 'dollar-sign',
-    key: 'payment',
-    label: 'Add payment',
-  },
-  {
-    description: 'Review non-job tool and inventory purchases.',
-    icon: 'archive',
-    key: 'toolsInventory',
-    label: 'Tools / Inventory',
   },
   {
     description: 'Start tracking a new project.',
@@ -70,15 +43,12 @@ const primaryActions = [
 
 export function HomeActionsScreen({
   needsReviewCount = 0,
-  onAddExpense,
-  onAddHours,
   onAddJob,
-  onAddPayment,
   onAccountSettings,
   onCaptureReceipt,
   onGoToActivity,
   onGoToJobs,
-  onGoToToolsInventory,
+  onStartWork,
   onTellContracktor,
   onLogout,
   showActivity = false,
@@ -88,28 +58,8 @@ export function HomeActionsScreen({
   const [isAccountOpen, setIsAccountOpen] = useState(false);
 
   const handlePress = (key: (typeof primaryActions)[number]['key']) => {
-    if (key === 'expense') {
-      onAddExpense();
-      return;
-    }
-
-    if (key === 'hours') {
-      onAddHours();
-      return;
-    }
-
-    if (key === 'payment') {
-      onAddPayment();
-      return;
-    }
-
     if (key === 'job') {
       onAddJob();
-      return;
-    }
-
-    if (key === 'toolsInventory') {
-      onGoToToolsInventory();
       return;
     }
 
@@ -130,7 +80,7 @@ export function HomeActionsScreen({
               <View style={styles.headerTitle}>
                 <Text style={styles.appName}>conTRACKtor</Text>
                 <Text style={styles.subtitle}>
-                  Keep job receipts, hours, and payments in one place.
+                  Capture what happened. Know where every job stands.
                 </Text>
               </View>
               {onLogout ? (
@@ -157,7 +107,7 @@ export function HomeActionsScreen({
             ) : null}
           </View>
 
-          <Text style={styles.heading}>What do you need to update?</Text>
+          <Text style={styles.heading}>Capture what happened</Text>
 
           <Pressable onPress={onCaptureReceipt} style={styles.captureButton}>
             <View style={styles.captureIconBlock}>
@@ -184,6 +134,20 @@ export function HomeActionsScreen({
               </View>
             </Pressable>
           ) : null}
+
+          <Pressable onPress={onStartWork} style={styles.workButton}>
+            <View style={styles.workIconBlock}>
+              <Feather color={colors.warmWhite} name="play" size={30} />
+            </View>
+            <View style={styles.captureText}>
+              <Text style={styles.workLabel}>Start work</Text>
+              <Text style={styles.workDescription}>
+                Start a job timer or enter labor manually.
+              </Text>
+            </View>
+          </Pressable>
+
+          <Text style={styles.sectionLabel}>Your jobs</Text>
 
           <View style={styles.actionList}>
             {primaryActions
@@ -338,6 +302,16 @@ const styles = StyleSheet.create({
     minHeight: 96,
     padding: 16,
   },
+  workButton: {
+    alignItems: 'center',
+    backgroundColor: colors.text,
+    borderRadius: 16,
+    flexDirection: 'row',
+    gap: 14,
+    marginBottom: 26,
+    minHeight: 96,
+    padding: 16,
+  },
   captureIconBlock: {
     alignItems: 'center',
     backgroundColor: 'rgba(255, 253, 248, 0.16)',
@@ -349,6 +323,14 @@ const styles = StyleSheet.create({
   tellIconBlock: {
     alignItems: 'center',
     backgroundColor: '#E9F0EA',
+    borderRadius: 14,
+    height: 62,
+    justifyContent: 'center',
+    width: 62,
+  },
+  workIconBlock: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 253, 248, 0.14)',
     borderRadius: 14,
     height: 62,
     justifyContent: 'center',
@@ -381,6 +363,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     lineHeight: 21,
+  },
+  workLabel: {
+    color: colors.warmWhite,
+    fontSize: 27,
+    fontWeight: '900',
+    lineHeight: 32,
+  },
+  workDescription: {
+    color: '#E8E5DE',
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 21,
+  },
+  sectionLabel: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 23,
+    marginBottom: 12,
   },
   actionList: {
     gap: 10,

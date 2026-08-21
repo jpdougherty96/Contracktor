@@ -202,6 +202,125 @@ export type Database = {
           },
         ]
       }
+      attention_items: {
+        Row: {
+          activity_event_id: string | null
+          assigned_to_user_id: string | null
+          business_id: string
+          created_at: string
+          detail: string | null
+          id: string
+          item_type: string
+          job_id: string | null
+          metadata: Json
+          opened_at: string
+          owner_id: string
+          resolution_note: string | null
+          resolved_at: string | null
+          resolved_by_user_id: string | null
+          severity: string
+          source_id: string | null
+          source_table: string | null
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          activity_event_id?: string | null
+          assigned_to_user_id?: string | null
+          business_id: string
+          created_at?: string
+          detail?: string | null
+          id?: string
+          item_type: string
+          job_id?: string | null
+          metadata?: Json
+          opened_at?: string
+          owner_id: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by_user_id?: string | null
+          severity?: string
+          source_id?: string | null
+          source_table?: string | null
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          activity_event_id?: string | null
+          assigned_to_user_id?: string | null
+          business_id?: string
+          created_at?: string
+          detail?: string | null
+          id?: string
+          item_type?: string
+          job_id?: string | null
+          metadata?: Json
+          opened_at?: string
+          owner_id?: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by_user_id?: string | null
+          severity?: string
+          source_id?: string | null
+          source_table?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attention_items_activity_event_id_fkey"
+            columns: ["activity_event_id"]
+            isOneToOne: false
+            referencedRelation: "activity_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attention_items_assigned_to_user_id_fkey"
+            columns: ["assigned_to_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attention_items_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attention_items_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "job_financial_snapshots"
+            referencedColumns: ["job_id"]
+          },
+          {
+            foreignKeyName: "attention_items_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attention_items_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attention_items_resolved_by_user_id_fkey"
+            columns: ["resolved_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       business_entitlement_overrides: {
         Row: {
           business_id: string
@@ -1896,6 +2015,65 @@ export type Database = {
           },
         ]
       }
+      tell_contracktor_commits: {
+        Row: {
+          business_id: string
+          committed_at: string
+          committed_by_user_id: string
+          entry_id: string
+          owner_id: string
+          proposal_payload: Json
+          result: Json
+        }
+        Insert: {
+          business_id: string
+          committed_at?: string
+          committed_by_user_id: string
+          entry_id: string
+          owner_id: string
+          proposal_payload: Json
+          result: Json
+        }
+        Update: {
+          business_id?: string
+          committed_at?: string
+          committed_by_user_id?: string
+          entry_id?: string
+          owner_id?: string
+          proposal_payload?: Json
+          result?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tell_contracktor_commits_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tell_contracktor_commits_committed_by_user_id_fkey"
+            columns: ["committed_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tell_contracktor_commits_entry_id_fkey"
+            columns: ["entry_id"]
+            isOneToOne: true
+            referencedRelation: "tell_contracktor_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tell_contracktor_commits_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tell_contracktor_entries: {
         Row: {
           business_id: string
@@ -2182,6 +2360,10 @@ export type Database = {
           receipt_id: string
         }[]
       }
+      commit_tell_contracktor_entry: {
+        Args: { p_entry_id: string; p_proposals: Json }
+        Returns: Json
+      }
       default_business_for_user: {
         Args: { p_user_id: string }
         Returns: string
@@ -2260,6 +2442,45 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      resolve_attention_item: {
+        Args: {
+          p_attention_item_id: string
+          p_resolution_note?: string
+          p_resolution_status?: string
+        }
+        Returns: {
+          activity_event_id: string | null
+          assigned_to_user_id: string | null
+          business_id: string
+          created_at: string
+          detail: string | null
+          id: string
+          item_type: string
+          job_id: string | null
+          metadata: Json
+          opened_at: string
+          owner_id: string
+          resolution_note: string | null
+          resolved_at: string | null
+          resolved_by_user_id: string | null
+          severity: string
+          source_id: string | null
+          source_table: string | null
+          status: string
+          title: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "attention_items"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      resolve_receipt_attention: {
+        Args: { p_receipt_id: string }
+        Returns: number
       }
       upsert_activity_event: {
         Args: {

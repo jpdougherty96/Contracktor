@@ -4,39 +4,65 @@ This document defines the initial dynamic tier model. The database is the source
 
 ## Initial Product Boundary
 
+> **Free preserves and explains reality.**
+>
+> **Pro works on that reality for the contractor.**
+>
+> **Business lets the whole crew contribute to it.**
+
 ### conTRACKtor Free
 
-Free contains the complete currently deployed product:
+Free must be sufficient to accurately capture and understand the operational
+and financial truth of a contractor's jobs:
 
 - jobs and customers
 - job financials
 - hours and time clock
-- receipts and existing receipt extraction
+- receipts, extraction, correction, and accurate reconciliation
 - expenses
 - payments
 - notes and photos
 - current invoices, reports, and exports
+- job history, Activity, and required Needs Attention
+- shopping needs
+- basic deterministic Job Snapshot
+- basic Tell conTRACKtor
 
 ### conTRACKtor Pro
 
-Pro contains everything in Free plus the features being developed after the
-current production baseline:
+Pro adds intelligence and clerical automation on top of the Free truth layer:
 
-- Activity and Needs Attention across the business
-- job and combined shopping lists
-- shopping-aware and multi-destination receipt intelligence
-- the current single-turn Tell conTRACKtor workflow
+- higher Tell and AI usage
 - persistent Tell conTRACKtor conversations
 - voice
-- job memory and Snapshot
+- suggested receipt allocations and shopping matches
+- AI interpretation in Job Snapshot
 - evidence-backed job questions
-- business-level Tell conTRACKtor
 - conversational job creation
-- future proactive automation
+- cross-record reasoning, proactive warnings, and forecasts
+- unbilled-work detection and learned suggestions
 
-The Pro list is a starting allocation, not a permanent promise. Individual
+The launch pricing hypothesis is **$19/month or $190/year**. Exact usage
+limits will be set only after observing Tell usage, receipt volume, AI cost per
+active user, conversion, and demonstrated savings. There is no permanent
+founding-price promise.
+
+### conTRACKtor Business
+
+Business adds coordination among multiple contributors:
+
+- roles and permissions
+- crew capture
+- owner oversight
+- business-wide activity and accountability
+
+Business pricing and detailed packaging remain undecided until the
+coordination workflows are built and validated.
+
+These lists are a starting allocation, not a permanent promise. Individual
 features can move between plans through entitlements without creating separate
-Free and Pro codebases.
+codebases. The governing classification remains truth for Free, intelligence
+for Pro, and coordination for Business.
 
 ### Shared Product Infrastructure
 
@@ -56,9 +82,9 @@ The subscription migration creates:
 - `business_entitlement_overrides`: temporary or permanent per-business exceptions
 - `subscription_usage`: period-based counters for future fair-use enforcement
 
-Existing and newly created businesses default to Free. The Free baseline is
-the product deployed from `main` before Pro development began. New Pro work is
-hidden and server-protected for Free businesses.
+Existing and newly created businesses default to Free. New capabilities are
+classified through the truth/intelligence/coordination rule. Pro and Business
+work is hidden and server-protected for businesses without its entitlement.
 
 ## Resolution Rules
 
@@ -170,6 +196,10 @@ where bs.business_id = 'BUSINESS_UUID'::uuid
 
 - Maintain one codebase and one build; use runtime entitlements, not long-lived
   Free and Pro branches.
+- Classify every new feature as truth, intelligence, or coordination before
+  implementation.
+- Never paywall source-record correctness, corrections, reconciliation, or
+  required attention needed to understand the truth.
 - Test every change with both a Free business and a Pro business before release.
 - A Pro failure must not block authentication or an existing Free workflow.
 - Never delete or hide historical business data after a downgrade.

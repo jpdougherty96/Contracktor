@@ -363,16 +363,10 @@ export default function HomeScreen() {
     return renderScreen(
       <HomeActionsScreen
         needsReviewCount={needsReviewCount}
-        onAddExpense={() => {
-          setIsSelectedReceiptInventoryMode(false);
-          setScreen('selectJobForExpense');
-        }}
-        onAddHours={() => setScreen('addHoursHub')}
         onAddJob={() => {
           setCreateBackScreen('home');
           setScreen('createJob');
         }}
-        onAddPayment={() => setScreen('selectJobForPayment')}
         onAccountSettings={() => setScreen('accountSettings')}
         onCaptureReceipt={() => {
           setSelectedJob(null);
@@ -385,7 +379,7 @@ export default function HomeScreen() {
         }}
         onGoToActivity={() => setScreen('activity')}
         onGoToJobs={() => setScreen('jobs')}
-        onGoToToolsInventory={() => setScreen('toolsInventory')}
+        onStartWork={() => setScreen('addHoursHub')}
         onTellContracktor={() => {
           setSelectedJob(null);
           setScreen('tellContracktor');
@@ -975,7 +969,7 @@ function getAddScreenForPicker(
 
 function getAddBackLabel(screen: Screen): string {
   if (screen === 'addHoursHub') {
-    return 'Back to hours';
+    return 'Back to Start work';
   }
 
   if (isJobPickerScreen(screen)) {

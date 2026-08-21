@@ -1,5 +1,5 @@
 import { supabase } from '@/src/lib/supabase';
-import type { Tables } from '@/src/types/database';
+import type { Json, Tables } from '@/src/types/database';
 
 export type TellContracktorCandidateJob = Pick<
   Tables<'jobs'>,
@@ -8,6 +8,7 @@ export type TellContracktorCandidateJob = Pick<
 
 export type TellContracktorResult = {
   candidates?: TellContracktorCandidateJob[];
+  entry_id: string;
   job?: TellContracktorCandidateJob;
   needs_job: boolean;
   parsed: {
@@ -46,6 +47,44 @@ export type TellContracktorPaymentProposal = {
 export type TellContracktorPhotoInput = {
   base64: string;
   mimeType?: string | null;
+};
+
+export type TellContracktorCommitProposal =
+  | {
+      id: string;
+      job_id: string;
+      note: string;
+      type: 'note';
+    }
+  | {
+      description: string;
+      id: string;
+      job_id: string;
+      normalized_name: string | null;
+      quantity: number | null;
+      type: 'shopping';
+      unit: string | null;
+    }
+  | {
+      date: string;
+      hours: number;
+      id: string;
+      job_id: string;
+      note: string | null;
+      type: 'hours';
+      worker_name: string | null;
+    };
+
+export type TellContracktorCommitResult = {
+  created_note_id: string | null;
+  entry_id: string;
+  records: {
+    job_id: string;
+    proposal_id: string;
+    record_id: string;
+    type: TellContracktorCommitProposal['type'];
+  }[];
+  replayed: boolean;
 };
 
 export async function submitTellContracktorText({
@@ -104,4 +143,20 @@ export async function submitTellContracktorText({
   }
 
   return responseBody as TellContracktorResult;
+}
+
+export async function commitTellContracktorEntry(
+  entryId: string,
+  proposals: TellContracktorCommitProposal[]
+): Promise<TellContracktorCommitResult> {
+  const { data, error } = await supabase.rpc('commit_tell_contracktor_entry', {
+    p_entry_id: entryId,
+    p_proposals: proposals as unknown as Json,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data as unknown as TellContracktorCommitResult;
 }

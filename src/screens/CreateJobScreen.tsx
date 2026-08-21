@@ -40,7 +40,7 @@ export function CreateJobScreen({ onCancel, onCreated }: CreateJobScreenProps) {
   const [jobType, setJobType] = useState<JobType>('fixed_bid');
   const [quoteAmount, setQuoteAmount] = useState('');
   const [hourlyRate, setHourlyRate] = useState('');
-  const [timeClockEnabled, setTimeClockEnabled] = useState(false);
+  const [timeClockEnabled, setTimeClockEnabled] = useState(true);
   const [estimatedLaborHours, setEstimatedLaborHours] = useState('');
   const [estimatedMaterialCost, setEstimatedMaterialCost] = useState('');
   const [estimatedOtherCost, setEstimatedOtherCost] = useState('');
@@ -284,7 +284,7 @@ export function CreateJobScreen({ onCancel, onCreated }: CreateJobScreenProps) {
             ) : null}
 
             <ToggleRow
-              description="Show Start and Stop controls for this job in Add hours."
+              description="Show Start and Stop controls for this job in Start work."
               isEnabled={timeClockEnabled}
               label="Time clock"
               onPress={() => setTimeClockEnabled((isEnabled) => !isEnabled)}

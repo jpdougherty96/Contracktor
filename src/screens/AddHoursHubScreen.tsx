@@ -115,8 +115,8 @@ export function AddHoursHubScreen({
         </Pressable>
 
         <View style={styles.header}>
-          <Text style={styles.title}>Add hours</Text>
-          <Text style={styles.subtitle}>Start a timer or enter hours manually.</Text>
+          <Text style={styles.title}>Start work</Text>
+          <Text style={styles.subtitle}>Choose a job to start its timer or enter hours manually.</Text>
         </View>
 
         {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}

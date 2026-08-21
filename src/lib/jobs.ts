@@ -72,7 +72,7 @@ export async function createJob(input: CreateJobInput): Promise<Job> {
       job_type: input.jobType ?? 'fixed_bid',
       quote_amount: input.quoteAmount,
       hourly_rate: input.hourlyRate ?? null,
-      time_clock_enabled: input.timeClockEnabled ?? false,
+      time_clock_enabled: input.timeClockEnabled ?? true,
       estimated_labor_hours: input.estimatedLaborHours ?? null,
       estimated_material_cost: input.estimatedMaterialCost ?? null,
       estimated_sub_cost: input.estimatedSubCost ?? null,
@@ -109,7 +109,7 @@ export async function updateJob(jobId: string, input: UpdateJobInput): Promise<J
       name: input.name,
       quote_amount: input.quoteAmount,
       hourly_rate: input.hourlyRate ?? null,
-      time_clock_enabled: input.timeClockEnabled ?? false,
+      time_clock_enabled: input.timeClockEnabled ?? true,
       status: input.status,
       updated_at: new Date().toISOString(),
     })

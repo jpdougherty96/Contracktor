@@ -26,9 +26,12 @@ const freeBaselineFeatures = new Set<KnownSubscriptionFeatureKey>([
   'core.receipts',
   'core.receipt_extraction',
   'core.expenses',
+  'core.shopping',
   'core.payments',
   'core.notes_photos',
   'core.invoices_reports',
+  'activity.feed',
+  'tell.basic',
 ]);
 
 type EntitlementsContextValue = {

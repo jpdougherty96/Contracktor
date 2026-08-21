@@ -64,10 +64,13 @@ Use `p.plan_key = 'free'` to return the account to the Free baseline.
 Run the same core workflow checklist in both accounts. Then verify:
 
 - Free can use jobs, financials, hours/time clock, receipts, existing receipt
-  extraction, expenses, payments, notes/photos, and invoices/reports.
-- Free has no Activity, Shopping, Tell, or smart-allocation entry point.
+  extraction and reconciliation, expenses, payments, notes/photos,
+  invoices/reports, Shopping, Activity/required attention, and basic Tell.
+- Free has no smart receipt allocation, proactive intelligence, or AI Snapshot
+  interpretation entry point.
 - Direct paid operations are rejected by the server for Free.
-- Pro exposes Activity, Shopping, Tell, and smart receipt allocation.
+- Pro exposes intelligence capabilities such as smart receipt allocation,
+  higher Tell/AI usage, AI Snapshot interpretation, and proactive warnings.
 - A Pro failure does not block sign-in or any existing Free workflow.
 - Downgrading Pro to Free preserves read/export access to historical records.
 
@@ -81,7 +84,7 @@ npm run test:tiers
 
 Before merging a tiered change:
 
-- TypeScript, lint, tier tests, and the production web build pass.
+- TypeScript, lint, all boundary tests (`npm test`), and the production web build pass.
 - The linked migration list is synchronized.
 - Backend changes have been reviewed for compatibility with the deployed app.
 - Both real accounts pass the Free/Pro checklist above.

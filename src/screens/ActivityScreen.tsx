@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { resolveActivityEvent } from '@/src/lib/activityEvents';
+import { resolveAttentionItem } from '@/src/lib/activityEvents';
 import { fetchGlobalActivity, type GlobalActivityItem, type GlobalActivitySummary } from '@/src/lib/globalActivity';
 import { colors } from '@/src/styles/theme';
 
@@ -18,7 +18,7 @@ export function ActivityScreen({ onBack, onChanged, onOpenItem, refreshKey = 0 }
   const [summary, setSummary] = useState<GlobalActivitySummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [resolvingEventId, setResolvingEventId] = useState<string | null>(null);
+  const [resolvingAttentionItemId, setResolvingAttentionItemId] = useState<string | null>(null);
 
   const loadActivity = async () => {
     setIsLoading(true);
@@ -66,21 +66,21 @@ export function ActivityScreen({ onBack, onChanged, onOpenItem, refreshKey = 0 }
   }, [refreshKey]);
 
   const handleResolveItem = async (item: GlobalActivityItem) => {
-    if (!item.activityEventId) {
+    if (!item.attentionItemId) {
       return;
     }
 
-    setResolvingEventId(item.activityEventId);
+    setResolvingAttentionItemId(item.attentionItemId);
     setError(null);
 
     try {
-      await resolveActivityEvent(item.activityEventId);
+      await resolveAttentionItem(item.attentionItemId);
       await loadActivity();
       onChanged?.();
     } catch (resolveError) {
       setError(resolveError instanceof Error ? resolveError.message : 'Unable to mark item reviewed.');
     } finally {
-      setResolvingEventId(null);
+      setResolvingAttentionItemId(null);
     }
   };
 
@@ -138,12 +138,12 @@ export function ActivityScreen({ onBack, onChanged, onOpenItem, refreshKey = 0 }
                 <View style={styles.reviewList}>
                   {attentionItems.map((item) => (
                     <ActivityRow
-                      isResolving={resolvingEventId === item.activityEventId}
+                      isResolving={resolvingAttentionItemId === item.attentionItemId}
                       key={item.id}
                       item={item}
                       onPress={() => onOpenItem(item)}
                       onResolve={
-                        item.activityEventId && item.type === 'activity_event'
+                        item.attentionItemId && item.type === 'activity_event'
                           ? () => handleResolveItem(item)
                           : undefined
                       }

@@ -10,6 +10,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
+    "test": "node --test ./tests/*.test.mjs",
+    "test:supervision": "node --test ./tests/supervision-boundary.test.mjs",
     "test:tiers": "node --test ./tests/tier-boundary.test.mjs"
   },
   "dependencies": {

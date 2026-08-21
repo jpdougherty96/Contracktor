@@ -101,14 +101,21 @@ export async function recordReceiptActivityEvent({
   });
 }
 
-export async function resolveActivityEvent(eventId: string): Promise<void> {
-  const { error } = await supabase
-    .from('activity_events')
-    .update({
-      resolved_at: new Date().toISOString(),
-      status: 'resolved',
-    })
-    .eq('id', eventId);
+export async function resolveAttentionItem(attentionItemId: string): Promise<void> {
+  const { error } = await supabase.rpc('resolve_attention_item', {
+    p_attention_item_id: attentionItemId,
+    p_resolution_status: 'resolved',
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+export async function resolveReceiptAttention(receiptId: string): Promise<void> {
+  const { error } = await supabase.rpc('resolve_receipt_attention', {
+    p_receipt_id: receiptId,
+  });
 
   if (error) {
     throw new Error(error.message);

@@ -5,6 +5,7 @@ import test from 'node:test';
 
 const repoRoot = fileURLToPath(new URL('../', import.meta.url));
 const freeBaseline = [
+  'activity.feed',
   'core.expenses',
   'core.hours',
   'core.invoices_reports',
@@ -14,13 +15,15 @@ const freeBaseline = [
   'core.payments',
   'core.receipt_extraction',
   'core.receipts',
+  'core.shopping',
   'core.time_clock',
+  'tell.basic',
 ].sort();
 const proFeatures = [
-  'activity.feed',
-  'core.shopping',
+  'activity.business_feed',
+  'job.proactive_insights',
   'receipt.smart_allocation',
-  'tell.basic',
+  'snapshot.ai_insights',
 ];
 
 test('client fallback exactly preserves the production Free baseline', async () => {
@@ -37,7 +40,7 @@ test('client fallback exactly preserves the production Free baseline', async () 
 
 test('database Free plan matches the client fallback', async () => {
   const migration = await readRepoFile(
-    'supabase/migrations/20260608107000_pro_tier_boundary.sql'
+    'supabase/migrations/20260820091000_truth_intelligence_tier_boundary.sql'
   );
   const freePlanBlock = migration.match(
     /p\.plan_key = 'free'[\s\S]*?f\.feature_key in \(([\s\S]*?)\n  \);/
@@ -47,9 +50,10 @@ test('database Free plan matches the client fallback', async () => {
   assert.deepEqual(readQuotedFeatureKeys(freePlanBlock[1]).sort(), freeBaseline);
 });
 
-test('Pro entry points and paid operations have entitlement boundaries', async () => {
-  const [homeRoute, migration, tellFunction] = await Promise.all([
+test('truth features are Free while intelligence remains independently gated', async () => {
+  const [homeRoute, migration, policyMigration, tellFunction] = await Promise.all([
     readRepoFile('app/(tabs)/index.tsx'),
+    readRepoFile('supabase/migrations/20260820091000_truth_intelligence_tier_boundary.sql'),
     readRepoFile('supabase/migrations/20260608107000_pro_tier_boundary.sql'),
     readRepoFile('supabase/functions/tell-contracktor/index.ts'),
   ]);
@@ -63,16 +67,18 @@ test('Pro entry points and paid operations have entitlement boundaries', async (
     assert.match(homeRoute, new RegExp(`hasFeature\\('${escapeRegex(feature)}'\\)`));
   }
 
-  assert.match(migration, /business_has_feature\(business_id, 'core\.shopping'\)/);
+  assert.match(policyMigration, /business_has_feature\(business_id, 'core\.shopping'\)/);
   assert.match(
-    migration,
+    policyMigration,
     /business_has_feature\(business_id, 'receipt\.smart_allocation'\)/
   );
-  assert.match(migration, /business_has_feature\(business_id, 'activity\.feed'\)/);
-  assert.match(migration, /business_has_feature\(business_id, 'tell\.basic'\)/);
+  assert.match(migration, /'activity\.feed'/);
+  assert.match(migration, /'tell\.basic'/);
+  assert.match(migration, /monthly_price_cents = 1900/);
+  assert.match(migration, /annual_price_cents = 19000/);
   assert.match(tellFunction, /rpc\(\s*'get_my_entitlements'/);
   assert.match(tellFunction, /snapshotHasFeature\(entitlementSnapshot, 'tell\.basic'\)/);
-  assert.match(tellFunction, /Tell conTRACKtor requires conTRACKtor Pro/);
+  assert.doesNotMatch(tellFunction, /requires conTRACKtor Pro/);
   assert.match(tellFunction, /}, 403\);/);
 });
 

@@ -14,6 +14,7 @@ export type GlobalActivityType =
 
 export type GlobalActivityItem = {
   activityEventId?: string;
+  attentionItemId?: string;
   capturedAt?: string | null;
   date: string | null;
   detail: string;
@@ -55,7 +56,15 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
   const jobs = await fetchJobs();
   const jobsById = new Map(jobs.map((job) => [job.id, job]));
 
-  const [eventsResult, hoursResult, paymentsResult, expensesResult, receiptsResult, notesResult] = await Promise.all([
+  const [attentionResult, eventsResult, hoursResult, paymentsResult, expensesResult, receiptsResult, notesResult] = await Promise.all([
+    supabase
+      .from('attention_items')
+      .select(
+        'id, activity_event_id, business_id, owner_id, job_id, item_type, status, severity, source_table, source_id, title, detail, metadata, opened_at, created_at'
+      )
+      .eq('status', 'open')
+      .order('opened_at', { ascending: false })
+      .limit(40),
     supabase
       .from('activity_events')
       .select(
@@ -96,6 +105,10 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
       .limit(80),
   ]);
 
+  if (attentionResult.error) {
+    throw new Error(attentionResult.error.message);
+  }
+
   if (eventsResult.error) {
     throw new Error(eventsResult.error.message);
   }
@@ -122,6 +135,52 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
 
   const items: GlobalActivityItem[] = [];
   const needsReview: GlobalActivityItem[] = [];
+  const explicitAttentionSourceKeys = new Set<string>();
+  const explicitAttentionReceiptIds = new Set<string>();
+
+  for (const attention of attentionResult.data ?? []) {
+    const sourceKey = getAttentionSourceKey(
+      attention.item_type,
+      attention.source_table,
+      attention.source_id
+    );
+    explicitAttentionSourceKeys.add(sourceKey);
+
+    const job = getJob(jobsById, attention.job_id);
+    const receiptId =
+      attention.source_table === 'receipts' && attention.source_id
+        ? attention.source_id
+        : undefined;
+
+    if (receiptId) {
+      explicitAttentionReceiptIds.add(receiptId);
+    }
+
+    const reviewReason =
+      receiptId && attention.title.toLowerCase().includes('destination')
+        ? 'Choose where this receipt belongs'
+        : attention.detail ?? (receiptId ? 'Receipt needs attention' : 'Needs attention');
+    const item: GlobalActivityItem = {
+      activityEventId: attention.activity_event_id ?? undefined,
+      attentionItemId: attention.id,
+      capturedAt: attention.created_at ?? attention.opened_at,
+      date: attention.opened_at,
+      detail: attention.detail ?? attention.item_type,
+      id: `attention-item-${attention.id}`,
+      job,
+      jobId: attention.job_id,
+      jobName: receiptId && !attention.job_id ? 'Receipt activity' : getJobName(job),
+      label: attention.title,
+      needsReview: true,
+      receiptId,
+      reviewReason,
+      tone: getActivityEventTone(attention.severity),
+      type: receiptId ? 'receipt' : 'activity_event',
+    };
+
+    items.push(item);
+    needsReview.push(item);
+  }
 
   for (const event of eventsResult.data ?? []) {
     if (event.event_type === 'tell_contracktor_processed') {
@@ -132,7 +191,10 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
     const receiptId =
       event.source_table === 'receipts' && event.source_id ? event.source_id : undefined;
     const needsAttention =
-      event.status === 'needs_attention' || event.status === 'review_recommended';
+      (event.status === 'needs_attention' || event.status === 'review_recommended') &&
+      !explicitAttentionSourceKeys.has(
+        getAttentionSourceKey(event.event_type, event.source_table, event.source_id)
+      );
     const reviewReason =
       receiptId && needsAttention && event.title.toLowerCase().includes('destination')
       ? 'Choose where this receipt belongs'
@@ -388,6 +450,10 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
       continue;
     }
 
+    if (explicitAttentionReceiptIds.has(receipt.id)) {
+      continue;
+    }
+
     const job = getJob(jobsById, receipt.scan_context_job_id);
     const item: GlobalActivityItem = {
       date: receipt.receipt_date ?? receipt.created_at,
@@ -443,6 +509,14 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
     needsReview: sortedNeedsReview,
     needsReviewCount: sortedNeedsReview.length,
   };
+}
+
+function getAttentionSourceKey(
+  itemType: string,
+  sourceTable: string | null,
+  sourceId: string | null
+): string {
+  return `${itemType}:${sourceTable ?? ''}:${sourceId ?? ''}`;
 }
 
 function dedupeNeedsReview() {
