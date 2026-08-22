@@ -368,8 +368,8 @@ async function createLineReceipt(client, input) {
           review_status: 'needs_review',
         }))
       )
-      .select('id')
-      .order('id')
+      .select('id, line_number')
+      .order('line_number')
   );
   return { lineIds: lineRows.map((line) => line.id), receipt };
 }
