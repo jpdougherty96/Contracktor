@@ -236,6 +236,8 @@ Run the Smoke Test and Core Job Loop first, then add the tests below.
 
 - Capture a receipt with the phone camera.
 - Upload a receipt from the phone photo library.
+- On the deployed web app, confirm **Capture receipt** opens the camera first.
+- Cancel the web camera and confirm the existing-photo chooser opens.
 - Use Tell with the phone keyboard open.
 - Start and stop work on the phone.
 - Confirm save/review buttons remain visible and tappable.
@@ -353,7 +355,8 @@ Required state:
 Receipt financial-integrity changes also require `npm run test:integration`
 against a dedicated local/test Supabase project. Never run the integration
 suite against production because it deliberately creates and removes test
-users and financial records.
+users and financial records. The Quality workflow runs the same integration
+suite automatically against an ephemeral local Supabase stack.
 
 The narrower scripts in [phase-1-test-plan.md](phase-1-test-plan.md) remain useful
 for feature-specific regression work, but this document governs the final

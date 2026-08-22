@@ -36,3 +36,37 @@ jobs:
 
       - name: Boundary tests
         run: npm test
+
+  receipt-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.115.0
+
+      - name: Start isolated Supabase
+        run: supabase start
+
+      - name: Receipt financial integration tests
+        run: |
+          eval "$(supabase status -o env)"
+          SUPABASE_TEST_URL="$API_URL" \
+          SUPABASE_TEST_ANON_KEY="$ANON_KEY" \
+          SUPABASE_TEST_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
+          SUPABASE_TEST_ALLOW_MUTATION=true \
+          npm run test:integration

@@ -1,29 +1,6 @@
-import type { Job, JobFinancialSnapshot } from '@/src/types/job';
+import type { JobFinancialSnapshot } from '@/src/types/job';
 
 export type JobHealth = 'Healthy' | 'Warning' | 'Losing Money' | 'New';
-
-export function calculateJobFinancialSnapshot(job: Job): JobFinancialSnapshot {
-  const totalLaborCost = job.hours.reduce(
-    (sum, entry) => sum + entry.hours * entry.hourlyRate,
-    0
-  );
-  const totalReceiptCost = job.receipts.reduce((sum, receipt) => sum + receipt.amount, 0);
-  const paymentsReceived = job.payments.reduce((sum, payment) => sum + payment.amount, 0);
-  const totalCost = totalLaborCost + totalReceiptCost;
-  const projectedProfit = job.quoteAmount - totalCost;
-  const projectedMarginPercent =
-    job.quoteAmount > 0 ? (projectedProfit / job.quoteAmount) * 100 : 0;
-
-  return {
-    quoteAmount: job.quoteAmount,
-    totalLaborCost,
-    totalReceiptCost,
-    totalCost,
-    paymentsReceived,
-    projectedProfit,
-    projectedMarginPercent,
-  };
-}
 
 export function getJobHealth(snapshot: JobFinancialSnapshot): JobHealth {
   if (snapshot.projectedProfit < 0) {
@@ -45,6 +22,10 @@ export function formatCurrency(
   amount: number | string | null | undefined,
   options: CurrencyFormatOptions = {}
 ): string {
+  if (amount === null || amount === undefined || amount === '') {
+    return '—';
+  }
+
   const numericAmount = Number(amount);
 
   if (!Number.isFinite(numericAmount)) {

@@ -5,7 +5,15 @@ import type { Job, JobType } from '@/src/types/job';
 
 type JobSnapshotSummary = Pick<
   Tables<'job_financial_snapshots'>,
-  'job_id' | 'payments_received' | 'receipt_cost' | 'total_hours'
+  | 'job_id'
+  | 'labor_cost'
+  | 'payments_received'
+  | 'projected_margin_percent'
+  | 'projected_profit'
+  | 'quote_amount'
+  | 'receipt_cost'
+  | 'total_cost'
+  | 'total_hours'
 >;
 
 export type CreateJobInput = {
@@ -146,7 +154,9 @@ async function fetchSnapshotSummaries(
 
   const { data, error } = await supabase
     .from('job_financial_snapshots')
-    .select('job_id, payments_received, receipt_cost, total_hours')
+    .select(
+      'job_id, quote_amount, payments_received, labor_cost, receipt_cost, total_cost, projected_profit, projected_margin_percent, total_hours'
+    )
     .eq('owner_id', ownerId)
     .in('job_id', jobIds);
 
@@ -178,13 +188,21 @@ function mapJobRow(row: Tables<'jobs'>, snapshot?: JobSnapshotSummary): Job {
     actualMaterialCost: snapshot?.receipt_cost ?? null,
     actualLaborHours: snapshot?.total_hours ?? null,
     paymentsReceived: snapshot?.payments_received ?? null,
+    financialSnapshot: snapshot
+      ? {
+          paymentsReceived: snapshot.payments_received ?? 0,
+          projectedMarginPercent: snapshot.projected_margin_percent ?? 0,
+          projectedProfit: snapshot.projected_profit ?? 0,
+          quoteAmount: snapshot.quote_amount ?? row.quote_amount ?? 0,
+          totalCost: snapshot.total_cost ?? 0,
+          totalHours: snapshot.total_hours ?? 0,
+          totalLaborCost: snapshot.labor_cost ?? 0,
+          totalReceiptCost: snapshot.receipt_cost ?? 0,
+        }
+      : null,
     status: row.status,
     createdAt: row.created_at ?? undefined,
     updatedAt: row.updated_at ?? undefined,
-    receipts: [],
-    hours: [],
-    payments: [],
-    notes: [],
   };
 }
 

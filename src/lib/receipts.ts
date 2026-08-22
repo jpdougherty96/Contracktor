@@ -577,8 +577,22 @@ export async function acceptExtractedReceipt(receipt: Tables<'receipts'>): Promi
 
 export async function confirmReceiptLineAssignments(
   receiptId: string,
+  assignments: ReceiptLineAssignmentInput[]
+): Promise<Tables<'receipts'>> {
+  return confirmReceiptLineAssignmentsWithCostBasis(receiptId, assignments, false);
+}
+
+export async function confirmReceiptLineAssignmentsUsingGrossItemCost(
+  receiptId: string,
+  assignments: ReceiptLineAssignmentInput[]
+): Promise<Tables<'receipts'>> {
+  return confirmReceiptLineAssignmentsWithCostBasis(receiptId, assignments, true);
+}
+
+async function confirmReceiptLineAssignmentsWithCostBasis(
+  receiptId: string,
   assignments: ReceiptLineAssignmentInput[],
-  options: { allowAssignedTotalAboveReceiptTotal?: boolean } = {}
+  allowGrossLineCost: boolean
 ): Promise<Tables<'receipts'>> {
   const receipt = await fetchReceipt(receiptId);
   const lineItems = await fetchReceiptLineItems(receiptId);
@@ -601,7 +615,7 @@ export async function confirmReceiptLineAssignments(
   const assignedTotal = calculateAssignedReceiptTotal(receipt, lineItems, assignments);
 
   if (
-    !options.allowAssignedTotalAboveReceiptTotal &&
+    !allowGrossLineCost &&
     typeof receipt.total === 'number' &&
     assignedTotal > receipt.total + receiptTotalTolerance
   ) {
@@ -611,7 +625,7 @@ export async function confirmReceiptLineAssignments(
   }
 
   await commitReceiptReview(receiptId, receipt.updated_at, {
-    allowGrossLineCost: options.allowAssignedTotalAboveReceiptTotal ?? false,
+    allowGrossLineCost,
     assignments: assignments.map((assignment) => ({
       assigned_job_id: assignment.assignedJobId,
       assignment_type: assignment.assignmentType,

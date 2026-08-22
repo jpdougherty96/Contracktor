@@ -117,9 +117,9 @@ Regression checks:
 
 Happy path:
 - Mobile receipt capture offers camera as the primary action.
-- Web receipt capture offers upload as the primary action.
-- Web Take photo opens a live camera preview on localhost or HTTPS.
+- Web receipt capture opens a live camera preview first on localhost or HTTPS.
 - Web camera preview has a visible `Take photo` button.
+- Canceling the web camera opens the existing-photo chooser.
 - Captured web photo uploads and calls the same receipt creation/parser flow as uploaded receipts.
 - Uploaded receipt image creates a receipt row and storage object.
 - Parser extracts vendor, receipt date, subtotal, tax, total, and line items when available.
@@ -356,7 +356,7 @@ Edge cases:
 - Buttons are not hidden behind keyboard or safe area.
 
 Regression checks:
-- Receipt capture is camera-primary on mobile.
+- Receipt capture is camera-primary on mobile and web.
 - Export/share flows use phone-native sharing where available.
 
 ## 15. Supabase, Security, And Deployment

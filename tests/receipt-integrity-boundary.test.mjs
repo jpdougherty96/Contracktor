@@ -52,6 +52,40 @@ test('client approval paths no longer write financial rows directly', async () =
   assert.doesNotMatch(commitSection, /status: 'accepted'/);
 });
 
+test('generic line assignment cannot authorize gross receipt costing', async () => {
+  const [receipts, reviewScreen] = await Promise.all([
+    readRepoFile('src/lib/receipts.ts'),
+    readRepoFile('src/screens/ReceiptReviewScreen.tsx'),
+  ]);
+  const normalAssignmentApi = section(
+    receipts,
+    'export async function confirmReceiptLineAssignments(',
+    'export async function confirmReceiptLineAssignmentsUsingGrossItemCost('
+  );
+  const grossAssignmentApi = section(
+    receipts,
+    'export async function confirmReceiptLineAssignmentsUsingGrossItemCost(',
+    'async function confirmReceiptLineAssignmentsWithCostBasis('
+  );
+  const genericSaveHandler = section(
+    reviewScreen,
+    'const handleSave = async () =>',
+    'const handleUseAmountPaidForAdjustment = async () =>'
+  );
+  const explicitGrossHandler = section(
+    reviewScreen,
+    'const handleUseFullItemPricesForAdjustment = async () =>',
+    'const updateLineAssignment ='
+  );
+
+  assert.match(normalAssignmentApi, /confirmReceiptLineAssignmentsWithCostBasis\(receiptId, assignments, false\)/);
+  assert.match(grossAssignmentApi, /confirmReceiptLineAssignmentsWithCostBasis\(receiptId, assignments, true\)/);
+  assert.match(genericSaveHandler, /assignedLineItemsExceedReceiptTotal/);
+  assert.doesNotMatch(genericSaveHandler, /confirmReceiptLineAssignmentsUsingGrossItemCost/);
+  assert.doesNotMatch(genericSaveHandler, /allowGrossLineCost|allowAssignedTotalAboveReceiptTotal/);
+  assert.match(explicitGrossHandler, /confirmReceiptLineAssignmentsUsingGrossItemCost/);
+});
+
 test('accepted receipt removal voids cost and preserves durable history', async () => {
   const [migration, receipts] = await Promise.all([
     readRepoFile('supabase/migrations/20260822012000_atomic_receipt_review.sql'),

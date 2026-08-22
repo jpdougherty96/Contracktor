@@ -2,11 +2,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import {
-  calculateJobFinancialSnapshot,
-  formatCurrency,
-  formatPercent,
-} from '@/src/lib/financials';
+import { formatCurrency, formatPercent } from '@/src/lib/financials';
 import { fetchJobActivity, type JobActivityItem } from '@/src/lib/jobActivity';
 import {
   fetchBasicJobTruthSummary,
@@ -51,41 +47,38 @@ export function JobDashboardScreen({
   refreshKey = 0,
   showShoppingList = false,
 }: JobDashboardScreenProps) {
-  const snapshot = calculateJobFinancialSnapshot(job);
   const isTimeAndMaterials = job.jobType === 'time_and_materials';
   const [databaseSnapshot, setDatabaseSnapshot] = useState<JobFinancialSnapshotRow | null>(null);
   const [truthSummary, setTruthSummary] = useState<BasicJobTruthSummary | null>(null);
   const [isSnapshotLoading, setIsSnapshotLoading] = useState(true);
   const [snapshotError, setSnapshotError] = useState<string | null>(null);
+  const [isTruthLoading, setIsTruthLoading] = useState(true);
+  const [truthError, setTruthError] = useState<string | null>(null);
   const [laborEntries, setLaborEntries] = useState<JobLaborCostEntry[]>([]);
   const [materialEntries, setMaterialEntries] = useState<JobMaterialCostEntry[]>([]);
+  const [isCostDetailsLoading, setIsCostDetailsLoading] = useState(true);
+  const [costDetailsError, setCostDetailsError] = useState<string | null>(null);
   const [expandedCost, setExpandedCost] = useState<'labor' | 'materials' | null>(null);
   const [activity, setActivity] = useState<JobActivityItem[]>([]);
   const [isActivityLoading, setIsActivityLoading] = useState(true);
   const [activityError, setActivityError] = useState<string | null>(null);
-  const hasFinancialData = job.receipts.length > 0 || job.hours.length > 0 || job.payments.length > 0;
-
   useEffect(() => {
     let isMounted = true;
 
     const loadSnapshot = async () => {
       setIsSnapshotLoading(true);
       setSnapshotError(null);
+      setDatabaseSnapshot(null);
 
       try {
-        const [nextSnapshot, nextLaborEntries, nextMaterialEntries, nextTruthSummary] =
-          await Promise.all([
-            fetchJobFinancialSnapshot(job.id),
-            fetchJobLaborCostEntries(job.id),
-            fetchJobMaterialCostEntries(job.id),
-            fetchBasicJobTruthSummary(job.id),
-          ]);
+        const nextSnapshot = await fetchJobFinancialSnapshot(job.id);
+
+        if (!nextSnapshot) {
+          throw new Error('Financial snapshot is unavailable for this job.');
+        }
 
         if (isMounted) {
           setDatabaseSnapshot(nextSnapshot);
-          setLaborEntries(nextLaborEntries);
-          setMaterialEntries(nextMaterialEntries);
-          setTruthSummary(nextTruthSummary);
         }
       } catch (error) {
         if (isMounted) {
@@ -107,11 +100,83 @@ export function JobDashboardScreen({
     };
   }, [job.id, refreshKey]);
 
-  const paymentsReceived = databaseSnapshot?.payments_received ?? snapshot.paymentsReceived;
-  const totalCost = databaseSnapshot?.total_cost ?? snapshot.totalCost;
-  const totalHours = databaseSnapshot?.total_hours ?? totalLocalHours(job);
-  const projectedProfit = databaseSnapshot?.projected_profit ?? snapshot.projectedProfit;
-  const recordedBalance = (databaseSnapshot?.quote_amount ?? snapshot.quoteAmount) - paymentsReceived;
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadTruth = async () => {
+      setIsTruthLoading(true);
+      setTruthError(null);
+      setTruthSummary(null);
+
+      try {
+        const nextTruthSummary = await fetchBasicJobTruthSummary(job.id);
+
+        if (isMounted) {
+          setTruthSummary(nextTruthSummary);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setTruthError(error instanceof Error ? error.message : 'Unable to load job details.');
+        }
+      } finally {
+        if (isMounted) {
+          setIsTruthLoading(false);
+        }
+      }
+    };
+
+    void loadTruth();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [job.id, refreshKey]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadCostDetails = async () => {
+      setIsCostDetailsLoading(true);
+      setCostDetailsError(null);
+      setLaborEntries([]);
+      setMaterialEntries([]);
+      setExpandedCost(null);
+
+      try {
+        const [nextLaborEntries, nextMaterialEntries] = await Promise.all([
+          fetchJobLaborCostEntries(job.id),
+          fetchJobMaterialCostEntries(job.id),
+        ]);
+
+        if (isMounted) {
+          setLaborEntries(nextLaborEntries);
+          setMaterialEntries(nextMaterialEntries);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setCostDetailsError(
+            error instanceof Error ? error.message : 'Unable to load cost details.'
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsCostDetailsLoading(false);
+        }
+      }
+    };
+
+    void loadCostDetails();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [job.id, refreshKey]);
+
+  const paymentsReceived = databaseSnapshot?.payments_received ?? 0;
+  const totalCost = databaseSnapshot?.total_cost ?? 0;
+  const totalHours = databaseSnapshot?.total_hours ?? 0;
+  const projectedProfit = databaseSnapshot?.projected_profit ?? 0;
+  const recordedBalance = (databaseSnapshot?.quote_amount ?? 0) - paymentsReceived;
 
   useEffect(() => {
     let isMounted = true;
@@ -119,6 +184,7 @@ export function JobDashboardScreen({
     const loadActivity = async () => {
       setIsActivityLoading(true);
       setActivityError(null);
+      setActivity([]);
 
       try {
         const nextActivity = await fetchJobActivity(job.id);
@@ -180,17 +246,21 @@ export function JobDashboardScreen({
           {!isSnapshotLoading && snapshotError ? (
             <Text style={styles.snapshotError}>{snapshotError}</Text>
           ) : null}
-          {!isSnapshotLoading && !snapshotError ? (
+          {!isSnapshotLoading && !snapshotError && databaseSnapshot ? (
             <>
               <View style={styles.snapshotGrid}>
                 <SnapshotMetric
                   label="Needs attention"
-                  tone={truthSummary?.openAttentionCount ? 'warning' : 'normal'}
-                  value={String(truthSummary?.openAttentionCount ?? 0)}
+                  tone={!truthError && truthSummary?.openAttentionCount ? 'warning' : 'normal'}
+                  value={
+                    isTruthLoading ? '…' : truthError ? '—' : String(truthSummary?.openAttentionCount ?? 0)
+                  }
                 />
                 <SnapshotMetric
                   label="Open shopping"
-                  value={String(truthSummary?.openShoppingNeedCount ?? 0)}
+                  value={
+                    isTruthLoading ? '…' : truthError ? '—' : String(truthSummary?.openShoppingNeedCount ?? 0)
+                  }
                 />
                 <SnapshotMetric label="Total hours" value={formatNumber(totalHours)} />
                 <SnapshotMetric
@@ -212,14 +282,22 @@ export function JobDashboardScreen({
                   />
                 ) : null}
               </View>
-              <Text style={styles.snapshotFootnote}>
-                {truthSummary?.openAttentionCount
-                  ? `${truthSummary.openAttentionCount} record${truthSummary.openAttentionCount === 1 ? '' : 's'} need review.`
-                  : 'No records currently need attention.'}
-                {truthSummary?.lastActivityAt
-                  ? ` Last activity ${formatActivityDate(truthSummary.lastActivityAt)}.`
-                  : ' No activity has been recorded yet.'}
-              </Text>
+              {isTruthLoading ? (
+                <Text style={styles.snapshotFootnote}>Loading supporting job details...</Text>
+              ) : truthError ? (
+                <Text style={styles.snapshotError}>
+                  Financial totals are current, but supporting job details are unavailable: {truthError}
+                </Text>
+              ) : (
+                <Text style={styles.snapshotFootnote}>
+                  {truthSummary?.openAttentionCount
+                    ? `${truthSummary.openAttentionCount} record${truthSummary.openAttentionCount === 1 ? '' : 's'} need review.`
+                    : 'No records currently need attention.'}
+                  {truthSummary?.lastActivityAt
+                    ? ` Last activity ${formatActivityDate(truthSummary.lastActivityAt)}.`
+                    : ' No activity has been recorded yet.'}
+                </Text>
+              )}
               {isTimeAndMaterials ? (
                 <Text style={styles.snapshotFootnote}>
                   Customer balance appears after invoicing; conTRACKtor will not infer it from unbilled time and materials.
@@ -239,113 +317,125 @@ export function JobDashboardScreen({
           {!isSnapshotLoading && snapshotError ? (
             <Text style={styles.panelError}>{snapshotError}</Text>
           ) : null}
+          {!isSnapshotLoading && !snapshotError && databaseSnapshot ? (
+            <>
           {!isTimeAndMaterials ? (
             <MetricRow
               label="Quoted amount"
-              value={formatCurrency(databaseSnapshot?.quote_amount ?? snapshot.quoteAmount)}
+              value={formatCurrency(databaseSnapshot.quote_amount)}
             />
           ) : null}
           <MetricRow
             label="Payments received"
-            value={formatCurrency(databaseSnapshot?.payments_received ?? snapshot.paymentsReceived, {
+            value={formatCurrency(databaseSnapshot.payments_received, {
               showCents: true,
             })}
           />
           <MetricRow
             label="Labor cost"
             onPress={() => setExpandedCost((current) => (current === 'labor' ? null : 'labor'))}
-            value={formatCurrency(databaseSnapshot?.labor_cost ?? snapshot.totalLaborCost, {
+            value={formatCurrency(databaseSnapshot.labor_cost, {
               showCents: true,
             })}
           />
           {expandedCost === 'labor' ? (
-            <CostDetailPanel
-              emptyText="No reviewed time entries yet."
-              items={laborEntries.map((entry) => ({
-                detail: `${formatNumber(entry.duration_minutes / 60)} hrs at ${formatCurrency(
-                  entry.hourly_rate,
-                  { showCents: true }
-                )}/hr${entry.description ? ` - ${entry.description}` : ''}`,
-                id: entry.id,
-                title: entry.worker_name ?? 'Labor',
-                value: formatCurrency((entry.duration_minutes / 60) * entry.hourly_rate, {
-                  showCents: true,
-                }),
-              }))}
-            />
+            isCostDetailsLoading ? (
+              <Text style={styles.panelMessage}>Loading labor details...</Text>
+            ) : costDetailsError ? (
+              <Text style={styles.panelError}>{costDetailsError}</Text>
+            ) : (
+              <CostDetailPanel
+                emptyText="No reviewed time entries yet."
+                items={laborEntries.map((entry) => ({
+                  detail: `${formatNumber(entry.duration_minutes / 60)} hrs at ${formatCurrency(
+                    entry.hourly_rate,
+                    { showCents: true }
+                  )}/hr${entry.description ? ` - ${entry.description}` : ''}`,
+                  id: entry.id,
+                  title: entry.worker_name ?? 'Labor',
+                  value: formatCurrency((entry.duration_minutes / 60) * entry.hourly_rate, {
+                    showCents: true,
+                  }),
+                }))}
+              />
+            )
           ) : null}
           <MetricRow
             label="Materials cost"
             onPress={() =>
               setExpandedCost((current) => (current === 'materials' ? null : 'materials'))
             }
-            value={formatCurrency(databaseSnapshot?.receipt_cost ?? snapshot.totalReceiptCost, {
+            value={formatCurrency(databaseSnapshot.receipt_cost, {
               showCents: true,
             })}
           />
           {expandedCost === 'materials' ? (
-            <CostDetailPanel
-              emptyText="No material expenses yet."
-              items={materialEntries.map((entry) => ({
-                detail: `${formatActivityDate(entry.expense_date)}${
-                  entry.expense_type ? ` - ${formatCostType(entry.expense_type)}` : ''
-                }${
-                  entry.tax_amount > 0
-                    ? ` - includes ${formatCurrency(entry.tax_amount, { showCents: true })} tax`
-                    : ''
-                }`,
-                id: entry.id,
-                title: entry.description,
-                value: formatCurrency(entry.total_amount, { showCents: true }),
-              }))}
-            />
+            isCostDetailsLoading ? (
+              <Text style={styles.panelMessage}>Loading material details...</Text>
+            ) : costDetailsError ? (
+              <Text style={styles.panelError}>{costDetailsError}</Text>
+            ) : (
+              <CostDetailPanel
+                emptyText="No material expenses yet."
+                items={materialEntries.map((entry) => ({
+                  detail: `${formatActivityDate(entry.expense_date)}${
+                    entry.expense_type ? ` - ${formatCostType(entry.expense_type)}` : ''
+                  }${
+                    entry.tax_amount > 0
+                      ? ` - includes ${formatCurrency(entry.tax_amount, { showCents: true })} tax`
+                      : ''
+                  }`,
+                  id: entry.id,
+                  title: entry.description,
+                  value: formatCurrency(entry.total_amount, { showCents: true }),
+                }))}
+              />
+            )
           ) : null}
           <MetricRow
             label="Total cost"
-            value={formatCurrency(databaseSnapshot?.total_cost ?? snapshot.totalCost, {
+            value={formatCurrency(databaseSnapshot.total_cost, {
               showCents: true,
             })}
           />
           <MetricRow
             label="Total hours"
-            value={formatNumber(databaseSnapshot?.total_hours ?? totalLocalHours(job))}
+            value={formatNumber(databaseSnapshot.total_hours)}
           />
           {!isTimeAndMaterials ? (
             <>
               <MetricRow
                 label="Projected profit"
                 value={
-                  databaseSnapshot?.projected_profit !== null &&
-                  databaseSnapshot?.projected_profit !== undefined
+                  databaseSnapshot.projected_profit !== null &&
+                  databaseSnapshot.projected_profit !== undefined
                     ? formatCurrency(databaseSnapshot.projected_profit, { showCents: true })
-                    : hasFinancialData
-                      ? formatCurrency(snapshot.projectedProfit, { showCents: true })
-                      : '—'
+                    : '—'
                 }
                 isNegative={
-                  databaseSnapshot?.projected_profit !== null &&
-                  databaseSnapshot?.projected_profit !== undefined
+                  databaseSnapshot.projected_profit !== null &&
+                  databaseSnapshot.projected_profit !== undefined
                     ? databaseSnapshot.projected_profit < 0
-                    : hasFinancialData && snapshot.projectedProfit < 0
+                    : false
                 }
               />
               <MetricRow
                 label="Projected margin"
                 value={
-                  databaseSnapshot?.projected_margin_percent !== null &&
-                  databaseSnapshot?.projected_margin_percent !== undefined
+                  databaseSnapshot.projected_margin_percent !== null &&
+                  databaseSnapshot.projected_margin_percent !== undefined
                     ? formatPercent(databaseSnapshot.projected_margin_percent)
-                    : hasFinancialData
-                      ? formatPercent(snapshot.projectedMarginPercent)
-                      : '—'
+                    : '—'
                 }
                 isNegative={
-                  databaseSnapshot?.projected_margin_percent !== null &&
-                  databaseSnapshot?.projected_margin_percent !== undefined
+                  databaseSnapshot.projected_margin_percent !== null &&
+                  databaseSnapshot.projected_margin_percent !== undefined
                     ? databaseSnapshot.projected_margin_percent < 0
-                    : hasFinancialData && snapshot.projectedMarginPercent < 0
+                    : false
                 }
               />
+            </>
+          ) : null}
             </>
           ) : null}
         </View>
@@ -505,13 +595,13 @@ function CostDetailPanel({
 }
 
 function formatNumber(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return '—';
+  }
+
   return new Intl.NumberFormat('en-US', {
     maximumFractionDigits: 2,
-  }).format(value ?? 0);
-}
-
-function totalLocalHours(job: Job): number {
-  return job.hours.reduce((sum, entry) => sum + entry.hours, 0);
+  }).format(value);
 }
 
 function formatActivityDate(date: string | null): string {

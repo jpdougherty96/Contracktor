@@ -20,6 +20,7 @@ import { formatCurrency } from '@/src/lib/financials';
 import { fetchJobs } from '@/src/lib/jobs';
 import {
   confirmReceiptLineAssignments,
+  confirmReceiptLineAssignmentsUsingGrossItemCost,
   createReceiptImageSignedUrl,
   deleteReceipt,
   fetchReceipt,
@@ -123,13 +124,13 @@ export function ReceiptReviewScreen({
     typeof receipt?.total === 'number' &&
     assignedLineItemsTotal > receipt.total + 0.05;
   const isSingleJobLineReceipt = selectedReceiptJobs.length === 1 && hasLineItems;
-  const hasReceiptAdjustmentDecision =
+  const requiresReceiptAdjustmentChoice =
     Boolean(receiptAdjustment) &&
     lineItemsExceedReceiptTotal &&
     selectedReceiptJobs.length === 1 &&
     !inventoryMode &&
     !includeInventoryDestination;
-  const hasUntrustedLineItems = lineItemsExceedReceiptTotal && !hasReceiptAdjustmentDecision;
+  const hasUntrustedLineItems = lineItemsExceedReceiptTotal && !requiresReceiptAdjustmentChoice;
   const requiresLineItems =
     (selectedReceiptJobs.length > 1 ||
       (includeInventoryDestination && selectedReceiptJobs.length > 0)) &&
@@ -176,7 +177,7 @@ export function ReceiptReviewScreen({
     selectedReceiptJobs.length === 1 &&
     hasLineItems &&
     !hasReceiptAdjustments &&
-    !hasReceiptAdjustmentDecision &&
+    !requiresReceiptAdjustmentChoice &&
     !hasUntrustedLineItems &&
     receipt?.processing_status === 'complete';
 
@@ -447,7 +448,6 @@ export function ReceiptReviewScreen({
 
       if (
         assignedLineItemsExceedReceiptTotal &&
-        !hasReceiptAdjustmentDecision &&
         typeof receipt?.total === 'number'
       ) {
         setErrorMessage(
@@ -465,10 +465,7 @@ export function ReceiptReviewScreen({
       try {
         await confirmReceiptLineAssignments(
           receiptId,
-          getReceiptLineAssignmentInputs(lineItems, lineAssignments),
-          {
-            allowAssignedTotalAboveReceiptTotal: hasReceiptAdjustmentDecision,
-          }
+          getReceiptLineAssignmentInputs(lineItems, lineAssignments)
         );
         onSaved();
       } catch (error) {
@@ -605,7 +602,7 @@ export function ReceiptReviewScreen({
   const handleUseFullItemPricesForAdjustment = async () => {
     setErrorMessage(null);
 
-    if (!hasReceiptAdjustmentDecision) {
+    if (!requiresReceiptAdjustmentChoice) {
       setErrorMessage('Review this receipt before saving line items.');
       return;
     }
@@ -613,10 +610,9 @@ export function ReceiptReviewScreen({
     setIsSaving(true);
 
     try {
-      await confirmReceiptLineAssignments(
+      await confirmReceiptLineAssignmentsUsingGrossItemCost(
         receiptId,
-        getReceiptLineAssignmentInputs(lineItems, lineAssignments),
-        { allowAssignedTotalAboveReceiptTotal: true }
+        getReceiptLineAssignmentInputs(lineItems, lineAssignments)
       );
       onSaved();
     } catch (error) {
@@ -895,7 +891,7 @@ export function ReceiptReviewScreen({
                   </View>
                 ) : null}
 
-                {hasReceiptAdjustmentDecision && receiptAdjustment ? (
+                {requiresReceiptAdjustmentChoice && receiptAdjustment ? (
                   <View style={styles.adjustmentDecisionPanel}>
                     <Text style={styles.adjustmentDecisionTitle}>
                       This receipt includes a {formatCurrency(receiptAdjustment.adjustmentTotal, {
@@ -959,7 +955,7 @@ export function ReceiptReviewScreen({
                   </View>
                 ) : null}
 
-                {lineItemsExceedReceiptTotal && !hasReceiptAdjustmentDecision && receipt?.total ? (
+                {lineItemsExceedReceiptTotal && !requiresReceiptAdjustmentChoice && receipt?.total ? (
                   <View style={styles.warningPanel}>
                     <Text style={styles.warningTitle}>Line items need review</Text>
                     <Text style={styles.warningText}>
@@ -974,7 +970,7 @@ export function ReceiptReviewScreen({
                 {!isReceiptStillProcessing &&
                 !isAutoFinalizing &&
                 hasLineItems &&
-                !hasReceiptAdjustmentDecision &&
+                !requiresReceiptAdjustmentChoice &&
                 !hasUntrustedLineItems &&
                 isSingleJobLineReceipt &&
                 !shouldShowLineEditor ? (

@@ -4,7 +4,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { HealthBadge } from '@/src/components/HealthBadge';
 import {
-  calculateJobFinancialSnapshot,
   formatCurrency,
   getJobHealth,
 } from '@/src/lib/financials';
@@ -166,10 +165,10 @@ export function JobPickerScreen({
             ) : null}
             {openJobs.map((job) => {
               const usesCompactCard = multiSelect || compactJobCards;
-              const snapshot = !usesCompactCard && hasFinancialActivity(job)
-                ? calculateJobFinancialSnapshot(job)
-                : null;
-              const health = snapshot ? getJobHealth(snapshot) : 'New';
+              const snapshot = usesCompactCard ? null : job.financialSnapshot;
+              const health = snapshot && hasFinancialActivity(snapshot)
+                ? getJobHealth(snapshot)
+                : 'New';
               const isSelected = selectedJobIds.includes(job.id);
 
               return (
@@ -300,8 +299,8 @@ function InventoryOption({
   );
 }
 
-function hasFinancialActivity(job: Job): boolean {
-  return job.receipts.length > 0 || job.hours.length > 0 || job.payments.length > 0;
+function hasFinancialActivity(snapshot: NonNullable<Job['financialSnapshot']>): boolean {
+  return snapshot.totalCost > 0 || snapshot.totalHours > 0 || snapshot.paymentsReceived > 0;
 }
 
 function getJobBalanceDue(job: Job): number {

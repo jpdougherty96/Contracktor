@@ -319,7 +319,9 @@ function getJobTriage(
   const materialPercent = materialUsage.percent;
   const laborPercent = laborUsage.percent;
   const hasActivity =
-    totalLocalReceipts(job) > 0 || totalLocalHours(job) > 0 || job.payments.length > 0;
+    totalLocalReceipts(job) > 0 ||
+    totalLocalHours(job) > 0 ||
+    (job.paymentsReceived ?? 0) > 0;
 
   if ((materialPercent ?? 0) > 100 || (laborPercent ?? 0) > 100) {
     return {
@@ -392,11 +394,11 @@ function getTimeAndMaterialsTone(job: Job): TriageTone {
 }
 
 function totalLocalHours(job: Job): number {
-  return job.actualLaborHours ?? job.hours.reduce((sum, entry) => sum + entry.hours, 0);
+  return job.actualLaborHours ?? 0;
 }
 
 function totalLocalReceipts(job: Job): number {
-  return job.actualMaterialCost ?? job.receipts.reduce((sum, receipt) => sum + receipt.amount, 0);
+  return job.actualMaterialCost ?? 0;
 }
 
 function getProjectedProfit(job: Job): number {

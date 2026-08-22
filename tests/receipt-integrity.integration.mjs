@@ -163,7 +163,7 @@ test(
       assert.equal((await fetchReceiptExpenses(clientA, fixture.receipt.id)).length, 0);
     });
 
-    await t.test('$500 + $20 tax - $100 credit records exactly $420 cost', async () => {
+    await t.test('credit receipt requires explicit gross choice and can return to $420 amount paid', async () => {
       const fixture = await createLineReceipt(clientA, {
         businessId: businessA,
         jobId: jobA1,
@@ -178,7 +178,35 @@ test(
           { amount: 100, lineType: 'discount', name: 'Store credit' },
         ],
       });
-      const review = {
+      const assignments = [
+        assignment(fixture.lineIds[0], 'job', jobA1),
+        assignment(fixture.lineIds[1], 'ignore'),
+      ];
+      const ordinaryLineResult = await clientA.rpc('commit_receipt_review', {
+        p_expected_updated_at: fixture.receipt.updated_at,
+        p_idempotency_key: `credit-lines-rejected-${suffix}`,
+        p_receipt_id: fixture.receipt.id,
+        p_review: lineReview(fixture.receipt, assignments),
+      });
+      assert.ok(ordinaryLineResult.error);
+      assert.match(ordinaryLineResult.error.message, /exceeds the amount paid/i);
+      assert.equal((await fetchReceiptExpenses(clientA, fixture.receipt.id)).length, 0);
+
+      const grossResult = await commit(
+        clientA,
+        fixture.receipt,
+        `credit-lines-gross-${suffix}`,
+        { ...lineReview(fixture.receipt, assignments), allowGrossLineCost: true }
+      );
+      assert.equal(grossResult.allocatedCost, 520);
+      assert.equal(grossResult.costBasis, 'gross_items');
+
+      let expenses = await fetchReceiptExpenses(clientA, fixture.receipt.id);
+      assert.equal(expenses.length, 1);
+      assert.equal(expenses[0].total_amount, 520);
+
+      const grossReceipt = await fetchReceipt(clientA, fixture.receipt.id);
+      const amountPaidReview = {
         category: 'materials',
         destinationJobId: jobA1,
         ignoreLineItems: true,
@@ -191,11 +219,11 @@ test(
         vendor: fixture.receipt.vendor,
       };
 
-      const result = await commit(clientA, fixture.receipt, `credit-${suffix}`, review);
+      const result = await commit(clientA, grossReceipt, `credit-amount-paid-${suffix}`, amountPaidReview);
       assert.equal(result.allocatedCost, 420);
       assert.equal(result.costBasis, 'amount_paid');
 
-      const expenses = await fetchReceiptExpenses(clientA, fixture.receipt.id);
+      expenses = await fetchReceiptExpenses(clientA, fixture.receipt.id);
       assert.equal(expenses.length, 1);
       assert.equal(expenses[0].total_amount, 420);
       assert.equal(sum([expenses[0].pre_tax_amount, expenses[0].tax_amount]), 420);

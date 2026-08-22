@@ -52,7 +52,6 @@ export function AddReceiptScreen({
 
   const isBusy = step === 'uploading';
   const isWeb = Platform.OS === 'web';
-  const prefersNativeWebCamera = isWeb && isMobileWebBrowser();
 
   const processReceiptAsset = useCallback(async (asset: ImagePicker.ImagePickerAsset) => {
     try {
@@ -92,16 +91,6 @@ export function AddReceiptScreen({
     setErrorMessage(null);
 
     if (isWeb) {
-      if (prefersNativeWebCamera) {
-        const asset = await pickWebReceiptImage({ capture: true });
-
-        if (asset) {
-          await processReceiptAsset(asset);
-        }
-
-        return;
-      }
-
       setIsWebCameraOpen(true);
       return;
     }
@@ -125,14 +114,14 @@ export function AddReceiptScreen({
     }
 
     await processReceiptAsset(result.assets[0]);
-  }, [isWeb, prefersNativeWebCamera, processReceiptAsset]);
+  }, [isWeb, processReceiptAsset]);
 
   const handleChoosePhoto = async () => {
     setMessage(null);
     setErrorMessage(null);
 
     if (isWeb) {
-      const asset = await pickWebReceiptImage({ capture: false });
+      const asset = await pickWebReceiptImage();
 
       if (asset) {
         await processReceiptAsset(asset);
@@ -155,14 +144,19 @@ export function AddReceiptScreen({
     await processReceiptAsset(result.assets[0]);
   };
 
+  const handleWebCameraError = useCallback((nextError: string) => {
+    setIsWebCameraOpen(false);
+    setErrorMessage(nextError);
+  }, []);
+
   useEffect(() => {
-    if (!autoStartCamera || didAutoStartCameraRef.current || isWeb) {
+    if (!autoStartCamera || didAutoStartCameraRef.current) {
       return;
     }
 
     didAutoStartCameraRef.current = true;
     void handleTakePhoto();
-  }, [autoStartCamera, handleTakePhoto, isWeb]);
+  }, [autoStartCamera, handleTakePhoto]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -179,10 +173,8 @@ export function AddReceiptScreen({
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>{isWeb ? 'Receipt file' : 'Receipt photo'}</Text>
           <Text style={styles.panelText}>
-            {prefersNativeWebCamera
-              ? 'Take a clear receipt photo with your phone camera, or upload an existing image.'
-              : isWeb
-              ? 'Upload a clear receipt image from this computer, or use a connected camera.'
+            {isWeb
+              ? 'Take a clear photo of the full receipt. If the camera is unavailable, upload an existing image.'
               : 'Take a clear photo of the full receipt. The app will secure it for background processing.'}
           </Text>
 
@@ -192,25 +184,32 @@ export function AddReceiptScreen({
           {isWebCameraOpen ? (
             <WebCameraCapture
               isBusy={isBusy}
-              onCancel={() => setIsWebCameraOpen(false)}
+              onCancel={() => {
+                setIsWebCameraOpen(false);
+                void handleChoosePhoto();
+              }}
               onCapture={(asset) => {
                 setIsWebCameraOpen(false);
                 void processReceiptAsset(asset);
               }}
-              onError={setErrorMessage}
+              onError={handleWebCameraError}
             />
           ) : null}
 
-          <View style={styles.actionStack}>
-            {isWeb ? (
-              prefersNativeWebCamera ? (
+          {!isWebCameraOpen ? (
+            <View style={styles.actionStack}>
+              {isWeb ? (
                 <>
                   <Pressable
                     disabled={isBusy}
                     onPress={handleTakePhoto}
                     style={[styles.primaryButton, isBusy && styles.disabledButton]}>
                     <Text style={styles.primaryButtonText}>
-                      {isBusy ? 'Working...' : step === 'complete' ? 'Take another photo' : 'Take receipt photo'}
+                      {isBusy
+                        ? 'Working...'
+                        : step === 'complete'
+                          ? 'Take another photo'
+                          : 'Take receipt photo'}
                     </Text>
                   </Pressable>
                   <Pressable
@@ -224,39 +223,26 @@ export function AddReceiptScreen({
                 <>
                   <Pressable
                     disabled={isBusy}
-                    onPress={handleChoosePhoto}
+                    onPress={handleTakePhoto}
                     style={[styles.primaryButton, isBusy && styles.disabledButton]}>
                     <Text style={styles.primaryButtonText}>
-                      {isBusy ? 'Working...' : step === 'complete' ? 'Upload another receipt' : 'Upload receipt'}
+                      {isBusy
+                        ? 'Working...'
+                        : step === 'complete'
+                          ? 'Retake receipt photo'
+                          : 'Take receipt photo'}
                     </Text>
                   </Pressable>
                   <Pressable
                     disabled={isBusy}
-                    onPress={handleTakePhoto}
+                    onPress={handleChoosePhoto}
                     style={[styles.secondaryActionButton, isBusy && styles.disabledButton]}>
-                    <Text style={styles.secondaryActionButtonText}>Take photo</Text>
+                    <Text style={styles.secondaryActionButtonText}>Upload existing photo</Text>
                   </Pressable>
                 </>
-              )
-            ) : (
-              <>
-                <Pressable
-                  disabled={isBusy}
-                  onPress={handleTakePhoto}
-                  style={[styles.primaryButton, isBusy && styles.disabledButton]}>
-                  <Text style={styles.primaryButtonText}>
-                    {isBusy ? 'Working...' : step === 'complete' ? 'Retake receipt photo' : 'Take receipt photo'}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  disabled={isBusy}
-                  onPress={handleChoosePhoto}
-                  style={[styles.secondaryActionButton, isBusy && styles.disabledButton]}>
-                  <Text style={styles.secondaryActionButtonText}>Upload existing photo</Text>
-                </Pressable>
-              </>
-            )}
-          </View>
+              )}
+            </View>
+          ) : null}
 
           {step === 'complete' ? (
             <Pressable style={styles.secondaryButton} onPress={onDone}>
@@ -285,23 +271,7 @@ function formatReceiptContext(inventoryMode: boolean, jobs: Job[]): string {
   return `${jobs.length} jobs selected`;
 }
 
-function isMobileWebBrowser(): boolean {
-  if (typeof navigator === 'undefined') {
-    return false;
-  }
-
-  const userAgent = navigator.userAgent;
-  const isMobileUserAgent = /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent);
-  const hasTouch =
-    typeof navigator.maxTouchPoints === 'number' && navigator.maxTouchPoints > 1;
-  const hasSmallViewport =
-    typeof window !== 'undefined' &&
-    Math.min(window.innerWidth, window.innerHeight) <= 820;
-
-  return isMobileUserAgent || (hasTouch && hasSmallViewport);
-}
-
-function pickWebReceiptImage({ capture }: { capture: boolean }): Promise<ImagePicker.ImagePickerAsset | null> {
+function pickWebReceiptImage(): Promise<ImagePicker.ImagePickerAsset | null> {
   return new Promise((resolve, reject) => {
     if (typeof document === 'undefined') {
       resolve(null);
@@ -311,10 +281,6 @@ function pickWebReceiptImage({ capture }: { capture: boolean }): Promise<ImagePi
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
-
-    if (capture) {
-      input.setAttribute('capture', 'environment');
-    }
 
     input.style.display = 'none';
 

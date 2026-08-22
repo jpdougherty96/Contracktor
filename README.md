@@ -139,7 +139,8 @@ Useful Expo options after `npx expo start`:
 - press `i` for iOS simulator if available
 - press `a` for Android emulator if available
 
-Web camera capture only works on secure browser contexts, such as `localhost` or HTTPS.
+Web receipt capture opens the camera first on secure browser contexts such as
+`localhost` or HTTPS. Canceling the camera opens the existing-photo chooser.
 
 ## Quality Checks
 
@@ -174,7 +175,8 @@ npm run test:integration
 
 The integration suite creates and removes test users and financial records. It
 intentionally skips unless every test variable and the explicit mutation flag
-are present. Never point it at production.
+are present. Never point it at production. GitHub Actions runs this suite on an
+ephemeral local Supabase stack for every push to `main` and every pull request.
 
 Start web smoke test:
 

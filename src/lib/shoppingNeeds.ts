@@ -207,6 +207,8 @@ function normalizeShoppingNeedInput(input: CreateShoppingNeedInput): {
   };
 }
 
+// Keep this normalization family in lockstep with tell-contracktor/index.ts.
+// The client and Deno edge runtime cannot share this module directly, so a boundary test compares them.
 function parseCountUnit(value: string): { description: string; quantity: number | null; unit: string | null } {
   const trimmed = value.trim().replace(/\s+/g, ' ');
   const unitFirstMatch = trimmed.match(

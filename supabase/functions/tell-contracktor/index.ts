@@ -666,6 +666,8 @@ function normalizeShoppingNeed(
   };
 }
 
+// Keep this normalization family in lockstep with src/lib/shoppingNeeds.ts.
+// The Deno edge runtime and client cannot share this module directly, so a boundary test compares them.
 function parseCountUnit(value: string): { description: string; quantity: number | null; unit: string | null } {
   const trimmed = value.trim().replace(/\s+/g, ' ');
   const unitFirstMatch = trimmed.match(
