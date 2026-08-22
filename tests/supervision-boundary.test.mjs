@@ -55,6 +55,19 @@ test('receipt processing opens and resolves the durable attention lifecycle', as
   assert.match(worker, /onConflict: 'business_id,item_type,source_table,source_id'/);
 });
 
+test('receipt truth preserves credits and the final amount paid', async () => {
+  const [receiptProcessing, receiptReview] = await Promise.all([
+    readRepoFile('supabase/functions/_shared/receipt-processing.ts'),
+    readRepoFile('src/screens/ReceiptReviewScreen.tsx'),
+  ]);
+
+  assert.match(receiptProcessing, /final out-of-pocket amount paid/);
+  assert.match(receiptProcessing, /adjustedLineTotal/);
+  assert.match(receiptProcessing, /subtotal - discountTotal \+ extraction\.tax/);
+  assert.match(receiptReview, /hasReceiptAdjustments/);
+  assert.match(receiptReview, /!hasReceiptAdjustments/);
+});
+
 async function readRepoFile(relativePath) {
   return readFile(new URL(relativePath, `file://${repoRoot}/`), 'utf8');
 }

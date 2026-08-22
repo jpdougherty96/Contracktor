@@ -189,7 +189,7 @@ async function extractWithOpenAI(
     ? ' This is a retry because the previous line items did not reconcile to the visible receipt total. Re-read the printed right-side extended amounts carefully, look for rebate, coupon, discount, store credit, or credit adjustment rows, return those adjustment rows as line_type discount when visible, and exclude summary/tax/payment rows.'
     : '';
   const extractionInstructions =
-    `You are extracting data from a contractor receipt photo. Return only valid JSON. If the receipt is shown inside a phone screenshot, email, browser, or app screen, ignore the surrounding UI and read only the receipt itself. Extract vendor, receipt_date in YYYY-MM-DD if visible, subtotal, tax, total, likely receipt category, confidence from 0 to 1, notes, and visible purchased line items. Use issue date, transaction date, order date, or receipt date as receipt_date when a standard receipt date label is not present. For line_items, include purchased products/services and visible rebate, coupon, discount, store credit, or credit adjustment rows. Rebate, coupon, discount, store credit, and credit adjustment rows must use line_type discount with a positive line_total amount. Important: do not net a rebate, credit, or discount into a purchased item line. Preserve the printed gross item extended amount as an item line, and preserve the rebate/credit/discount as its own discount line. Amounts printed with a trailing minus sign, such as 299.57-, are discount/credit amounts and should be returned as positive line_total with line_type discount. Menards receipts often show MENARD REBATE or rebate receipt rows; include those rows as line_type discount when they affect the subtotal or amount paid. Never include subtotal, taxes, taxes and fees, total, ticket amount, payment, card authorization, remaining balance, survey, cashier, transaction number, address, phone, return policy, or other non-purchase/summary rows as item line_items. If itemized taxes or fees are visible and there is no separate tax total, sum those tax/fee rows into the top-level tax value. Preserve original_text exactly as visible, write a cleaned_name that expands abbreviations when clear, and do not invent invisible items. Do not bake tax into item prices. The sum of item line totals minus discount line totals plus tax should reconcile to the visible receipt total when discount rows are present. If a quantity/unit price is visible, use the extended line amount printed at the right, not quantity times a misread unit price. Category must be one of: materials, tools, fuel, subcontractor, permit, other. Line item category must be one of: material, tool, inventory, rental, permit, subcontractor, fuel, other, or null. Line type must be item for purchased rows and discount for rebate, coupon, discount, store credit, or credit adjustment rows; use tax or fee only if such a row is unavoidable, and tax/fee rows will be ignored by conTRACKtor. If the receipt date is not visible, set receipt_date to null and include the exact phrase "date not visible" in notes.${retryInstruction}`;
+    `You are extracting data from a contractor receipt photo. Return only valid JSON. If the receipt is shown inside a phone screenshot, email, browser, or app screen, ignore the surrounding UI and read only the receipt itself. Extract vendor, receipt_date in YYYY-MM-DD if visible, subtotal, tax, total, likely receipt category, confidence from 0 to 1, notes, and visible purchased line items. The top-level total must be the final out-of-pocket amount paid after every rebate, coupon, discount, store credit, or credit adjustment. If the receipt prints both a gross TOTAL and a lower AMOUNT PAID, BALANCE DUE, NET TOTAL, or GRAND TOTAL after an adjustment, use the lower final paid amount as total. Use issue date, transaction date, order date, or receipt date as receipt_date when a standard receipt date label is not present. For line_items, include purchased products/services and visible rebate, coupon, discount, store credit, or credit adjustment rows. Rebate, coupon, discount, store credit, and credit adjustment rows must use line_type discount with a positive line_total amount. Important: do not net a rebate, credit, or discount into a purchased item line. Preserve the printed gross item extended amount as an item line, and preserve the rebate/credit/discount as its own discount line. Amounts printed with a trailing minus sign, such as 299.57-, are discount/credit amounts and should be returned as positive line_total with line_type discount. Menards receipts often show MENARD REBATE or rebate receipt rows; include those rows as line_type discount when they affect the subtotal or amount paid. Never include subtotal, taxes, taxes and fees, total, ticket amount, payment, card authorization, remaining balance, survey, cashier, transaction number, address, phone, return policy, or other non-purchase/summary rows as item line_items. If itemized taxes or fees are visible and there is no separate tax total, sum those tax/fee rows into the top-level tax value. Preserve original_text exactly as visible, write a cleaned_name that expands abbreviations when clear, and do not invent invisible items. Do not bake tax into item prices. The sum of item line totals minus discount line totals plus tax should reconcile to the final out-of-pocket total when discount rows are present. If a quantity/unit price is visible, use the extended line amount printed at the right, not quantity times a misread unit price. Category must be one of: materials, tools, fuel, subcontractor, permit, other. Line item category must be one of: material, tool, inventory, rental, permit, subcontractor, fuel, other, or null. Line type must be item for purchased rows and discount for rebate, coupon, discount, store credit, or credit adjustment rows; use tax or fee only if such a row is unavoidable, and tax/fee rows will be ignored by conTRACKtor. If the receipt date is not visible, set receipt_date to null and include the exact phrase "date not visible" in notes.${retryInstruction}`;
 
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
@@ -343,10 +343,23 @@ function normalizeExtraction(extraction: unknown) {
   const taxFromLines = sumRawLineTotals(value.line_items, ['tax', 'fee']);
   const tax = parsedTax ?? taxFromLines;
   const parsedSubtotal = toMoney(value.subtotal);
+  const lineItems = normalizeLineItems(value.line_items);
+  const itemTotal = sumNormalizedLineTotals(lineItems, 'item');
+  const discountTotal = sumNormalizedLineTotals(lineItems, 'discount');
+  const adjustedLineTotal = Math.round((itemTotal - discountTotal + (tax ?? 0)) * 100) / 100;
+  const lineItemsMatchGrossSubtotal =
+    parsedSubtotal === null || Math.abs(itemTotal - parsedSubtotal) <= receiptMathTolerance;
+  const total =
+    discountTotal > 0 &&
+    itemTotal > 0 &&
+    adjustedLineTotal > 0 &&
+    lineItemsMatchGrossSubtotal
+      ? adjustedLineTotal
+      : parsedTotal;
   const subtotal =
     parsedSubtotal ??
-    (typeof parsedTotal === 'number' && typeof tax === 'number'
-      ? Math.round((parsedTotal - tax) * 100) / 100
+    (typeof total === 'number' && typeof tax === 'number'
+      ? Math.round((total - tax) * 100) / 100
       : null);
 
   return {
@@ -356,9 +369,9 @@ function normalizeExtraction(extraction: unknown) {
     receipt_date: receiptDate,
     subtotal,
     tax,
-    total: parsedTotal,
+    total,
     vendor: typeof value.vendor === 'string' ? value.vendor.trim() || null : null,
-    line_items: normalizeLineItems(value.line_items),
+    line_items: lineItems,
   };
 }
 
@@ -420,7 +433,26 @@ function receiptMathReconciles(extraction: ReturnType<typeof normalizeExtraction
     return true;
   }
 
-  return Math.abs(extraction.subtotal + extraction.tax - extraction.total) <= receiptMathTolerance;
+  const discountTotal = sumNormalizedLineTotals(extraction.line_items, 'discount');
+  const grossSubtotalDifference = Math.abs(
+    extraction.subtotal - discountTotal + extraction.tax - extraction.total
+  );
+  const netSubtotalDifference = Math.abs(
+    extraction.subtotal + extraction.tax - extraction.total
+  );
+
+  return Math.min(grossSubtotalDifference, netSubtotalDifference) <= receiptMathTolerance;
+}
+
+function sumNormalizedLineTotals(
+  lineItems: ReturnType<typeof normalizeLineItems>,
+  lineType: 'discount' | 'item'
+): number {
+  return Math.round(
+    lineItems
+      .filter((lineItem) => lineItem.line_type === lineType)
+      .reduce((sum, lineItem) => sum + lineItem.line_total, 0) * 100
+  ) / 100;
 }
 
 function lineItemsDoNotExceedReceiptTotal(extraction: ReturnType<typeof normalizeExtraction>): boolean {

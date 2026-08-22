@@ -105,6 +105,7 @@ export function ReceiptReviewScreen({
   const shouldUseInlineImageZoom = viewportWidth < 768;
   const needsManualReceiptReview = receipt?.status === 'error' || receipt?.review_status === 'error';
   const hasLineItems = lineItems.length > 0;
+  const hasReceiptAdjustments = lineItems.some((lineItem) => lineItem.line_type === 'discount');
   const isReceiptStillProcessing = isReceiptProcessingStatus(receipt?.processing_status);
   const selectedReceiptJobs =
     contextJobs && contextJobs.length > 0 ? contextJobs : job && !inventoryMode ? [job] : [];
@@ -174,6 +175,7 @@ export function ReceiptReviewScreen({
     !includeInventoryDestination &&
     selectedReceiptJobs.length === 1 &&
     hasLineItems &&
+    !hasReceiptAdjustments &&
     !hasReceiptAdjustmentDecision &&
     !hasUntrustedLineItems &&
     receipt?.processing_status === 'complete';
