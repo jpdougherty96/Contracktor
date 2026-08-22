@@ -4,6 +4,7 @@ export const colors = {
   appBackground: '#F6F3EC',
   cardBackground: '#FFFDF8',
   danger: '#A33A2F',
+  live: '#5FA477',
   mutedText: '#667382',
   pressedGreen: '#203B2C',
   primaryGreen: '#294B38',

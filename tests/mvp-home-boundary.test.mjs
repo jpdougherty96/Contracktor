@@ -11,9 +11,9 @@ test('Home exposes the three MVP capture methods', async () => {
     readRepoFile('app/(tabs)/index.tsx'),
   ]);
 
-  assert.match(home, />Capture receipt</);
-  assert.match(home, />Tell conTRACKtor</);
-  assert.match(home, />Start work</);
+  assert.match(home, /\bCapture receipt\b/);
+  assert.match(home, /\bTell conTRACKtor\b/);
+  assert.match(home, />\s*Start work\s*</);
   assert.match(home, /onPress={onCaptureReceipt}/);
   assert.match(home, /onPress={onTellContracktor}/);
   assert.match(home, /onPress={onStartWork}/);

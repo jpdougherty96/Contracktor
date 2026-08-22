@@ -1,9 +1,21 @@
 import { Feather } from '@expo/vector-icons';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  type GestureResponderEvent,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { colors } from '@/src/styles/theme';
+import { fetchActiveTimerState, stopJobTimer, type ActiveTimerState } from '@/src/lib/timeClock';
+import { getUserFacingError } from '@/src/lib/userFacingError';
+import { colors, radii } from '@/src/styles/theme';
 
 type HomeActionsScreenProps = {
   needsReviewCount?: number;
@@ -14,6 +26,7 @@ type HomeActionsScreenProps = {
   onGoToJobs: () => void;
   onStartWork: () => void;
   onTellContracktor: () => void;
+  onTimerStopped?: (jobName: string) => void;
   onLogout?: () => void;
   showActivity?: boolean;
   showTellContracktor?: boolean;
@@ -50,12 +63,103 @@ export function HomeActionsScreen({
   onGoToJobs,
   onStartWork,
   onTellContracktor,
+  onTimerStopped,
   onLogout,
   showActivity = false,
   showTellContracktor = false,
   userEmail,
 }: HomeActionsScreenProps) {
   const [isAccountOpen, setIsAccountOpen] = useState(false);
+  const [activeTimer, setActiveTimer] = useState<ActiveTimerState | null>(null);
+  const [isStoppingTimer, setIsStoppingTimer] = useState(false);
+  const [timerErrorMessage, setTimerErrorMessage] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
+  const livePulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadActiveTimer = async () => {
+      try {
+        const nextTimer = await fetchActiveTimerState();
+
+        if (isMounted) {
+          setActiveTimer(nextTimer);
+          setNow(Date.now());
+        }
+      } catch (error) {
+        if (isMounted) {
+          setTimerErrorMessage(
+            getUserFacingError(error, 'Unable to load the active timer. Try Start Work to check it.')
+          );
+        }
+      }
+    };
+
+    void loadActiveTimer();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeTimer) {
+      return;
+    }
+
+    const intervalId = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(intervalId);
+  }, [activeTimer]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (isMounted) {
+        setReduceMotionEnabled(enabled);
+      }
+    });
+
+    const subscription = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      setReduceMotionEnabled
+    );
+
+    return () => {
+      isMounted = false;
+      subscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeTimer || reduceMotionEnabled) {
+      livePulse.stopAnimation();
+      livePulse.setValue(1);
+      return;
+    }
+
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(livePulse, {
+          duration: 900,
+          easing: Easing.inOut(Easing.ease),
+          toValue: 0.4,
+          useNativeDriver: true,
+        }),
+        Animated.timing(livePulse, {
+          duration: 900,
+          easing: Easing.inOut(Easing.ease),
+          toValue: 1,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    pulse.start();
+    return () => pulse.stop();
+  }, [activeTimer, livePulse, reduceMotionEnabled]);
 
   const handlePress = (key: (typeof primaryActions)[number]['key']) => {
     if (key === 'job') {
@@ -71,6 +175,29 @@ export function HomeActionsScreen({
     onGoToJobs();
   };
 
+  const handleStopTimer = async (event: GestureResponderEvent) => {
+    event.stopPropagation();
+
+    if (!activeTimer || isStoppingTimer) {
+      return;
+    }
+
+    const timerToStop = activeTimer;
+    setIsStoppingTimer(true);
+    setTimerErrorMessage(null);
+
+    try {
+      await stopJobTimer(timerToStop.entry);
+      setActiveTimer(null);
+      onTimerStopped?.(timerToStop.jobName);
+    } catch (error) {
+      setTimerErrorMessage(getUserFacingError(error, 'Unable to stop timer. Try again.'));
+    } finally {
+      setIsStoppingTimer(false);
+    }
+  };
+
+  const elapsed = activeTimer ? formatElapsed(activeTimer.entry.started_at, now) : null;
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
@@ -107,45 +234,122 @@ export function HomeActionsScreen({
             ) : null}
           </View>
 
-          <Text style={styles.heading}>Capture what happened</Text>
-
-          <Pressable onPress={onCaptureReceipt} style={styles.captureButton}>
-            <View style={styles.captureIconBlock}>
-              <Feather color={colors.warmWhite} name="camera" size={30} />
-            </View>
-            <View style={styles.captureText}>
-              <Text style={styles.captureLabel}>Capture receipt</Text>
-              <Text style={styles.captureDescription}>
-                Open the camera first. Choose the job after.
-              </Text>
-            </View>
-          </Pressable>
-
-          {showTellContracktor ? (
-            <Pressable onPress={onTellContracktor} style={styles.tellButton}>
-              <View style={styles.tellIconBlock}>
-                <Feather color={colors.primaryGreen} name="message-circle" size={30} />
+          <View style={styles.reflexZone}>
+            <Pressable
+              onPress={onCaptureReceipt}
+              style={styles.captureButton}>
+              <View style={styles.captureIconBlock}>
+                <Feather color={colors.warmWhite} name="camera" size={30} />
               </View>
               <View style={styles.captureText}>
-                <Text style={styles.tellLabel}>Tell conTRACKtor</Text>
-                <Text style={styles.tellDescription}>
-                  Type or dictate what happened. Add photos if useful.
+                <Text style={styles.captureLabel}>Capture receipt</Text>
+                <Text style={styles.captureDescription}>
+                  Open the camera first. Choose the job after.
                 </Text>
               </View>
             </Pressable>
+
+            {showTellContracktor ? (
+              <Pressable
+                onPress={onTellContracktor}
+                style={styles.tellButton}>
+                <View style={styles.tellIconBlock}>
+                  <Feather color={colors.primaryGreen} name="message-circle" size={30} />
+                </View>
+                <View style={styles.captureText}>
+                  <Text style={styles.tellLabel}>Tell conTRACKtor</Text>
+                  <Text style={styles.tellDescription}>
+                    Type or dictate what happened. Add photos if useful.
+                  </Text>
+                </View>
+              </Pressable>
+            ) : null}
+
+            {activeTimer && elapsed ? (
+              <View
+                style={[
+                  styles.workButton,
+                  styles.activeWorkButton,
+                ]}>
+                <Pressable
+                  accessibilityLabel={`${activeTimer.jobName} timer running, ${elapsed}. Open Start Work.`}
+                  accessibilityRole="button"
+                  onPress={onStartWork}
+                  style={styles.activeWorkMain}>
+                  <View style={styles.workIconBlock}>
+                    <Feather color={colors.warmWhite} name="clock" size={30} />
+                    <Animated.View style={[styles.iconLiveDot, { opacity: livePulse }]} />
+                  </View>
+                  <View style={styles.workText}>
+                    <Text
+                      ellipsizeMode="tail"
+                      numberOfLines={1}
+                      style={[styles.workLabel, styles.activeWorkLabel]}>
+                      {activeTimer.jobName}
+                    </Text>
+                    <View style={styles.runningRow}>
+                      <Animated.View style={[styles.liveDot, { opacity: livePulse }]} />
+                      <Text numberOfLines={1} style={styles.workDescription}>
+                        Running · {elapsed}
+                      </Text>
+                    </View>
+                  </View>
+                </Pressable>
+                <Pressable
+                  accessibilityLabel={`Stop timer for ${activeTimer.jobName}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ busy: isStoppingTimer, disabled: isStoppingTimer }}
+                  disabled={isStoppingTimer}
+                  onPress={(event) => void handleStopTimer(event)}
+                  style={[
+                    styles.stopChip,
+                    isStoppingTimer && styles.stopChipBusy,
+                  ]}>
+                  <Text style={styles.stopChipText}>
+                    {isStoppingTimer ? 'Stopping…' : 'Stop'}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable
+                accessibilityLabel="Start work"
+                accessibilityRole="button"
+                onPress={onStartWork}
+                style={[
+                  styles.workButton,
+                  styles.idleWorkButton,
+                ]}>
+                <View style={styles.workIconBlock}>
+                  <Feather color={colors.warmWhite} name="play" size={30} />
+                </View>
+                <View style={styles.workText}>
+                  <Text style={styles.workLabel}>Start work</Text>
+                  <Text style={styles.workDescription}>
+                    Start a job timer or enter labor manually.
+                  </Text>
+                </View>
+              </Pressable>
+            )}
+          </View>
+
+          {timerErrorMessage ? (
+            <Text accessibilityLiveRegion="assertive" style={styles.timerErrorText}>
+              {timerErrorMessage}
+            </Text>
           ) : null}
 
-          <Pressable onPress={onStartWork} style={styles.workButton}>
-            <View style={styles.workIconBlock}>
-              <Feather color={colors.warmWhite} name="play" size={30} />
-            </View>
-            <View style={styles.captureText}>
-              <Text style={styles.workLabel}>Start work</Text>
-              <Text style={styles.workDescription}>
-                Start a job timer or enter labor manually.
+          {needsReviewCount > 0 ? (
+            <Pressable
+              accessibilityLabel={`Open ${needsReviewCount} ${needsReviewCount === 1 ? 'thing' : 'things'} needing attention`}
+              accessibilityRole="button"
+              onPress={onGoToActivity}
+              style={styles.attentionLine}>
+              <Feather color={colors.warning} name="alert-triangle" size={21} />
+              <Text style={styles.attentionText}>
+                {needsReviewCount} {needsReviewCount === 1 ? 'thing needs' : 'things need'} your attention
               </Text>
-            </View>
-          </Pressable>
+            </Pressable>
+          ) : null}
 
           <Text style={styles.sectionLabel}>Your jobs</Text>
 
@@ -161,14 +365,7 @@ export function HomeActionsScreen({
                     <Feather color={colors.warmWhite} name={action.icon} size={28} />
                   </View>
                   <View style={styles.actionText}>
-                    <View style={styles.actionLabelRow}>
-                      <Text style={styles.actionLabel}>{action.label}</Text>
-                      {action.key === 'activity' && needsReviewCount > 0 ? (
-                        <View style={styles.reviewBadge}>
-                          <Text style={styles.reviewBadgeText}>{needsReviewCount}</Text>
-                        </View>
-                      ) : null}
-                    </View>
+                    <Text style={styles.actionLabel}>{action.label}</Text>
                     <Text style={styles.actionDescription}>{action.description}</Text>
                   </View>
                 </Pressable>
@@ -273,12 +470,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
-  heading: {
-    color: colors.text,
-    fontSize: 23,
-    fontWeight: '900',
-    lineHeight: 28,
-    marginBottom: 16,
+  reflexZone: {
+    width: '100%',
   },
   captureButton: {
     alignItems: 'center',
@@ -303,14 +496,31 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   workButton: {
-    alignItems: 'center',
     backgroundColor: colors.text,
     borderRadius: 16,
     flexDirection: 'row',
-    gap: 14,
     marginBottom: 26,
     minHeight: 96,
+  },
+  idleWorkButton: {
+    alignItems: 'center',
+    gap: 14,
     padding: 16,
+  },
+  activeWorkButton: {
+    alignItems: 'center',
+    gap: 14,
+    paddingRight: 16,
+  },
+  activeWorkMain: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 14,
+    minHeight: 96,
+    minWidth: 0,
+    paddingLeft: 16,
+    paddingVertical: 16,
   },
   captureIconBlock: {
     alignItems: 'center',
@@ -334,11 +544,13 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     height: 62,
     justifyContent: 'center',
+    position: 'relative',
     width: 62,
   },
   captureText: {
     flex: 1,
     gap: 4,
+    minWidth: 0,
   },
   captureLabel: {
     color: colors.warmWhite,
@@ -376,6 +588,81 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 21,
   },
+  workText: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+  },
+  activeWorkLabel: {
+    fontSize: 23,
+    lineHeight: 28,
+  },
+  runningRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    minWidth: 0,
+  },
+  liveDot: {
+    backgroundColor: colors.live,
+    borderRadius: 999,
+    height: 10,
+    width: 10,
+  },
+  iconLiveDot: {
+    backgroundColor: colors.live,
+    borderColor: colors.text,
+    borderRadius: 999,
+    borderWidth: 2,
+    height: 14,
+    position: 'absolute',
+    right: -3,
+    top: -3,
+    width: 14,
+  },
+  stopChip: {
+    alignItems: 'center',
+    borderColor: colors.strongBorder,
+    borderRadius: radii.button,
+    borderWidth: 2,
+    justifyContent: 'center',
+    minHeight: 48,
+    minWidth: 68,
+    paddingHorizontal: 12,
+  },
+  stopChipBusy: {
+    opacity: 0.65,
+  },
+  stopChipText: {
+    color: colors.warmWhite,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  timerErrorText: {
+    color: colors.danger,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
+    marginBottom: 18,
+    marginTop: -10,
+  },
+  attentionLine: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'center',
+    marginBottom: 20,
+    marginTop: -10,
+    minHeight: 44,
+    paddingHorizontal: 4,
+  },
+  attentionText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '800',
+    lineHeight: 20,
+  },
   sectionLabel: {
     color: colors.text,
     fontSize: 18,
@@ -410,12 +697,6 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4,
   },
-  actionLabelRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
   actionLabel: {
     color: colors.text,
     fontSize: 19,
@@ -428,18 +709,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 20,
   },
-  reviewBadge: {
-    alignItems: 'center',
-    backgroundColor: colors.danger,
-    borderRadius: 999,
-    justifyContent: 'center',
-    minHeight: 24,
-    minWidth: 24,
-    paddingHorizontal: 7,
-  },
-  reviewBadgeText: {
-    color: colors.warmWhite,
-    fontSize: 13,
-    fontWeight: '900',
-  },
 });
+
+function formatElapsed(startedAt: string | null, now: number): string {
+  if (!startedAt) {
+    return '0m';
+  }
+
+  const elapsedMinutes = Math.max(
+    0,
+    Math.floor((now - new Date(startedAt).getTime()) / 60_000)
+  );
+  const hours = Math.floor(elapsedMinutes / 60);
+  const minutes = elapsedMinutes % 60;
+
+  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+}

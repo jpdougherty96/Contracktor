@@ -7,6 +7,11 @@ import type { Job } from '@/src/types/job';
 
 export type ActiveTimeEntry = Tables<'time_entries'>;
 
+export type ActiveTimerState = {
+  entry: ActiveTimeEntry;
+  jobName: string;
+};
+
 export type TimeClockDefaults = {
   hourlyRate: number | null;
   workerName: string | null;
@@ -38,6 +43,38 @@ export async function fetchActiveTimeEntries(): Promise<ActiveTimeEntry[]> {
   }
 
   return data ?? [];
+}
+
+export async function fetchActiveTimerState(): Promise<ActiveTimerState | null> {
+  const entries = await fetchActiveTimeEntries();
+  const entry = entries[0];
+
+  if (!entry) {
+    return null;
+  }
+
+  if (!entry.job_id) {
+    return {
+      entry,
+      jobName: 'Active job',
+    };
+  }
+
+  const { data, error } = await supabase
+    .from('jobs')
+    .select('name')
+    .eq('id', entry.job_id)
+    .eq('owner_id', entry.owner_id)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return {
+    entry,
+    jobName: data?.name?.trim() || 'Active job',
+  };
 }
 
 export async function fetchTimeClockDefaults(job: Job): Promise<TimeClockDefaults> {
@@ -102,7 +139,7 @@ function firstPositiveRate(...rates: (number | null | undefined)[]): number | nu
   );
 }
 
-export async function stopJobTimer(entry: ActiveTimeEntry, _job: Job): Promise<void> {
+export async function stopJobTimer(entry: ActiveTimeEntry): Promise<void> {
   await stopActiveTimer(entry);
 }
 

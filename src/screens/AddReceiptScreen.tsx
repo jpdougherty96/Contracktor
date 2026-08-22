@@ -281,7 +281,7 @@ export function pickWebReceiptImage(
     input.type = 'file';
     input.accept = 'image/*';
 
-    if (options.capture) {
+    if (options.capture && shouldApplyWebCaptureHint()) {
       input.setAttribute('capture', options.capture);
     }
 
@@ -326,6 +326,16 @@ export function pickWebReceiptImage(
     document.body.appendChild(input);
     input.click();
   });
+}
+
+function shouldApplyWebCaptureHint(
+  userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent
+): boolean {
+  const isSafari =
+    /Safari\//i.test(userAgent) &&
+    !/(Chrome|Chromium|CriOS|FxiOS|EdgiOS|OPiOS)\//i.test(userAgent);
+
+  return !isSafari;
 }
 
 async function prepareReceiptAssetForUpload(

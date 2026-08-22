@@ -511,6 +511,10 @@ export default function HomeScreen() {
           setSelectedJob(null);
           setScreen('tellContracktor');
         }}
+        onTimerStopped={(jobName) => {
+          setDashboardRefreshKey((key) => key + 1);
+          setNoticeMessage(`${jobName} timer stopped and its time was recorded.`);
+        }}
         onLogout={handleLogout}
         showActivity={canUseActivity}
         showTellContracktor={canUseTell}

@@ -135,7 +135,7 @@ export function AddHoursHubScreen({
     setNoticeMessage(null);
 
     try {
-      await stopJobTimer(entry, job);
+      await stopJobTimer(entry);
       setActiveEntries((currentEntries) =>
         currentEntries.filter((currentEntry) => currentEntry.id !== entry.id)
       );

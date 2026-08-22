@@ -5,7 +5,7 @@ import test from 'node:test';
 
 const repoRoot = fileURLToPath(new URL('../', import.meta.url));
 
-test('home receipt capture opens the camera first on native and web', async () => {
+test('home receipt capture uses direct camera where supported and a Safari chooser', async () => {
   const screen = await readFile(
     new URL('src/screens/AddReceiptScreen.tsx', `file://${repoRoot}/`),
     'utf8'
@@ -16,7 +16,10 @@ test('home receipt capture opens the camera first on native and web', async () =
   );
 
   assert.match(screen, /pickWebReceiptImage\(\{ capture: 'environment' \}\)/);
+  assert.match(screen, /options\.capture && shouldApplyWebCaptureHint\(\)/);
   assert.match(screen, /input\.setAttribute\('capture', options\.capture\)/);
+  assert.match(screen, /\/Safari\\\/\/i\.test\(userAgent\)/);
+  assert.match(screen, /Chrome\|Chromium\|CriOS\|FxiOS\|EdgiOS\|OPiOS/);
   assert.match(screen, /if \(isWeb \|\| !autoStartCamera \|\| didAutoStartCameraRef\.current\)/);
   assert.doesNotMatch(screen, /WebCameraCapture|getUserMedia/);
   assert.match(app, /const webCapture =\s*Platform\.OS === 'web'\s*\? pickWebReceiptImage\(\{ capture: 'environment' \}\)/);
