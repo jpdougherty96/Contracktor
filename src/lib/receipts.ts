@@ -2,14 +2,12 @@ import type { ImagePickerAsset } from 'expo-image-picker';
 
 import {
   recordReceiptActivityEvent,
-  resolveReceiptAttention,
 } from '@/src/lib/activityEvents';
 import {
   fulfillShoppingNeedsFromReceipt,
-  undoShoppingNeedFulfillmentsFromReceipt,
 } from '@/src/lib/shoppingNeeds';
 import { supabase } from '@/src/lib/supabase';
-import type { Tables } from '@/src/types/database';
+import type { Json, Tables } from '@/src/types/database';
 
 export type ReceiptExtractionResult = {
   line_items?: Tables<'receipt_line_items'>[];
@@ -53,7 +51,7 @@ export const receiptCategories: ReceiptCategory[] = [
 const duplicateAmountTolerance = 0.05;
 const receiptTotalTolerance = 0.05;
 const receiptFields =
-  'id, scan_context_job_id, owner_id, business_id, created_by_user_id, storage_path, original_filename, vendor, receipt_date, subtotal, tax, total, category, ai_confidence, extracted_json, status, review_status, processing_status, processing_started_at, processing_attempts, last_processing_error, error_message, created_at, updated_at';
+  'id, scan_context_job_id, owner_id, business_id, created_by_user_id, storage_path, original_filename, vendor, receipt_date, subtotal, tax, total, category, ai_confidence, extracted_json, status, review_status, processing_status, processing_started_at, processing_attempts, last_processing_error, error_message, allocated_cost, cost_basis, review_version, last_review_commit_key, voided_at, voided_by_user_id, created_at, updated_at';
 
 export type UpdateReceiptInput = {
   category: ReceiptCategory;
@@ -364,6 +362,7 @@ export async function fetchPotentialDuplicateReceipts(
     )
     .eq('owner_id', userData.user.id)
     .neq('id', receipt.id)
+    .neq('status', 'voided')
     .gte('total', receipt.total - duplicateAmountTolerance)
     .lte('total', receipt.total + duplicateAmountTolerance)
     .order('created_at', { ascending: false })
@@ -524,212 +523,32 @@ function getReceiptDuplicateReason({
     : 'Same date and amount';
 }
 
-async function upsertReceiptExpense({
-  jobCostAmount,
-  receipt,
-  receiptDate,
-  subtotal,
-  tax,
-  total,
-  userId,
-  vendor,
-  category,
-}: {
-  category: ReceiptCategory;
-  jobCostAmount: number;
-  receipt: Tables<'receipts'>;
-  receiptDate: string;
-  subtotal: number | null;
-  tax: number | null;
-  total: number;
-  userId: string;
-  vendor: string;
-}) {
-  const { data: existingExpense, error: existingExpenseError } = await supabase
-    .from('expenses')
-    .select('id')
-    .eq('owner_id', userId)
-    .eq('receipt_id', receipt.id)
-    .is('receipt_line_item_id', null)
-    .maybeSingle();
-
-  if (existingExpenseError) {
-    throw new Error(existingExpenseError.message);
-  }
-
-  if (jobCostAmount === 0) {
-    if (existingExpense) {
-      const { error } = await supabase
-        .from('expenses')
-        .delete()
-        .eq('id', existingExpense.id)
-        .eq('owner_id', userId);
-
-      if (error) {
-        throw new Error(error.message);
-      }
-    }
-
-    return;
-  }
-
-  const allocationRatio = total > 0 ? Math.min(jobCostAmount / total, 1) : 1;
-  const preTaxAmount =
-    subtotal !== null ? roundMoney(subtotal * allocationRatio) : roundMoney(jobCostAmount);
-  const taxAmount = tax !== null ? roundMoney(tax * allocationRatio) : 0;
-  const expensePayload = {
-    billable: false,
-    description: `${vendor} receipt`,
-    expense_date: receiptDate,
-    expense_type: mapReceiptCategoryToExpenseType(category),
-    job_id: receipt.scan_context_job_id,
-    notes: jobCostAmount < total ? `Partial receipt amount from ${formatMoney(total)} total.` : null,
-    owner_id: userId,
-    pre_tax_amount: preTaxAmount,
-    receipt_id: receipt.id,
-    receipt_line_item_id: null,
-    source_type: 'receipt',
-    status: 'reviewed',
-    tax_amount: taxAmount,
-    total_amount: roundMoney(jobCostAmount),
-    updated_at: new Date().toISOString(),
-  };
-
-  if (existingExpense) {
-    const { error } = await supabase
-      .from('expenses')
-      .update(expensePayload)
-      .eq('id', existingExpense.id)
-      .eq('owner_id', userId);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    return;
-  }
-
-  const { error } = await supabase.from('expenses').insert(expensePayload);
-
-  if (error) {
-    throw new Error(error.message);
-  }
-}
-
 export async function updateReceipt(
   receiptId: string,
   input: UpdateReceiptInput
 ): Promise<Tables<'receipts'>> {
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-
-  if (userError) {
-    throw new Error(userError.message);
-  }
-
-  if (!userData.user) {
-    throw new Error('You must be logged in to update a receipt.');
-  }
-
   const existingReceipt = await fetchReceipt(receiptId);
+  const destinationJobId =
+    input.destinationJobId === undefined
+      ? existingReceipt.scan_context_job_id
+      : input.destinationJobId;
 
-  const { data, error } = await supabase
-    .from('receipts')
-    .update({
-      category: input.category,
-      error_message: null,
-      receipt_date: input.receiptDate,
-      review_status: 'reviewed',
-      scan_context_job_id:
-        input.destinationJobId === undefined
-          ? existingReceipt.scan_context_job_id
-          : input.destinationJobId,
-      status: 'accepted',
-      subtotal: input.subtotal ?? null,
-      tax: input.tax ?? null,
-      total: input.total,
-      updated_at: new Date().toISOString(),
-      vendor: input.vendor,
-    })
-    .eq('id', receiptId)
-    .eq('owner_id', userData.user.id)
-    .select(receiptFields)
-    .single();
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  if (input.ignoreLineItems) {
-    await ignoreReceiptLineItems(receiptId, userData.user.id);
-  }
-
-  await upsertReceiptExpense({
+  await commitReceiptReview(receiptId, existingReceipt.updated_at, {
     category: input.category,
+    destinationJobId,
+    ignoreLineItems: input.ignoreLineItems ?? false,
     jobCostAmount: input.jobCostAmount,
-    receipt: {
-      ...existingReceipt,
-      scan_context_job_id:
-        input.destinationJobId === undefined
-          ? existingReceipt.scan_context_job_id
-          : input.destinationJobId,
-    },
+    mode: 'whole',
     receiptDate: input.receiptDate,
     subtotal: input.subtotal ?? null,
     tax: input.tax ?? null,
     total: input.total,
-    userId: userData.user.id,
     vendor: input.vendor,
   });
 
-  await recordReceiptEventSafely({
-    detail: `${input.vendor} - ${formatMoney(input.jobCostAmount)}`,
-    eventType: 'receipt_saved',
-    metadata: {
-      category: input.category,
-      jobCostAmount: input.jobCostAmount,
-      total: input.total,
-    },
-    receipt: data,
-    title: 'Receipt saved',
-  });
-
-  await fulfillShoppingNeedsFromReceiptSafely(data);
-
-  return data;
-}
-
-async function ignoreReceiptLineItems(receiptId: string, ownerId: string): Promise<void> {
-  const { data: lineItems, error: lineItemsError } = await supabase
-    .from('receipt_line_items')
-    .select('id')
-    .eq('receipt_id', receiptId)
-    .eq('owner_id', ownerId);
-
-  if (lineItemsError) {
-    throw new Error(lineItemsError.message);
-  }
-
-  const lineItemIds = (lineItems ?? []).map((lineItem) => lineItem.id);
-  await deleteReceiptExpenses(receiptId, ownerId, lineItemIds);
-
-  if (lineItemIds.length === 0) {
-    return;
-  }
-
-  const { error } = await supabase
-    .from('receipt_line_items')
-    .update({
-      assigned_job_id: null,
-      assignment_type: 'ignore',
-      review_status: 'ignored',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('receipt_id', receiptId)
-    .eq('owner_id', ownerId);
-
-  if (error) {
-    throw new Error(error.message);
-  }
+  const savedReceipt = await fetchReceipt(receiptId);
+  await fulfillShoppingNeedsFromReceiptSafely(savedReceipt);
+  return savedReceipt;
 }
 
 export async function acceptExtractedReceipt(receipt: Tables<'receipts'>): Promise<Tables<'receipts'>> {
@@ -761,16 +580,6 @@ export async function confirmReceiptLineAssignments(
   assignments: ReceiptLineAssignmentInput[],
   options: { allowAssignedTotalAboveReceiptTotal?: boolean } = {}
 ): Promise<Tables<'receipts'>> {
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-
-  if (userError) {
-    throw new Error(userError.message);
-  }
-
-  if (!userData.user) {
-    throw new Error('You must be logged in to confirm receipt lines.');
-  }
-
   const receipt = await fetchReceipt(receiptId);
   const lineItems = await fetchReceiptLineItems(receiptId);
   const lineItemsById = new Map(lineItems.map((lineItem) => [lineItem.id, lineItem]));
@@ -801,124 +610,59 @@ export async function confirmReceiptLineAssignments(
     );
   }
 
-  await deleteReceiptExpenses(receiptId, userData.user.id, lineItems.map((lineItem) => lineItem.id));
+  await commitReceiptReview(receiptId, receipt.updated_at, {
+    allowGrossLineCost: options.allowAssignedTotalAboveReceiptTotal ?? false,
+    assignments: assignments.map((assignment) => ({
+      assigned_job_id: assignment.assignedJobId,
+      assignment_type: assignment.assignmentType,
+      line_item_id: assignment.lineItemId,
+    })),
+    category: isReceiptCategory(receipt.category) ? receipt.category : 'other',
+    mode: 'lines',
+    receiptDate: receipt.receipt_date,
+    subtotal: receipt.subtotal,
+    tax: receipt.tax,
+    total: receipt.total,
+    vendor: receipt.vendor,
+  });
 
-  for (const assignment of assignments) {
-    const lineItem = lineItemsById.get(assignment.lineItemId);
+  const [savedReceipt, savedLineItems] = await Promise.all([
+    fetchReceipt(receiptId),
+    fetchReceiptLineItems(receiptId),
+  ]);
+  await fulfillShoppingNeedsFromReceiptSafely(savedReceipt, savedLineItems);
+  return savedReceipt;
+}
 
-    if (!lineItem) {
-      continue;
-    }
+async function commitReceiptReview(
+  receiptId: string,
+  expectedUpdatedAt: string | null,
+  review: Json
+): Promise<void> {
+  const args = {
+    p_expected_updated_at: expectedUpdatedAt,
+    p_idempotency_key: createReceiptCommitKey(receiptId),
+    p_receipt_id: receiptId,
+    p_review: review,
+  };
+  let { error } = await supabase.rpc('commit_receipt_review', args);
 
-    const reviewStatus =
-      assignment.assignmentType === 'ignore' || shouldSkipLineExpense(lineItem)
-        ? 'ignored'
-        : 'confirmed';
-    const { error: updateLineError } = await supabase
-      .from('receipt_line_items')
-      .update({
-        assigned_job_id: assignment.assignmentType === 'job' ? assignment.assignedJobId : null,
-        assignment_type: assignment.assignmentType,
-        review_status: reviewStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', lineItem.id)
-      .eq('owner_id', userData.user.id);
-
-    if (updateLineError) {
-      throw new Error(updateLineError.message);
-    }
+  if (error && isRetryableReceiptCommitError(error.message)) {
+    ({ error } = await supabase.rpc('commit_receipt_review', args));
   }
-
-  const expenseRows = assignments
-    .map((assignment) => {
-      const lineItem = lineItemsById.get(assignment.lineItemId);
-
-      if (!lineItem || assignment.assignmentType === 'ignore' || shouldSkipLineExpense(lineItem)) {
-        return null;
-      }
-
-      const allocatedTax = calculateLineAllocatedTax(lineItem, lineItems, receipt.tax);
-      const lineTotal = roundMoney(lineItem.line_total + allocatedTax);
-
-      return {
-        billable: false,
-        description: lineItem.cleaned_name,
-        expense_date: receipt.receipt_date ?? new Date().toISOString().slice(0, 10),
-        expense_type: getLineExpenseType(lineItem, assignment.assignmentType),
-        job_id: assignment.assignmentType === 'job' ? assignment.assignedJobId : null,
-        notes: lineItem.original_text && lineItem.original_text !== lineItem.cleaned_name
-          ? `Receipt text: ${lineItem.original_text}`
-          : null,
-        owner_id: userData.user.id,
-        pre_tax_amount: roundMoney(lineItem.line_total),
-        receipt_id: receipt.id,
-        receipt_line_item_id: lineItem.id,
-        source_type: 'receipt_line_item',
-        status: 'reviewed',
-        tax_amount: allocatedTax,
-        total_amount: lineTotal,
-      };
-    })
-    .filter(isPresent);
-
-  if (expenseRows.length > 0) {
-    const { error: insertExpenseError } = await supabase.from('expenses').insert(expenseRows);
-
-    if (insertExpenseError) {
-      throw new Error(insertExpenseError.message);
-    }
-  }
-
-  const { data, error } = await supabase
-    .from('receipts')
-    .update({
-      error_message: null,
-      review_status: 'reviewed',
-      status: 'accepted',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', receiptId)
-    .eq('owner_id', userData.user.id)
-    .select(receiptFields)
-    .single();
 
   if (error) {
     throw new Error(error.message);
   }
+}
 
-  await recordReceiptEventSafely({
-    detail: `${receipt.vendor ?? 'Receipt'} split saved from line items.`,
-    eventType: 'receipt_split_saved',
-    metadata: {
-      assignmentCount: assignments.length,
-      expenseCount: expenseRows.length,
-    },
-    receipt: data,
-    title: 'Receipt split saved',
-  });
+function createReceiptCommitKey(receiptId: string): string {
+  const randomPart = Math.random().toString(36).slice(2);
+  return `${receiptId}:${Date.now()}:${randomPart}`;
+}
 
-  const savedLineItems = lineItems.map((lineItem) => {
-    const assignment = assignments.find((candidate) => candidate.lineItemId === lineItem.id);
-
-    if (!assignment) {
-      return lineItem;
-    }
-
-    return {
-      ...lineItem,
-      assigned_job_id: assignment.assignmentType === 'job' ? assignment.assignedJobId : null,
-      assignment_type: assignment.assignmentType,
-      review_status:
-        assignment.assignmentType === 'ignore' || shouldSkipLineExpense(lineItem)
-          ? 'ignored'
-          : 'confirmed',
-    };
-  });
-
-  await fulfillShoppingNeedsFromReceiptSafely(data, savedLineItems);
-
-  return data;
+function isRetryableReceiptCommitError(message: string): boolean {
+  return /failed to fetch|network request failed|load failed|connection.*closed/i.test(message);
 }
 
 async function recordReceiptEventSafely(
@@ -928,14 +672,6 @@ async function recordReceiptEventSafely(
     await recordReceiptActivityEvent(input);
   } catch {
     // Activity is an audit aid, not the source of truth for receipt completion.
-  }
-
-  if (input.eventType === 'receipt_saved' || input.eventType === 'receipt_split_saved') {
-    try {
-      await resolveReceiptAttention(input.receipt.id);
-    } catch {
-      // Receipt completion remains valid if supervision cleanup must retry later.
-    }
   }
 }
 
@@ -951,97 +687,32 @@ async function fulfillShoppingNeedsFromReceiptSafely(
 }
 
 export async function requireReceiptLineItems(receiptId: string): Promise<Tables<'receipts'>> {
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-
-  if (userError) {
-    throw new Error(userError.message);
-  }
-
-  if (!userData.user) {
-    throw new Error('You must be logged in to update a receipt.');
-  }
-
-  await deleteReceiptExpenses(receiptId, userData.user.id, []);
-
-  const { data, error } = await supabase
-    .from('receipts')
-    .update({
-      error_message:
-        'This receipt was selected for multiple jobs and needs line items before it can be saved.',
-      review_status: 'needs_review',
-      status: 'needs_review',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', receiptId)
-    .eq('owner_id', userData.user.id)
-    .select(receiptFields)
-    .single();
+  const { error } = await supabase.rpc('require_receipt_line_review', {
+    p_receipt_id: receiptId,
+  });
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return data;
+  return fetchReceipt(receiptId);
 }
 
 export async function deleteReceipt(receiptId: string): Promise<void> {
-  const receipt = await fetchReceipt(receiptId);
-
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-
-  if (userError) {
-    throw new Error(userError.message);
-  }
-
-  if (!userData.user) {
-    throw new Error('You must be logged in to delete a receipt.');
-  }
-
-  const { data: lineItems, error: lineItemsError } = await supabase
-    .from('receipt_line_items')
-    .select('id')
-    .eq('receipt_id', receiptId)
-    .eq('owner_id', userData.user.id);
-
-  if (lineItemsError) {
-    throw new Error(lineItemsError.message);
-  }
-
-  const lineItemIds = (lineItems ?? []).map((lineItem) => lineItem.id);
-  await undoShoppingNeedFulfillmentsFromReceipt(receiptId);
-  await deleteReceiptExpenses(receiptId, userData.user.id, lineItemIds);
-  await deleteReceiptActivityEvents(receiptId);
-
-  const { error } = await supabase
-    .from('receipts')
-    .delete()
-    .eq('id', receiptId)
-    .eq('owner_id', userData.user.id);
+  const { data, error } = await supabase.rpc('remove_receipt', {
+    p_receipt_id: receiptId,
+  });
 
   if (error) {
     throw new Error(error.message);
   }
 
-  if (receipt.storage_path) {
-    const { error: storageError } = await supabase.storage
+  const result = data as { action?: string; storagePath?: string | null } | null;
+
+  if (result?.action === 'discarded' && result.storagePath) {
+    await supabase.storage
       .from('receipts')
-      .remove([receipt.storage_path]);
-
-    if (storageError) {
-      throw new Error(storageError.message);
-    }
-  }
-}
-
-async function deleteReceiptActivityEvents(receiptId: string): Promise<void> {
-  const { error } = await supabase
-    .from('activity_events')
-    .delete()
-    .eq('source_table', 'receipts')
-    .eq('source_id', receiptId);
-
-  if (error) {
-    throw new Error(error.message);
+      .remove([result.storagePath]);
   }
 }
 
@@ -1072,34 +743,6 @@ function normalizeVendor(value: string | null): string {
 
 function isPresent<T>(value: T | null): value is T {
   return value !== null;
-}
-
-async function deleteReceiptExpenses(
-  receiptId: string,
-  ownerId: string,
-  lineItemIds: string[]
-): Promise<void> {
-  const { error: expensesError } = await supabase
-    .from('expenses')
-    .delete()
-    .eq('receipt_id', receiptId)
-    .eq('owner_id', ownerId);
-
-  if (expensesError) {
-    throw new Error(expensesError.message);
-  }
-
-  if (lineItemIds.length > 0) {
-    const { error: lineItemExpensesError } = await supabase
-      .from('expenses')
-      .delete()
-      .eq('owner_id', ownerId)
-      .in('receipt_line_item_id', lineItemIds);
-
-    if (lineItemExpensesError) {
-      throw new Error(lineItemExpensesError.message);
-    }
-  }
 }
 
 function calculateLineAllocatedTax(
@@ -1148,43 +791,12 @@ function shouldSkipLineExpense(lineItem: Tables<'receipt_line_items'>): boolean 
   return lineItem.line_type === 'tax' || lineItem.line_type === 'fee' || lineItem.line_type === 'discount';
 }
 
-function getLineExpenseType(
-  lineItem: Tables<'receipt_line_items'>,
-  assignmentType: ReceiptLineAssignmentType
-): Tables<'expenses'>['expense_type'] {
-  if (assignmentType === 'tools_inventory') {
-    return lineItem.category === 'inventory' ? 'inventory' : 'tool';
-  }
-
-  if (lineItem.category === 'material') return 'material';
-  if (lineItem.category === 'tool') return 'tool';
-  if (lineItem.category === 'inventory') return 'inventory';
-  if (lineItem.category === 'rental') return 'rental';
-  if (lineItem.category === 'permit') return 'permit';
-  if (lineItem.category === 'subcontractor') return 'subcontractor';
-  if (lineItem.category === 'fuel') return 'fuel';
-
-  return 'other';
-}
-
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
 function formatMoney(value: number): string {
   return `$${roundMoney(value).toFixed(2)}`;
-}
-
-function mapReceiptCategoryToExpenseType(category: ReceiptCategory): Tables<'expenses'>['expense_type'] {
-  if (category === 'materials') {
-    return 'material';
-  }
-
-  if (category === 'tools') {
-    return 'tool';
-  }
-
-  return category;
 }
 
 function isReceiptCategory(value: string | null): value is ReceiptCategory {

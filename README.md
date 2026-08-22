@@ -161,6 +161,21 @@ Run boundary tests:
 npm test
 ```
 
+Run receipt database integration tests only against a dedicated local/test
+Supabase project:
+
+```sh
+SUPABASE_TEST_URL=... \
+SUPABASE_TEST_ANON_KEY=... \
+SUPABASE_TEST_SERVICE_ROLE_KEY=... \
+SUPABASE_TEST_ALLOW_MUTATION=true \
+npm run test:integration
+```
+
+The integration suite creates and removes test users and financial records. It
+intentionally skips unless every test variable and the explicit mutation flag
+are present. Never point it at production.
+
 Start web smoke test:
 
 ```sh

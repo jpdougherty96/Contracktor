@@ -25,12 +25,13 @@ test('attention items are separate, server-owned actionable state', async () => 
   assert.match(migration, /where ae\.status in \('needs_attention', 'review_recommended'\)/);
 });
 
-test('the app resolves attention state without mutating activity history', async () => {
-  const [activityApi, activityFeed, activityScreen, receipts] = await Promise.all([
+test('the app resolves attention state without mutating accepted-receipt history', async () => {
+  const [activityApi, activityFeed, activityScreen, receipts, receiptCommit] = await Promise.all([
     readRepoFile('src/lib/activityEvents.ts'),
     readRepoFile('src/lib/globalActivity.ts'),
     readRepoFile('src/screens/ActivityScreen.tsx'),
     readRepoFile('src/lib/receipts.ts'),
+    readRepoFile('supabase/migrations/20260822012000_atomic_receipt_review.sql'),
   ]);
 
   assert.match(activityFeed, /from\('attention_items'\)/);
@@ -40,8 +41,10 @@ test('the app resolves attention state without mutating activity history', async
   assert.match(activityScreen, /item\.attentionItemId/);
   assert.doesNotMatch(activityScreen, /resolveActivityEvent/);
   assert.match(activityApi, /rpc\('resolve_receipt_attention'/);
-  assert.match(receipts, /resolveReceiptAttention\(input\.receipt\.id\)/);
-  assert.match(receipts, /input\.eventType === 'receipt_saved'/);
+  assert.doesNotMatch(receipts, /deleteReceiptActivityEvents/);
+  assert.match(receiptCommit, /update public\.attention_items[\s\S]*status = 'resolved'/);
+  assert.match(receiptCommit, /'receipt_voided'/);
+  assert.match(receiptCommit, /If v_receipt\.status = 'accepted'/i);
 });
 
 test('receipt processing opens and resolves the durable attention lifecycle', async () => {

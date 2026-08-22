@@ -1563,16 +1563,87 @@ export type Database = {
           },
         ]
       }
+      receipt_review_commits: {
+        Row: {
+          business_id: string
+          committed_at: string
+          committed_by_user_id: string | null
+          id: string
+          idempotency_key: string
+          owner_id: string
+          receipt_id: string
+          request_fingerprint: string
+          result: Json
+          review_version: number
+        }
+        Insert: {
+          business_id: string
+          committed_at?: string
+          committed_by_user_id?: string | null
+          id?: string
+          idempotency_key: string
+          owner_id: string
+          receipt_id: string
+          request_fingerprint: string
+          result?: Json
+          review_version: number
+        }
+        Update: {
+          business_id?: string
+          committed_at?: string
+          committed_by_user_id?: string | null
+          id?: string
+          idempotency_key?: string
+          owner_id?: string
+          receipt_id?: string
+          request_fingerprint?: string
+          result?: Json
+          review_version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "receipt_review_commits_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "receipt_review_commits_committed_by_user_id_fkey"
+            columns: ["committed_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "receipt_review_commits_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "receipt_review_commits_receipt_id_fkey"
+            columns: ["receipt_id"]
+            isOneToOne: false
+            referencedRelation: "receipts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       receipts: {
         Row: {
+          allocated_cost: number | null
           ai_confidence: number | null
           business_id: string
           category: string | null
+          cost_basis: string | null
           created_at: string | null
           created_by_user_id: string | null
           error_message: string | null
           extracted_json: Json | null
           id: string
+          last_review_commit_key: string | null
           last_processing_error: string | null
           original_filename: string | null
           owner_id: string
@@ -1581,6 +1652,7 @@ export type Database = {
           processing_status: string
           receipt_date: string | null
           review_status: string
+          review_version: number
           scan_context_job_id: string | null
           status: string
           storage_path: string | null
@@ -1589,16 +1661,21 @@ export type Database = {
           total: number | null
           updated_at: string | null
           vendor: string | null
+          voided_at: string | null
+          voided_by_user_id: string | null
         }
         Insert: {
+          allocated_cost?: number | null
           ai_confidence?: number | null
           business_id?: string
           category?: string | null
+          cost_basis?: string | null
           created_at?: string | null
           created_by_user_id?: string | null
           error_message?: string | null
           extracted_json?: Json | null
           id?: string
+          last_review_commit_key?: string | null
           last_processing_error?: string | null
           original_filename?: string | null
           owner_id: string
@@ -1607,6 +1684,7 @@ export type Database = {
           processing_status?: string
           receipt_date?: string | null
           review_status?: string
+          review_version?: number
           scan_context_job_id?: string | null
           status?: string
           storage_path?: string | null
@@ -1615,16 +1693,21 @@ export type Database = {
           total?: number | null
           updated_at?: string | null
           vendor?: string | null
+          voided_at?: string | null
+          voided_by_user_id?: string | null
         }
         Update: {
+          allocated_cost?: number | null
           ai_confidence?: number | null
           business_id?: string
           category?: string | null
+          cost_basis?: string | null
           created_at?: string | null
           created_by_user_id?: string | null
           error_message?: string | null
           extracted_json?: Json | null
           id?: string
+          last_review_commit_key?: string | null
           last_processing_error?: string | null
           original_filename?: string | null
           owner_id?: string
@@ -1633,6 +1716,7 @@ export type Database = {
           processing_status?: string
           receipt_date?: string | null
           review_status?: string
+          review_version?: number
           scan_context_job_id?: string | null
           status?: string
           storage_path?: string | null
@@ -1641,6 +1725,8 @@ export type Database = {
           total?: number | null
           updated_at?: string | null
           vendor?: string | null
+          voided_at?: string | null
+          voided_by_user_id?: string | null
         }
         Relationships: [
           {
@@ -1660,6 +1746,13 @@ export type Database = {
           {
             foreignKeyName: "receipts_owner_id_fkey"
             columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "receipts_voided_by_user_id_fkey"
+            columns: ["voided_by_user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -2379,6 +2472,15 @@ export type Database = {
           receipt_id: string
         }[]
       }
+      commit_receipt_review: {
+        Args: {
+          p_expected_updated_at: string | null
+          p_idempotency_key: string
+          p_receipt_id: string
+          p_review: Json
+        }
+        Returns: Json
+      }
       commit_tell_contracktor_entry: {
         Args: { p_entry_id: string; p_proposals: Json }
         Returns: Json
@@ -2398,14 +2500,17 @@ export type Database = {
       finalize_receipt_capture: {
         Args: { p_receipt_id: string }
         Returns: {
+          allocated_cost: number | null
           ai_confidence: number | null
           business_id: string
           category: string | null
+          cost_basis: string | null
           created_at: string | null
           created_by_user_id: string | null
           error_message: string | null
           extracted_json: Json | null
           id: string
+          last_review_commit_key: string | null
           last_processing_error: string | null
           original_filename: string | null
           owner_id: string
@@ -2414,6 +2519,7 @@ export type Database = {
           processing_status: string
           receipt_date: string | null
           review_status: string
+          review_version: number
           scan_context_job_id: string | null
           status: string
           storage_path: string | null
@@ -2422,6 +2528,8 @@ export type Database = {
           total: number | null
           updated_at: string | null
           vendor: string | null
+          voided_at: string | null
+          voided_by_user_id: string | null
         }
         SetofOptions: {
           from: "*"
@@ -2434,14 +2542,17 @@ export type Database = {
       mark_receipt_processing: {
         Args: { p_receipt_id: string }
         Returns: {
+          allocated_cost: number | null
           ai_confidence: number | null
           business_id: string
           category: string | null
+          cost_basis: string | null
           created_at: string | null
           created_by_user_id: string | null
           error_message: string | null
           extracted_json: Json | null
           id: string
+          last_review_commit_key: string | null
           last_processing_error: string | null
           original_filename: string | null
           owner_id: string
@@ -2450,6 +2561,7 @@ export type Database = {
           processing_status: string
           receipt_date: string | null
           review_status: string
+          review_version: number
           scan_context_job_id: string | null
           status: string
           storage_path: string | null
@@ -2458,6 +2570,8 @@ export type Database = {
           total: number | null
           updated_at: string | null
           vendor: string | null
+          voided_at: string | null
+          voided_by_user_id: string | null
         }
         SetofOptions: {
           from: "*"
@@ -2504,6 +2618,14 @@ export type Database = {
       resolve_receipt_attention: {
         Args: { p_receipt_id: string }
         Returns: number
+      }
+      require_receipt_line_review: {
+        Args: { p_receipt_id: string }
+        Returns: Json
+      }
+      remove_receipt: {
+        Args: { p_receipt_id: string }
+        Returns: Json
       }
       undo_tell_contracktor_entry: {
         Args: { p_entry_id: string }

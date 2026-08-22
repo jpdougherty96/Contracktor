@@ -95,6 +95,7 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
       .from('receipts')
       .select('id, scan_context_job_id, vendor, total, receipt_date, status, review_status, processing_status, category, error_message, last_processing_error, created_at, updated_at')
       .eq('owner_id', userId)
+      .neq('status', 'voided')
       .order('created_at', { ascending: false })
       .limit(120),
     supabase

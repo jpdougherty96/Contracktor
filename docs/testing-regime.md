@@ -334,7 +334,7 @@ Run from the repository:
 npx tsc --noEmit
 npm run lint
 npm test
-npm run build
+npm run build:web
 supabase migration list
 supabase functions list
 ```
@@ -349,6 +349,11 @@ Required state:
 - Production environment secrets are present.
 - The production deployment is the intended commit.
 - The product owner completes the Smoke Test after deployment.
+
+Receipt financial-integrity changes also require `npm run test:integration`
+against a dedicated local/test Supabase project. Never run the integration
+suite against production because it deliberately creates and removes test
+users and financial records.
 
 The narrower scripts in [phase-1-test-plan.md](phase-1-test-plan.md) remain useful
 for feature-specific regression work, but this document governs the final

@@ -257,11 +257,11 @@ export function ReceiptReviewScreen({
           setTotal(formatEditableMoney(displayReceipt.total));
           setJobCostAmount(formatEditableMoney(displayReceipt.total));
           setCategory(
-            isReceiptCategory(displayReceipt.category)
+            inventoryMode
+              ? 'tools'
+              : isReceiptCategory(displayReceipt.category)
               ? displayReceipt.category
-              : inventoryMode
-                ? 'tools'
-                : 'other'
+              : 'other'
           );
           setPotentialDuplicates([]);
 
@@ -635,10 +635,10 @@ export function ReceiptReviewScreen({
 
   const confirmDeleteReceipt = (targetReceiptId: string, isCurrentReceipt: boolean) => {
     const message =
-      'This removes the receipt record, parsed lines, related expenses, and stored image. Use this only for duplicates.';
+      'Draft or duplicate scans are discarded. If this receipt was already accepted, its recorded cost is voided while its source image and activity history are preserved.';
 
     if (Platform.OS === 'web') {
-      if (window.confirm(`Delete receipt?\n\n${message}`)) {
+      if (window.confirm(`Remove receipt?\n\n${message}`)) {
         void handleDeleteReceipt(targetReceiptId, isCurrentReceipt);
       }
 
@@ -646,7 +646,7 @@ export function ReceiptReviewScreen({
     }
 
     Alert.alert(
-      'Delete receipt?',
+      'Remove receipt?',
       message,
       [
         { style: 'cancel', text: 'Cancel' },
@@ -655,7 +655,7 @@ export function ReceiptReviewScreen({
             void handleDeleteReceipt(targetReceiptId, isCurrentReceipt);
           },
           style: 'destructive',
-          text: 'Delete',
+          text: 'Remove',
         },
       ]
     );
@@ -677,7 +677,7 @@ export function ReceiptReviewScreen({
         duplicates.filter((duplicate) => duplicate.id !== targetReceiptId)
       );
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to delete receipt.');
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to remove receipt.');
     } finally {
       setIsDeletingReceiptId(null);
     }
@@ -873,7 +873,7 @@ export function ReceiptReviewScreen({
                             <Text style={styles.deleteButtonText}>
                               {isDeletingReceiptId === duplicate.id
                                 ? 'Deleting...'
-                                : 'Delete duplicate'}
+                                : 'Remove duplicate'}
                             </Text>
                           </Pressable>
                         </View>
@@ -889,7 +889,7 @@ export function ReceiptReviewScreen({
                       <Text style={styles.deleteCurrentButtonText}>
                         {isDeletingReceiptId === receipt.id
                           ? 'Deleting this receipt...'
-                          : 'Keep duplicate, delete this scan'}
+                          : 'Keep duplicate, remove this scan'}
                       </Text>
                     </Pressable>
                   </View>
@@ -1117,7 +1117,7 @@ export function ReceiptReviewScreen({
                     <View style={styles.field}>
                       <Text style={styles.label}>Category</Text>
                       <View style={styles.categoryGrid}>
-                        {receiptCategories.map((option) => (
+                        {(inventoryMode ? (['tools'] as ReceiptCategory[]) : receiptCategories).map((option) => (
                           <Pressable
                             key={option}
                             onPress={() => setCategory(option)}
@@ -1234,7 +1234,7 @@ export function ReceiptReviewScreen({
                   (isDeletingReceiptId === receipt.id || isAutoFinalizing) && styles.disabledButton,
                 ]}>
                 <Text style={styles.deleteCurrentButtonText}>
-                  {isDeletingReceiptId === receipt.id ? 'Deleting receipt...' : 'Delete receipt'}
+                  {isDeletingReceiptId === receipt.id ? 'Removing receipt...' : 'Remove receipt'}
                 </Text>
               </Pressable>
             ) : null}
