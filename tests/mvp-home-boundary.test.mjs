@@ -46,13 +46,18 @@ test('the repository records the MVP finish line and scope test', async () => {
 });
 
 test('new jobs make Start Work available by default', async () => {
-  const [createJob, jobs] = await Promise.all([
+  const [createJob, jobs, startWork, timeClock] = await Promise.all([
     readRepoFile('src/screens/CreateJobScreen.tsx'),
     readRepoFile('src/lib/jobs.ts'),
+    readRepoFile('src/screens/AddHoursHubScreen.tsx'),
+    readRepoFile('src/lib/timeClock.ts'),
   ]);
 
   assert.match(createJob, /const \[timeClockEnabled, setTimeClockEnabled\] = useState\(true\)/);
   assert.match(jobs, /time_clock_enabled: input\.timeClockEnabled \?\? true/);
+  assert.match(timeClock, /fetchJobCrewMembers\(job\.id\)/);
+  assert.match(timeClock, /matchingCrewMember\?\.hourly_rate/);
+  assert.match(startWork, /startJobTimer\(job, timerDefaultsByJobId\[job\.id\]\)/);
 });
 
 async function readRepoFile(relativePath) {

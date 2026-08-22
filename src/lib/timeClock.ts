@@ -1,10 +1,16 @@
 import { recordActivityEvent } from '@/src/lib/activityEvents';
-import { fetchCurrentProfileDisplayName } from '@/src/lib/profiles';
+import { fetchJobCrewMembers } from '@/src/lib/jobCrew';
+import { fetchCurrentProfile } from '@/src/lib/profiles';
 import { supabase } from '@/src/lib/supabase';
 import type { Tables } from '@/src/types/database';
 import type { Job } from '@/src/types/job';
 
 export type ActiveTimeEntry = Tables<'time_entries'>;
+
+export type TimeClockDefaults = {
+  hourlyRate: number | null;
+  workerName: string | null;
+};
 
 const timeEntryFields =
   'id, job_id, owner_id, business_id, created_by_user_id, started_at, stopped_at, work_date, duration_minutes, hourly_rate, worker_name, description, billable, source, status, created_at, updated_at';
@@ -34,12 +40,36 @@ export async function fetchActiveTimeEntries(): Promise<ActiveTimeEntry[]> {
   return data ?? [];
 }
 
-export async function startJobTimer(job: Job): Promise<ActiveTimeEntry> {
+export async function fetchTimeClockDefaults(job: Job): Promise<TimeClockDefaults> {
+  const [crewMembers, profile] = await Promise.all([
+    fetchJobCrewMembers(job.id).catch(() => []),
+    fetchCurrentProfile().catch(() => ({ defaultHourlyRate: null, displayName: null })),
+  ]);
+  const profileName = profile.displayName?.trim() ?? '';
+  const matchingCrewMember =
+    crewMembers.find((member) => member.name.trim() === profileName) ?? crewMembers[0];
+
+  return {
+    hourlyRate: firstPositiveRate(
+      matchingCrewMember?.hourly_rate,
+      job.hourlyRate,
+      profile.defaultHourlyRate
+    ),
+    workerName: matchingCrewMember?.name.trim() || profileName || null,
+  };
+}
+
+export async function startJobTimer(
+  job: Job,
+  defaults?: TimeClockDefaults
+): Promise<ActiveTimeEntry> {
   if (!job.timeClockEnabled) {
     throw new Error('Enable the time clock for this job before starting a timer.');
   }
 
-  if (!job.hourlyRate || job.hourlyRate <= 0) {
+  const timerDefaults = defaults ?? (await fetchTimeClockDefaults(job));
+
+  if (!timerDefaults.hourlyRate || timerDefaults.hourlyRate <= 0) {
     throw new Error('Set the hourly rate for this job before starting a timer.');
   }
 
@@ -59,20 +89,19 @@ export async function startJobTimer(job: Job): Promise<ActiveTimeEntry> {
     await stopActiveTimer(activeEntry);
   }
 
-  const workerName = await fetchCurrentProfileDisplayName().catch(() => null);
   const startedAt = new Date();
 
   const { data, error } = await supabase
     .from('time_entries')
     .insert({
-      hourly_rate: job.hourlyRate,
+      hourly_rate: timerDefaults.hourlyRate,
       job_id: job.id,
       owner_id: userData.user.id,
       source: 'timer',
       started_at: startedAt.toISOString(),
       status: 'active',
       work_date: startedAt.toISOString().slice(0, 10),
-      worker_name: workerName,
+      worker_name: timerDefaults.workerName,
     })
     .select(timeEntryFields)
     .single();
@@ -82,6 +111,12 @@ export async function startJobTimer(job: Job): Promise<ActiveTimeEntry> {
   }
 
   return data;
+}
+
+function firstPositiveRate(...rates: (number | null | undefined)[]): number | null {
+  return (
+    rates.find((rate) => typeof rate === 'number' && Number.isFinite(rate) && rate > 0) ?? null
+  );
 }
 
 export async function stopJobTimer(entry: ActiveTimeEntry, _job: Job): Promise<void> {

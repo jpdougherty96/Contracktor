@@ -5,9 +5,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { fetchJobs } from '@/src/lib/jobs';
 import {
   fetchActiveTimeEntries,
+  fetchTimeClockDefaults,
   startJobTimer,
   stopJobTimer,
   type ActiveTimeEntry,
+  type TimeClockDefaults,
 } from '@/src/lib/timeClock';
 import type { Job } from '@/src/types/job';
 
@@ -24,6 +26,9 @@ export function AddHoursHubScreen({
 }: AddHoursHubScreenProps) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [activeEntries, setActiveEntries] = useState<ActiveTimeEntry[]>([]);
+  const [timerDefaultsByJobId, setTimerDefaultsByJobId] = useState<
+    Record<string, TimeClockDefaults>
+  >({});
   const [now, setNow] = useState(() => Date.now());
   const [isLoading, setIsLoading] = useState(true);
   const [busyJobId, setBusyJobId] = useState<string | null>(null);
@@ -54,9 +59,15 @@ export function AddHoursHubScreen({
         fetchJobs(),
         fetchActiveTimeEntries(),
       ]);
+      const nextTimerDefaults = Object.fromEntries(
+        await Promise.all(
+          nextJobs.map(async (job) => [job.id, await fetchTimeClockDefaults(job)] as const)
+        )
+      );
 
       setJobs(nextJobs);
       setActiveEntries(nextActiveEntries);
+      setTimerDefaultsByJobId(nextTimerDefaults);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to load hours.');
     } finally {
@@ -81,7 +92,7 @@ export function AddHoursHubScreen({
     setErrorMessage(null);
 
     try {
-      const entry = await startJobTimer(job);
+      const entry = await startJobTimer(job, timerDefaultsByJobId[job.id]);
       setActiveEntries([entry]);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to start timer.');
@@ -129,6 +140,10 @@ export function AddHoursHubScreen({
           <View style={styles.list}>
             {openJobs.map((job) => {
               const activeEntry = activeEntryByJobId.get(job.id);
+              const displayHourlyRate =
+                activeEntry?.hourly_rate ??
+                timerDefaultsByJobId[job.id]?.hourlyRate ??
+                job.hourlyRate;
               const isBusy = busyJobId === job.id;
 
               return (
@@ -137,7 +152,9 @@ export function AddHoursHubScreen({
                     <Text style={styles.jobName}>{job.name}</Text>
                     <Text style={styles.clientName}>{job.clientName}</Text>
                     <Text style={styles.rateText}>
-                      {job.hourlyRate ? `$${job.hourlyRate.toFixed(2)}/hr` : 'Hourly rate not set'}
+                      {displayHourlyRate
+                        ? `$${displayHourlyRate.toFixed(2)}/hr`
+                        : 'Hourly rate not set'}
                     </Text>
                   </View>
 

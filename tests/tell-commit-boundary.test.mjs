@@ -51,9 +51,10 @@ test('Tell photo retries use deterministic storage and attachment identities', a
 });
 
 test('Tell Undo reverses only unchanged records and preserves an audit trail', async () => {
-  const [migration, photoProtection, screen, tellApi] = await Promise.all([
+  const [migration, photoProtection, activityJob, screen, tellApi] = await Promise.all([
     readRepoFile('supabase/migrations/20260820093000_tell_undo.sql'),
     readRepoFile('supabase/migrations/20260820094000_protect_tell_note_additions.sql'),
+    readRepoFile('supabase/migrations/20260822010000_tell_undo_activity_job.sql'),
     readRepoFile('src/screens/TellContracktorScreen.tsx'),
     readRepoFile('src/lib/tellContracktor.ts'),
   ]);
@@ -68,6 +69,8 @@ test('Tell Undo reverses only unchanged records and preserves an audit trail', a
   assert.match(migration, /Tell-created hours changed after approval/);
   assert.match(photoProtection, /A photo was added to a Tell-created note after approval/);
   assert.match(photoProtection, /revoke all on function public\.undo_tell_contracktor_entry_once/);
+  assert.match(activityJob, /count\(distinct record ->> 'job_id'\)/);
+  assert.match(activityJob, /set job_id = v_activity_job_id/);
   assert.match(migration, /'tell_contracktor_undone'/);
   assert.match(migration, /status = 'undone'/);
   assert.match(tellApi, /rpc\('undo_tell_contracktor_entry'/);
