@@ -10,10 +10,15 @@ test('home receipt capture opens the camera first on native and web', async () =
     new URL('src/screens/AddReceiptScreen.tsx', `file://${repoRoot}/`),
     'utf8'
   );
+  const app = await readFile(
+    new URL('app/(tabs)/index.tsx', `file://${repoRoot}/`),
+    'utf8'
+  );
 
-  assert.match(screen, /if \(isWeb\) \{\s*setIsWebCameraOpen\(true\)/);
-  assert.match(screen, /if \(!autoStartCamera \|\| didAutoStartCameraRef\.current\)/);
-  assert.doesNotMatch(screen, /didAutoStartCameraRef\.current \|\| isWeb/);
-  assert.match(screen, /onCancel=\{\(\) => \{\s*setIsWebCameraOpen\(false\);\s*void handleChoosePhoto\(\)/);
-  assert.match(screen, /!isWebCameraOpen \? \(\s*<View style=\{styles\.actionStack\}>/);
+  assert.match(screen, /pickWebReceiptImage\(\{ capture: 'environment' \}\)/);
+  assert.match(screen, /input\.setAttribute\('capture', options\.capture\)/);
+  assert.match(screen, /if \(isWeb \|\| !autoStartCamera \|\| didAutoStartCameraRef\.current\)/);
+  assert.doesNotMatch(screen, /WebCameraCapture|getUserMedia/);
+  assert.match(app, /const webCapture =\s*Platform\.OS === 'web'\s*\? pickWebReceiptImage\(\{ capture: 'environment' \}\)/);
+  assert.match(app, /setScreen\('addReceipt'\);\s*\n\s*if \(webCapture\)/);
 });

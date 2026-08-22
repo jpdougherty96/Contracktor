@@ -1,6 +1,7 @@
 import type { Session } from '@supabase/supabase-js';
+import type { ImagePickerAsset } from 'expo-image-picker';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useEntitlements } from '@/src/contexts/EntitlementsContext';
@@ -19,7 +20,7 @@ import { AddHoursScreen } from '@/src/screens/AddHoursScreen';
 import { AddManualExpenseScreen } from '@/src/screens/AddManualExpenseScreen';
 import { AddNoteScreen } from '@/src/screens/AddNoteScreen';
 import { AddPaymentScreen } from '@/src/screens/AddPaymentScreen';
-import { AddReceiptScreen } from '@/src/screens/AddReceiptScreen';
+import { AddReceiptScreen, pickWebReceiptImage } from '@/src/screens/AddReceiptScreen';
 import { AddUpdateScreen } from '@/src/screens/AddUpdateScreen';
 import { AccountSettingsScreen } from '@/src/screens/AccountSettingsScreen';
 import { ActivityScreen } from '@/src/screens/ActivityScreen';
@@ -86,6 +87,7 @@ export default function HomeScreen() {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(null);
   const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
+  const [initialReceiptAsset, setInitialReceiptAsset] = useState<ImagePickerAsset | null>(null);
   const [selectedReceiptJobs, setSelectedReceiptJobs] = useState<Job[]>([]);
   const [isSelectedReceiptInventoryMode, setIsSelectedReceiptInventoryMode] = useState(false);
   const [receiptEditInitialInventorySelected, setReceiptEditInitialInventorySelected] = useState(false);
@@ -474,6 +476,12 @@ export default function HomeScreen() {
           setScreen('accountSettings');
         }}
         onCaptureReceipt={() => {
+          const webCapture =
+            Platform.OS === 'web'
+              ? pickWebReceiptImage({ capture: 'environment' })
+              : null;
+
+          setInitialReceiptAsset(null);
           setSelectedJob(null);
           setSelectedReceiptId(null);
           setSelectedReceiptJobs([]);
@@ -481,6 +489,20 @@ export default function HomeScreen() {
           setAddBackScreen('home');
           setAddCompleteScreen('home');
           setScreen('addReceipt');
+
+          if (webCapture) {
+            void webCapture
+              .then((asset) => {
+                if (asset) {
+                  setInitialReceiptAsset(asset);
+                }
+              })
+              .catch((error) => {
+                setGlobalErrorMessage(
+                  getUserFacingError(error, 'Unable to open that receipt photo. Try again.')
+                );
+              });
+          }
         }}
         onGoToActivity={() => setScreen('activity')}
         onGoToJobs={() => setScreen('jobs')}
@@ -870,6 +892,7 @@ export default function HomeScreen() {
         backLabel={getAddBackLabel(addBackScreen)}
         doneLabel={getAddDoneLabel(addCompleteScreen)}
         includeInventoryDestination={isSelectedReceiptInventoryMode}
+        initialAsset={initialReceiptAsset}
         inventoryMode={isInventoryOnlyReceipt}
         job={selectedJob}
         jobs={isInventoryOnlyReceipt ? [] : selectedJob && selectedReceiptJobs.length > 0 ? selectedReceiptJobs : selectedJob ? [selectedJob] : []}
@@ -885,6 +908,7 @@ export default function HomeScreen() {
             )
           );
         }}
+        onInitialAssetConsumed={() => setInitialReceiptAsset(null)}
         onReviewReceipt={(receiptId) => {
           setSelectedReceiptId(receiptId);
           setDashboardRefreshKey((key) => key + 1);

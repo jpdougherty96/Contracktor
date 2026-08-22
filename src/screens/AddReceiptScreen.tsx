@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { WebCameraCapture } from '@/src/components/WebCameraCapture';
 import {
   attachReceiptPhoto,
   createUploadingReceipt,
@@ -20,10 +19,12 @@ type AddReceiptScreenProps = {
   doneLabel?: string;
   includeInventoryDestination?: boolean;
   inventoryMode?: boolean;
+  initialAsset?: ImagePicker.ImagePickerAsset | null;
   job?: Job | null;
   jobs?: Job[];
   onBack: () => void;
   onDone: () => void;
+  onInitialAssetConsumed?: () => void;
   onReviewReceipt: (receiptId: string) => void;
 };
 
@@ -38,17 +39,19 @@ export function AddReceiptScreen({
   doneLabel = 'Back to dashboard',
   includeInventoryDestination = false,
   inventoryMode = false,
+  initialAsset = null,
   job,
   jobs,
   onBack,
   onDone,
+  onInitialAssetConsumed,
   onReviewReceipt,
 }: AddReceiptScreenProps) {
   const [step, setStep] = useState<ReceiptStep>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isWebCameraOpen, setIsWebCameraOpen] = useState(false);
   const didAutoStartCameraRef = useRef(false);
+  const processedInitialAssetRef = useRef<ImagePicker.ImagePickerAsset | null>(null);
   const receiptJobs = jobs && jobs.length > 0 ? jobs : job ? [job] : [];
 
   const isBusy = step === 'uploading';
@@ -92,7 +95,12 @@ export function AddReceiptScreen({
     setErrorMessage(null);
 
     if (isWeb) {
-      setIsWebCameraOpen(true);
+      const asset = await pickWebReceiptImage({ capture: 'environment' });
+
+      if (asset) {
+        await processReceiptAsset(asset);
+      }
+
       return;
     }
 
@@ -145,19 +153,24 @@ export function AddReceiptScreen({
     await processReceiptAsset(result.assets[0]);
   };
 
-  const handleWebCameraError = useCallback((nextError: string) => {
-    setIsWebCameraOpen(false);
-    setErrorMessage(nextError);
-  }, []);
-
   useEffect(() => {
-    if (!autoStartCamera || didAutoStartCameraRef.current) {
+    if (isWeb || !autoStartCamera || didAutoStartCameraRef.current) {
       return;
     }
 
     didAutoStartCameraRef.current = true;
     void handleTakePhoto();
-  }, [autoStartCamera, handleTakePhoto]);
+  }, [autoStartCamera, handleTakePhoto, isWeb]);
+
+  useEffect(() => {
+    if (!initialAsset || processedInitialAssetRef.current === initialAsset) {
+      return;
+    }
+
+    processedInitialAssetRef.current = initialAsset;
+    onInitialAssetConsumed?.();
+    void processReceiptAsset(initialAsset);
+  }, [initialAsset, onInitialAssetConsumed, processReceiptAsset]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -182,23 +195,7 @@ export function AddReceiptScreen({
           {message ? <Text style={styles.messageText}>{message}</Text> : null}
           {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
-          {isWebCameraOpen ? (
-            <WebCameraCapture
-              isBusy={isBusy}
-              onCancel={() => {
-                setIsWebCameraOpen(false);
-                void handleChoosePhoto();
-              }}
-              onCapture={(asset) => {
-                setIsWebCameraOpen(false);
-                void processReceiptAsset(asset);
-              }}
-              onError={handleWebCameraError}
-            />
-          ) : null}
-
-          {!isWebCameraOpen ? (
-            <View style={styles.actionStack}>
+          <View style={styles.actionStack}>
               {isWeb ? (
                 <>
                   <Pressable
@@ -242,8 +239,7 @@ export function AddReceiptScreen({
                   </Pressable>
                 </>
               )}
-            </View>
-          ) : null}
+          </View>
 
           {step === 'complete' ? (
             <Pressable style={styles.secondaryButton} onPress={onDone}>
@@ -272,7 +268,9 @@ function formatReceiptContext(inventoryMode: boolean, jobs: Job[]): string {
   return `${jobs.length} jobs selected`;
 }
 
-function pickWebReceiptImage(): Promise<ImagePicker.ImagePickerAsset | null> {
+export function pickWebReceiptImage(
+  options: { capture?: 'environment' | 'user' } = {}
+): Promise<ImagePicker.ImagePickerAsset | null> {
   return new Promise((resolve, reject) => {
     if (typeof document === 'undefined') {
       resolve(null);
@@ -283,26 +281,43 @@ function pickWebReceiptImage(): Promise<ImagePicker.ImagePickerAsset | null> {
     input.type = 'file';
     input.accept = 'image/*';
 
+    if (options.capture) {
+      input.setAttribute('capture', options.capture);
+    }
+
     input.style.display = 'none';
+
+    let isSettled = false;
 
     const cleanup = () => {
       input.remove();
     };
 
+    const settle = (asset: ImagePicker.ImagePickerAsset | null) => {
+      if (isSettled) {
+        return;
+      }
+
+      isSettled = true;
+      cleanup();
+      resolve(asset);
+    };
+
+    input.addEventListener('cancel', () => settle(null), { once: true });
+
     input.onchange = async () => {
       const file = input.files?.[0] ?? null;
 
       if (!file) {
-        cleanup();
-        resolve(null);
+        settle(null);
         return;
       }
 
       try {
         const asset = await fileToImagePickerAsset(file);
-        cleanup();
-        resolve(asset);
+        settle(asset);
       } catch (error) {
+        isSettled = true;
         cleanup();
         reject(error);
       }
