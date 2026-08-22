@@ -1,579 +1,355 @@
-# conTRACKtor Testing Regime
+# conTRACKtor App Testing Regime
 
-This regime is designed for Phase 1 shipping readiness. It combines release gates, structured manual testing, security checks, export checks, and a practical automation roadmap.
+This is the repeatable test regime for conTRACKtor. Its first purpose is to let
+the product owner test the production app without developer tools. The final
+section contains the developer release gates.
 
-Phase 1 success standard:
+The product promise under test is:
+
+> A contractor can capture what happened on a job and understand the
+> operational and financial truth of that job.
+
+Financial truth is the hard gate. A rough layout can be logged and fixed later;
+wrong costs, duplicated records, lost source evidence, or data crossing between
+users stop a release.
+
+## Which Test To Run
+
+| Test | When | Time | Where |
+| --- | --- | ---: | --- |
+| Smoke test | After every production deployment | 5 minutes | Desktop and phone |
+| Core job loop | Weekly and before any demo | 20-30 minutes | Production |
+| Full release test | Before calling a milestone complete | 45-60 minutes | Production, desktop and phone |
+
+If a change touches receipts, Tell, hours, timers, or job totals, run the Core
+Job Loop even if the change looked small.
+
+## Safe Test Setup
+
+Use fake data only. Never test with a real customer's name, address, receipt,
+or payment information.
+
+For each test pass, create one job with these values:
 
 ```txt
-A contractor can create jobs, capture costs, log hours, record payments, attach notes/photos, export invoices/reports, and trust the job totals.
+Job name: TEST — YYYY-MM-DD — your initials
+Client: Test Client
+Location: Test Site
+Job type: Time & materials
+Crew member: yourself
+Hourly cost rate: $50.00
 ```
 
-## Test Principles
-
-- Financial correctness beats visual polish.
-- Receipts, line items, expenses, hours, and payments must not silently corrupt totals.
-- Every test pass must cover both web and phone for the workflows that differ by platform.
-- Use clean test users often; old data can hide setup and RLS bugs.
-- Treat parser deployment as part of testing, not a separate ops chore.
-
-## Release Gates
-
-These must pass before any serious manual test pass:
-
-```sh
-npx tsc --noEmit
-npm run lint
-npm test
-supabase db push
-supabase migration list
-supabase functions list
-```
-
-Required Supabase state:
-
-- Local and remote migrations match.
-- `extract-receipt` is deployed after the latest parser changes.
-- `receipts` bucket exists and is private.
-- `attachments` bucket exists and is private.
-- `OPENAI_API_KEY` is set for the Edge Function.
-
-Required app state:
-
-- Web starts with `npm run web`.
-- Mobile starts with `npx expo start`.
-- Test phone can open the app in Expo Go.
-- Test account can sign up, sign in, and sign out.
-
-## Test Accounts
-
-Use at least two users:
-
-- `tester-a`: main end-to-end workflow user.
-- `tester-b`: RLS/security isolation user.
-
-For `tester-a`, create realistic data. For `tester-b`, create one job and verify they cannot see `tester-a` data.
-
-## Canonical Test Data
-
-Create these jobs:
-
-1. Fixed bid job
-   - Quote amount: `$15,000`
-   - Material budget: `$8,000`
-   - Labor hour budget: `80`
-   - Hourly rate: `$65`
-   - Other estimated costs: `$500`
-   - Crew: current user, one helper at a different rate
-
-2. Time & materials job
-   - Labor billing/hourly rate set
-   - At least one crew member
-   - No fixed quote expectation
-
-3. Basic no-budget job
-   - Job name, client, location only
-   - Used to verify `Ready to track` and missing budget behavior
-
-4. Tools / Inventory bucket
-   - At least one manual tool expense
-   - At least one receipt-assigned tool line
-
-Use these receipt scenarios:
-
-- Clean single-job receipt.
-- Single-job receipt with line items and tax.
-- Multi-job receipt.
-- Mixed job plus Tools / Inventory receipt.
-- Duplicate receipt.
-- Receipt with tax/fee/total/payment rows visible.
-- Receipt where parsed line items could exceed total.
-
-## Test Pass Levels
-
-### Level 0: Static Gates
-
-Run:
-
-```sh
-npx tsc --noEmit
-npm run lint
-npm test
-supabase migration list
-supabase functions list
-```
-
-Pass criteria:
-
-- No TypeScript errors.
-- No lint errors.
-- Migrations aligned.
-- `extract-receipt` is active.
-
-### Level 1: Smoke Test
-
-Goal: prove the app opens and the main routes are not broken.
-
-Verify the Job Snapshot for both canonical job types:
-
-- Fixed bid shows attention, shopping, hours, recorded cost, recorded balance,
-  projected profit, and last activity from existing records.
-- Time & materials does not infer a customer balance before invoicing.
-
-Verify Tell correction and Undo:
-
-- Edit or remove a proposal before approval and confirm only the reviewed
-  proposal is committed.
-- Undo an unchanged Tell update and confirm all of its notes, hours, shopping
-  needs, and attachment records are removed.
-- Edit one committed record directly, then confirm Tell Undo refuses to delete
-  the human correction.
-
-Web:
-- Start `npm run web`.
-- Sign in.
-- Open Home.
-- Open Jobs.
-- Open one job dashboard.
-- Open Create job.
-- Open Tools / Inventory.
-- Return home without crashing.
-
-Mobile:
-- Start `npx expo start`.
-- Open in Expo Go.
-- Sign in.
-- Open Home.
-- Open Jobs.
-- Open Add expense.
-- Open Add hours.
-- Open Add note.
-
-Pass criteria:
-
-- No red screens.
-- No blank screens.
-- Back actions work.
-- Primary buttons are reachable.
-
-### Level 2: Core Workflow Test
-
-Goal: prove the main Phase 1 promise works.
-
-Run this sequence with `tester-a`:
-
-1. Create fixed bid job with budgets and crew.
-2. Create time & materials job.
-3. Create no-budget job.
-4. Add manual expense to fixed bid job.
-5. Add manual expense to Tools / Inventory.
-6. Add hours with current user rate.
-7. Add hours with helper rate.
-8. Edit an hours entry and change hourly rate.
-9. Add customer payment.
-10. Add note with photo.
-11. Upload receipt on web.
-12. Capture receipt on phone.
-13. Assign receipt lines to one job.
-14. Assign receipt lines across multiple jobs.
-15. Assign at least one line to Tools / Inventory.
-16. Export invoice.
-17. Export job report.
-18. Export receipt photos.
-
-Pass criteria:
-
-- Job dashboard totals update after every saved financial record.
-- Recent activity shows manual expenses, receipts, hours, payments, and notes.
-- Labor cost reflects the saved hourly rates.
-- Materials cost reflects expenses, not raw receipt rows.
-- Tools / Inventory costs do not inflate job material cost.
-- Invoice/report exports open/share/download successfully.
-
-### Level 3: Financial Regression Test
-
-Goal: catch silent bad math.
-
-Fixed bid checks:
-- Material usage equals material expenses divided by material budget.
-- Labor usage equals logged hours divided by labor hour budget.
-- Labor cost equals sum of `duration_minutes / 60 * hourly_rate`.
-- Payments reduce balance but do not reduce material or labor costs.
-- Manual expenses are included in cost totals.
-- Ignored receipt lines are excluded.
-
-T&M checks:
-- Card/dashboard show tracked labor/materials instead of fixed-bid budget usage.
-- Invoice uses tracked labor/materials and payments.
-- No fixed-bid quote assumptions leak into T&M display.
-
-Receipt checks:
-- Tax line itself does not become an expense.
-- Tax is allocated only to item expenses where applicable.
-- Assigned line total plus allocated tax cannot exceed receipt total.
-- Duplicate detection blocks or warns before duplicate cost creation.
-- Editing line assignments replaces prior expenses correctly.
-
-Pass criteria:
-
-- Every expected total can be reconciled manually from the source records.
-- No total is higher than the source receipt total.
-- No duplicate expense exists after duplicate handling.
-
-### Level 4: Document Export Test
-
-Goal: make exports feel usable from phone and PC.
-
-Invoice:
-- Fixed bid invoice shows quote/contract amount, payments, balance due.
-- T&M invoice shows labor/material billing data.
-- Filename defaults to `[Job Name] Invoice.pdf`.
-- No `Invoice draft` title appears in exported invoice.
-- Mobile export/share works from phone.
-- Web export/print works from PC.
-
-Job report:
-- Filename defaults to `[Job Name] Report.pdf`.
-- Summary appears first.
-- Job Info follows Summary.
-- Budget / Quote follows Job Info.
-- Receipts / Expenses are grouped by date and vendor.
-- Manual expenses appear in the same expenses section.
-- Labor under one hour displays in minutes.
-- Empty sections say `None logged.`
-- No browser print chrome appears in web PDF.
-- Footer appears once at the bottom, not between sections.
-- Receipt photo export works separately.
-
-Pass criteria:
-
-- Exported documents can be opened outside the app.
-- Documents have contractor-ready wording.
-- Documents do not expose `localhost`, browser timestamps, or debug text.
-
-### Level 5: Security / RLS Test
-
-Goal: prove users cannot see each other's data.
-
-With `tester-a`:
-- Create jobs, receipts, expenses, hours, payments, notes, attachments, crew.
-
-With `tester-b`:
-- Sign in.
-- Verify `tester-a` jobs do not appear.
-- Create one separate job.
-- Verify reports, notes, receipt images, attachment images, and Tools / Inventory only show `tester-b` data.
-
-Direct checks:
-- Try opening a signed URL after it expires.
-- Verify storage paths start with the owner id.
-- Verify private buckets are not public.
-
-Pass criteria:
-
-- `tester-b` cannot view or mutate `tester-a` data through app flows.
-- Private storage remains private.
-
-### Level 6: Platform-Specific Test
-
-Web / PC:
-- Web upload receipt works.
-- Web camera preview appears on localhost.
-- Web `Take photo` button is visible.
-- Captured web photo routes to the parser.
-- Keyboard and mouse can operate long forms.
-- Narrow browser width remains usable.
-
-Mobile / Expo Go:
-- Receipt camera capture works.
-- Receipt library upload works.
-- Note photo capture/upload works.
-- Native share works for invoice/report PDFs.
-- Keyboard does not hide save buttons.
-- Safe areas do not hide floating actions.
-
-Pass criteria:
-
-- Platform-specific capture/export paths work on the actual target device.
-
-## Detailed Manual Scripts
-
-### Script A: New User Setup
-
-1. Open app.
-2. Sign up as `tester-a`.
-3. Confirm Home loads.
-4. Open account menu.
-5. Confirm account menu does not immediately log out.
-6. Log out.
-7. Log back in.
-
-Expected:
-- Auth persists correctly.
-- Logout is intentional.
-
-### Script B: Fixed Bid Job
-
-1. Create job.
-2. Select Fixed bid.
-3. Enter basics, budgets, quote, and crew.
-4. Save.
-5. Open job dashboard.
-6. Confirm card/dashboard show fixed-bid budget behavior.
-7. Edit job.
-8. Change one budget and one crew rate.
-9. Save and reopen.
-
-Expected:
-- Edited values persist.
-- Crew rates are available when adding hours.
-
-### Script C: Time & Materials Job
-
-1. Create job.
-2. Select Time & materials.
-3. Enter basics and labor rate.
-4. Save.
-5. Add hours and material expense.
-6. Return to Jobs.
-
-Expected:
-- Card shows tracked labor/materials, not fixed-bid budget percentages.
-
-### Script D: Manual Expense
-
-1. Open fixed bid job.
-2. Add update.
-3. Add expense.
-4. Choose Manual expense.
-5. Enter description, amount, category, date, billable, notes.
-6. Save.
-7. Verify recent activity.
-8. Verify material drill-down and totals.
-
-Expected:
-- Expense is included in job totals.
-- No receipt row is created.
-
-### Script E: Tools / Inventory
-
-1. Open Tools / Inventory.
-2. Add manual expense.
-3. Save a tool expense.
-4. Confirm total tracked value changes.
-5. Add receipt and choose Tools / Inventory plus one job.
-6. Assign one line to job and one line to Tools / Inventory.
-7. Save.
-
-Expected:
-- Job receives only its assigned line.
-- Tools / Inventory receives only its assigned line.
-
-### Script F: Hours And Crew
-
-1. Open fixed bid job.
-2. Add hours.
-3. Pick current user crew member.
-4. Save hours.
-5. Add hours again.
-6. Pick helper crew member.
-7. Save hours.
-8. Edit helper hours and change hourly rate.
-9. Save.
-10. Open labor drill-down.
-
-Expected:
-- Labor cost reflects each entry's saved rate.
-- Edited hourly rate changes labor cost.
-
-### Script G: Receipt Parser Safeguards
-
-1. Deploy `extract-receipt`.
-2. Upload receipt with visible tax/fee/total/payment lines.
-3. Confirm tax/fee/total/payment rows are not saved as expenses.
-4. Upload receipt where line parsing could exceed receipt total.
-5. Confirm app forces review or blocks save.
-6. Try duplicate receipt.
-7. Confirm duplicate warning.
-
-Expected:
-- No receipt can create expenses greater than its own total.
-- Taxes and fees are not duplicated as line-item expenses.
-
-### Script H: Notes With Photos
-
-1. Add note to job.
-2. Attach photo.
-3. Save.
-4. Reopen job dashboard.
-5. Edit note.
-6. Confirm existing photo loads.
-
-Expected:
-- Note text and photo persist.
-- Financial totals do not change.
-
-### Script I: Payments
-
-1. Add payment.
-2. Confirm recent activity.
-3. Confirm financial summary.
-4. Edit payment amount/date/note.
-5. Confirm invoice/report update.
-
-Expected:
-- Payments affect paid/balance totals only.
-
-### Script J: Exports
-
-1. Create fixed bid invoice.
-2. Export/share PDF on phone.
-3. Export/print on web.
-4. Export job report.
-5. Export receipt photos.
-
-Expected:
-- Filenames use uppercase `Invoice` and `Report`.
-- Documents have no debug/browser chrome.
-- Receipt photos export separately.
-
-## Bug Triage Rules
-
-Blocker:
-- Cannot sign in.
-- Cannot create/open jobs.
-- Financial totals are wrong.
-- Receipt save can exceed receipt total.
-- User can see another user's data.
-- App crashes on core workflows.
-
-High:
-- Receipt parser fails common receipts.
-- Camera/upload broken on phone.
-- Manual expense not included in totals.
-- Hours rates produce wrong labor cost.
-- Invoice/report export broken.
-
-Medium:
-- Confusing copy, rough layout, missing empty state.
-- Export formatting is awkward but data is correct.
-- Non-core screen navigation issue.
-
-Low:
-- Minor visual polish.
-- Spacing/copy issues that do not block comprehension.
-
-## Automation Roadmap
-
-The repo does not currently have a test runner configured. Add automation in this order.
-
-### Automation Tier 1: Pure Logic Unit Tests
-
-Add a lightweight TypeScript test runner such as Vitest once we are ready.
-
-Target tests:
-- Labor time display formatting.
-- Money formatting and parsing helpers.
-- Receipt assigned-total guard.
-- Tax allocation.
-- Non-purchase receipt line filtering.
-- Job report date/vendor grouping.
-- Invoice totals.
-- Fixed bid vs T&M card health logic.
-
-Why first:
-- These catch bad math without needing a browser, phone, camera, or Supabase.
-
-### Automation Tier 2: Data Mapper Tests
-
-Mock Supabase responses and test:
-- Job financial snapshot mapping.
-- Job activity grouping.
-- Manual expense creation payload.
-- Receipt assignment expense creation payload.
-- Tools / Inventory view mapping.
-- Crew member loading/default selection.
-
-### Automation Tier 3: Web Smoke Tests
-
-Use a browser automation tool after the app has stable selectors/test IDs.
-
-Target flows:
-- Sign in.
-- Create job.
-- Add manual expense.
-- Add hours.
-- Add payment.
-- Add note.
-- Upload receipt with mocked parser response.
-- Open invoice/report screens.
-
-### Automation Tier 4: Mobile Manual Or Device Tests
-
-Keep these manual until the product stabilizes:
-- Camera permission.
-- Photo library permission.
-- Native share sheet.
-- Expo Go network behavior.
-- Small phone layout.
-
-## Test Pass Template
-
-Use this when recording a full pass:
+Keep the name beginning with `TEST —` so test records are unmistakable. Use the
+same job for the entire pass. At the end, archive the job; do not leave it mixed
+in with active work.
+
+Use the reusable fake receipt at
+[test-fixtures/acceptance-receipt.png](test-fixtures/acceptance-receipt.png).
+It is deliberately marked as a test receipt and contains:
 
 ```txt
-Date:
+Merchandise:   $500.00
+Sales tax:      $20.00
+Store credit: -$100.00
+Amount paid:   $420.00
+```
+
+The amount paid is the real material cost. The app must not mistake the $520
+pre-credit total for the cost.
+
+## 1. Five-Minute Smoke Test
+
+Run this immediately after every production deployment.
+
+| # | Action | Expected result |
+| ---: | --- | --- |
+| 1 | Open `https://www.contracktor.app/` in a private/incognito window. | The app loads with no blank screen or error page. |
+| 2 | Sign in. | Home opens and the session is for the correct account. |
+| 3 | Check Home. | Capture Receipt, Tell conTRACKtor, and Start Work are visible and usable. |
+| 4 | Open Jobs, then open one existing job. | The job and Job Snapshot load without an error. |
+| 5 | Return Home and open Activity/Needs Attention. | Existing items load and no real item has changed. |
+| 6 | Refresh the page. | The session and current data persist. |
+| 7 | Repeat steps 1-5 on a phone. | Controls fit the screen; nothing important is hidden by the keyboard or safe area. |
+
+Pass only if every row succeeds. If sign-in, navigation, or any job data fails,
+stop and log a release-blocking bug.
+
+## 2. Core Job Loop
+
+This is the standard product acceptance test. Run the steps in order and check
+the exact expected numbers.
+
+### A. Create the test job
+
+1. Create the Time & materials job described in **Safe Test Setup**.
+2. Add yourself as crew with an hourly cost rate of `$50.00`.
+3. Save, leave the job, and reopen it.
+
+Expected:
+
+- The job appears in Jobs.
+- Client, location, job type, crew, and rate persist after reopening.
+- The empty Job Snapshot does not invent customer revenue or balance.
+
+### B. Test the work timer
+
+1. From Home, choose **Start Work**.
+2. Select the test job and yourself.
+3. Confirm the displayed rate is `$50.00`.
+4. Start the timer, wait a few seconds, then stop it.
+
+Expected:
+
+- Start changes to an active Stop state.
+- The timer remains active while navigating away and back.
+- Stopping produces one time record, not two.
+- A very short timer may round to zero billable minutes. That is acceptable;
+  the exact financial check uses manual hours next.
+
+### C. Add exact labor
+
+1. Add a manual hours entry for `0.1 hours` at `$50.00/hour`.
+2. Save and reopen the job.
+
+Expected:
+
+- Hours include the new `0.1` entry.
+- Recorded labor cost is exactly `$5.00`.
+- The source hours record appears in job history/activity.
+
+### D. Tell conTRACKtor, approve, and undo
+
+1. Tell conTRACKtor: `Add a note to this job: acceptance test note.`
+2. Review the proposal before approving it.
+3. Approve it.
+4. Confirm the note appears under the correct test job.
+5. Undo the Tell update.
+
+Expected:
+
+- Nothing is committed before approval.
+- Approval creates one note under the selected job.
+- Retry/navigation does not create a duplicate.
+- Undo removes the committed note.
+- Activity preserves an audit event showing what happened and associates it
+  with the correct test job.
+
+### E. Capture and reconcile the receipt
+
+1. Choose **Capture Receipt** and upload
+   [the fake receipt](test-fixtures/acceptance-receipt.png).
+2. Assign it to the test job.
+3. Wait for extraction to finish.
+4. Review every extracted value. Correct any uncertain or missing field.
+5. Save the reviewed receipt.
+
+Expected:
+
+- The original receipt image remains available as source evidence.
+- Merchandise is `$500.00`.
+- Tax is `$20.00`.
+- Store credit is `$100.00`.
+- Amount paid and recorded material cost are exactly `$420.00`.
+- Tax, total, and payment rows are not duplicated as additional expenses.
+- The receipt appears once in the correct job history.
+
+Receipt extraction is allowed to ask for review. It is not allowed to silently
+save the wrong financial truth.
+
+### F. Reconcile the Job Snapshot
+
+Open the test job and compare the source records with the Snapshot.
+
+| Value | Expected |
+| --- | ---: |
+| Manual hours | 0.1 h |
+| Labor cost | $5.00 |
+| Material cost | $420.00 |
+| Total recorded cost | $425.00 |
+
+The numbers must reconcile exactly:
+
+```txt
+0.1 hours × $50.00 = $5.00 labor
+$500.00 merchandise + $20.00 tax - $100.00 credit = $420.00 materials
+$5.00 labor + $420.00 materials = $425.00 total recorded cost
+```
+
+Refresh the page and reopen the job. All source records and all four values
+must remain unchanged.
+
+### G. Clean up
+
+1. Archive the test job through the normal app flow.
+2. Confirm it leaves the active Jobs list and remains available in history.
+3. Do not resolve, dismiss, edit, or delete pre-existing real Needs Attention
+   items during testing.
+
+The Core Job Loop passes only when sections A-G all pass and the Snapshot total
+is exactly `$425.00`.
+
+## 3. Full Release Test
+
+Run the Smoke Test and Core Job Loop first, then add the tests below.
+
+### Account and persistence
+
+- Sign out intentionally and sign back in.
+- Close and reopen the browser/app.
+- Confirm the same jobs and source records remain.
+- Confirm the account menu does not sign out merely by opening it.
+
+### Corrections
+
+- Edit the test hours from `0.1` to `0.2`; labor must change from `$5.00` to
+  `$10.00` once and only once.
+- Correct one reviewed receipt field, save, refresh, and confirm it persists.
+- Change the hours back to `0.1` before the final `$425.00` reconciliation.
+- Edit a record created by Tell, then try Tell Undo. Undo must not erase a
+  later human correction without warning.
+
+### Duplicate protection
+
+- Upload the fake receipt a second time.
+- The app must warn or block before creating a second `$420.00` material cost.
+- If a duplicate test receipt record is created during the test, remove only
+  that test duplicate through the normal app UI.
+
+### Needs Attention
+
+- Use a test-only Tell statement that should create an uncertainty or follow-up.
+- Confirm it appears once, links to the correct test job, and explains what
+  needs review.
+- Resolve the test item and confirm it leaves the required-attention list while
+  its history remains understandable.
+
+### Job types
+
+- Create a small Fixed bid test job with a `$1,000.00` quote.
+- Add `$100.00` of recorded cost.
+- Confirm the deterministic profit view is `$900.00` before any other costs.
+- Confirm a Time & materials job does **not** invent a customer balance before
+  invoicing or a recorded balance event.
+
+### Phone-specific behavior
+
+- Capture a receipt with the phone camera.
+- Upload a receipt from the phone photo library.
+- Use Tell with the phone keyboard open.
+- Start and stop work on the phone.
+- Confirm save/review buttons remain visible and tappable.
+- Rotate the phone once and confirm no data is lost.
+
+### Two-user isolation (release candidate only)
+
+Use a second test account. Verify that it cannot see or change the first test
+account's jobs, receipts, receipt images, hours, notes, activity, or attention
+items. Any cross-account visibility is an immediate stop-ship issue.
+
+## Test Result Record
+
+Create one result record per test pass. Copy this template into the release
+issue, project notes, or a dated Markdown file:
+
+```txt
+Date and time:
 Tester:
-Git branch / commit:
-Supabase project:
-Edge Function version:
-Web URL:
-Mobile device:
+Production URL:
+Build/commit, if known:
+Desktop browser:
+Phone and browser/PWA:
 
-Release gates:
-- Typecheck:
-- Lint:
-- Migrations:
-- Functions:
-- Storage:
+Smoke test: PASS / FAIL
+Core job loop: PASS / FAIL / NOT RUN
+Full release test: PASS / FAIL / NOT RUN
 
-Smoke:
-- Web:
-- Mobile:
+Final expected total: $425.00
+Final actual total:
 
-Core workflows:
-- Auth:
-- Jobs:
-- Dashboard:
-- Receipts:
-- Manual expenses:
-- Tools / Inventory:
-- Hours:
-- Payments:
-- Notes/photos:
-- Invoice:
-- Job report:
-
-Security:
-- Second user isolation:
-- Storage privacy:
-
-Open bugs:
+Failures:
 1.
 2.
-3.
 
-Ship decision:
-- Ship:
-- Hold:
-- Retest needed:
+Ship decision: SHIP / HOLD / RETEST
 ```
 
-## Ship Decision
+For each failure, capture:
 
-Ship only when:
+```txt
+Short title:
+Time observed:
+Device/browser:
+Job name:
+Exact steps:
+Expected:
+Actual:
+Screenshot or screen recording:
+Did a refresh change it?:
+```
 
-- All release gates pass.
-- Level 1 through Level 5 pass.
-- Level 6 passes for the target platforms being shipped.
-- No blocker or high severity bug remains.
-- Any medium severity bugs are documented and accepted.
+Do not keep retrying until a bug disappears. Retry once to determine whether it
+is repeatable, record both outcomes, and preserve the test job for diagnosis.
+
+## Severity and Ship Rules
+
+### Stop ship
+
+- Sign-in is unavailable.
+- A user can see or change another user's data.
+- A source record is lost or assigned to the wrong job.
+- Financial totals are wrong or cannot be reconciled.
+- A receipt creates duplicate cost or cost above the amount actually paid.
+- Tell commits an unapproved change or Undo deletes a later human correction.
+- The app crashes or blocks job creation, receipt capture, hours, or Snapshot.
+
+### Fix before release
+
+- A core action works only after unexplained retries.
+- Camera/library capture is broken on the target phone.
+- Important controls are hidden or unreachable.
+- Activity or Needs Attention points to the wrong job.
+- Corrections do not persist after refresh.
+
+### May ship when documented
+
+- Minor spacing, copy, or visual polish problems.
+- A non-core empty state is awkward but understandable.
+- A cosmetic problem has no effect on source truth, math, or task completion.
+
+A release can ship only when:
+
+- Smoke passes on both desktop and phone.
+- Core Job Loop passes with exactly `$425.00` total recorded cost.
+- No Stop ship or Fix before release issue remains.
+- Any accepted cosmetic issue is written down.
+
+## Developer Release Gates
+
+These supplement the owner's app test; they do not replace it.
+
+Run from the repository:
+
+```sh
+npx tsc --noEmit
+npm run lint
+npm test
+npm run build
+supabase migration list
+supabase functions list
+```
+
+Required state:
+
+- TypeScript, lint, tests, and production build pass.
+- Local and remote migrations match.
+- `extract-receipt`, `process-receipt-queue`, and `tell-contracktor` are active
+  at their intended versions.
+- Receipt and attachment storage remain private.
+- Production environment secrets are present.
+- The production deployment is the intended commit.
+- The product owner completes the Smoke Test after deployment.
+
+The narrower scripts in [phase-1-test-plan.md](phase-1-test-plan.md) remain useful
+for feature-specific regression work, but this document governs the final
+owner acceptance decision.

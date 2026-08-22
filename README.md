@@ -173,8 +173,9 @@ Start mobile smoke test:
 npx expo start
 ```
 
-The complete Phase 1 checklist is in [docs/phase-1-test-plan.md](docs/phase-1-test-plan.md).
-The broader ship-readiness testing regime is in [docs/testing-regime.md](docs/testing-regime.md).
+The product owner's production smoke, core-job, and release acceptance tests are
+in [docs/testing-regime.md](docs/testing-regime.md). Feature-specific regression
+coverage remains in [docs/phase-1-test-plan.md](docs/phase-1-test-plan.md).
 
 ## Supabase Setup
 
