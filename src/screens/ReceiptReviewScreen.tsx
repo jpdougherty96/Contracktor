@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useGuardedBack } from '@/src/hooks/useGuardedBack';
 import { formatCurrency } from '@/src/lib/financials';
 import { fetchJobs } from '@/src/lib/jobs';
 import {
@@ -37,6 +38,7 @@ import {
   suggestReceiptLineAssignmentsFromShoppingNeeds,
   type ShoppingNeedLineAssignmentSuggestion,
 } from '@/src/lib/shoppingNeeds';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Tables } from '@/src/types/database';
 import type { Job } from '@/src/types/job';
 
@@ -103,6 +105,7 @@ export function ReceiptReviewScreen({
   const hasLoadedReceiptRef = useRef(false);
   const loadedImageStoragePathRef = useRef<string | null>(null);
   const autoFinalizedReceiptIdsRef = useRef<Set<string>>(new Set());
+  const baselineDraftSignatureRef = useRef<string | null>(null);
   const shouldUseInlineImageZoom = viewportWidth < 768;
   const needsManualReceiptReview = receipt?.status === 'error' || receipt?.review_status === 'error';
   const hasLineItems = lineItems.length > 0;
@@ -180,6 +183,27 @@ export function ReceiptReviewScreen({
     !requiresReceiptAdjustmentChoice &&
     !hasUntrustedLineItems &&
     receipt?.processing_status === 'complete';
+  const currentDraftSignature = buildReceiptDraftSignature({
+    category,
+    jobCostAmount,
+    lineAssignments,
+    receiptDate,
+    subtotal,
+    tax,
+    total,
+    vendor,
+  });
+  const hasUnsavedReceiptChanges =
+    !isLoading &&
+    baselineDraftSignatureRef.current !== null &&
+    currentDraftSignature !== baselineDraftSignatureRef.current;
+  const handleBack = useGuardedBack({
+    hasUnsavedChanges: hasUnsavedReceiptChanges,
+    isBusy: isSaving || isAutoFinalizing || isDeletingReceiptId !== null,
+    message: 'Your unsaved receipt details or line assignments will be lost.',
+    onBack,
+    title: 'Discard receipt changes?',
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -242,6 +266,11 @@ export function ReceiptReviewScreen({
           initialAssignments,
           shoppingNeedSuggestions
         );
+        const displayCategory: ReceiptCategory = inventoryMode
+          ? 'tools'
+          : isReceiptCategory(displayReceipt.category)
+            ? displayReceipt.category
+            : 'other';
 
         if (isMounted) {
           setIsEditingLineAssignments(false);
@@ -257,13 +286,17 @@ export function ReceiptReviewScreen({
           setTax(formatEditableMoney(displayReceipt.tax));
           setTotal(formatEditableMoney(displayReceipt.total));
           setJobCostAmount(formatEditableMoney(displayReceipt.total));
-          setCategory(
-            inventoryMode
-              ? 'tools'
-              : isReceiptCategory(displayReceipt.category)
-              ? displayReceipt.category
-              : 'other'
-          );
+          setCategory(displayCategory);
+          baselineDraftSignatureRef.current = buildReceiptDraftSignature({
+            category: displayCategory,
+            jobCostAmount: formatEditableMoney(displayReceipt.total),
+            lineAssignments: suggestedAssignments,
+            receiptDate: displayReceipt.receipt_date ?? '',
+            subtotal: formatEditableMoney(displayReceipt.subtotal),
+            tax: formatEditableMoney(displayReceipt.tax),
+            total: formatEditableMoney(displayReceipt.total),
+            vendor: displayReceipt.vendor ?? '',
+          });
           setPotentialDuplicates([]);
 
           fetchPotentialDuplicateReceipts(displayReceipt)
@@ -275,9 +308,7 @@ export function ReceiptReviewScreen({
             .catch((error) => {
               if (isMounted) {
                 setErrorMessage(
-                  error instanceof Error
-                    ? error.message
-                    : 'Unable to check for duplicate receipts.'
+                  getUserFacingError(error, 'Unable to check for duplicate receipts.')
                 );
               }
             });
@@ -313,9 +344,7 @@ export function ReceiptReviewScreen({
               })
               .catch((error) => {
                 if (isMounted) {
-                  setImageError(
-                    error instanceof Error ? error.message : 'Unable to load receipt image.'
-                  );
+                  setImageError(getUserFacingError(error, 'Unable to load receipt image.'));
                 }
               })
               .finally(() => {
@@ -333,7 +362,7 @@ export function ReceiptReviewScreen({
         }
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error instanceof Error ? error.message : 'Unable to load receipt.');
+          setErrorMessage(getUserFacingError(error, 'Unable to load receipt. Try again.'));
         }
       } finally {
         if (isMounted && !isPollingRefresh) {
@@ -395,9 +424,7 @@ export function ReceiptReviewScreen({
         autoFinalizedReceiptIdsRef.current.delete(receipt.id);
 
         if (isMounted) {
-          setErrorMessage(
-            error instanceof Error ? error.message : 'Unable to finalize this receipt.'
-          );
+          setErrorMessage(getUserFacingError(error, 'Unable to finalize this receipt. Try again.'));
         }
       } finally {
         if (isMounted) {
@@ -469,7 +496,7 @@ export function ReceiptReviewScreen({
         );
         onSaved();
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : 'Unable to save receipt lines.');
+        setErrorMessage(getUserFacingError(error, 'Unable to save receipt lines. Try again.'));
       } finally {
         setIsSaving(false);
       }
@@ -545,7 +572,7 @@ export function ReceiptReviewScreen({
       });
       onSaved();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to save receipt.');
+      setErrorMessage(getUserFacingError(error, 'Unable to save receipt. Try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -593,7 +620,7 @@ export function ReceiptReviewScreen({
       });
       onSaved();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to save receipt.');
+      setErrorMessage(getUserFacingError(error, 'Unable to save receipt. Try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -616,7 +643,7 @@ export function ReceiptReviewScreen({
       );
       onSaved();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to save receipt lines.');
+      setErrorMessage(getUserFacingError(error, 'Unable to save receipt lines. Try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -673,7 +700,7 @@ export function ReceiptReviewScreen({
         duplicates.filter((duplicate) => duplicate.id !== targetReceiptId)
       );
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to remove receipt.');
+      setErrorMessage(getUserFacingError(error, 'Unable to remove receipt. Try again.'));
     } finally {
       setIsDeletingReceiptId(null);
     }
@@ -698,7 +725,10 @@ export function ReceiptReviewScreen({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-          <Pressable style={styles.backButton} onPress={onBack}>
+          <Pressable
+            disabled={isSaving || isAutoFinalizing || isDeletingReceiptId !== null}
+            style={styles.backButton}
+            onPress={handleBack}>
             <Text style={styles.backButtonText}>
               {inventoryMode ? 'Back to receipt' : 'Back to job'}
             </Text>
@@ -1543,6 +1573,39 @@ function formatTrailingLineAmountPattern(amount: number): RegExp {
   const amountAlternatives = wholeAmount ? `${fixedAmount}|${wholeAmount}` : fixedAmount;
 
   return new RegExp(`(?:\\s|\\n)+\\$?(?:${amountAlternatives})$`);
+}
+
+function buildReceiptDraftSignature({
+  category,
+  jobCostAmount,
+  lineAssignments,
+  receiptDate,
+  subtotal,
+  tax,
+  total,
+  vendor,
+}: {
+  category: ReceiptCategory;
+  jobCostAmount: string;
+  lineAssignments: Record<string, LineAssignmentState>;
+  receiptDate: string;
+  subtotal: string;
+  tax: string;
+  total: string;
+  vendor: string;
+}): string {
+  return JSON.stringify({
+    category,
+    jobCostAmount,
+    lineAssignments: Object.entries(lineAssignments).sort(([left], [right]) =>
+      left.localeCompare(right)
+    ),
+    receiptDate,
+    subtotal,
+    tax,
+    total,
+    vendor,
+  });
 }
 
 function formatEditableMoney(value: number | null): string {

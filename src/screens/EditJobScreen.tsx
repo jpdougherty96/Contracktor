@@ -19,6 +19,7 @@ import {
 import { fetchJobCrewMembers, replaceJobCrewMembers } from '@/src/lib/jobCrew';
 import { updateJob } from '@/src/lib/jobs';
 import { fetchCurrentProfile } from '@/src/lib/profiles';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Job, JobType } from '@/src/types/job';
 
 const jobStatuses = ['active', 'paused', 'completed', 'archived'];
@@ -90,7 +91,7 @@ export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
         ]);
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error instanceof Error ? error.message : 'Unable to load job crew.');
+          setErrorMessage(getUserFacingError(error, 'Unable to load job crew.'));
         }
       }
     };
@@ -163,7 +164,7 @@ export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
 
       onSaved(updatedJob);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to save job.');
+      setErrorMessage(getUserFacingError(error, 'Unable to save job. Try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -319,7 +320,12 @@ function ToggleRow({
   onPress: () => void;
 }) {
   return (
-    <Pressable style={styles.toggleRow} onPress={onPress}>
+    <Pressable
+      accessibilityRole="switch"
+      accessibilityState={{ checked: isEnabled }}
+      accessibilityLabel={label}
+      style={styles.toggleRow}
+      onPress={onPress}>
       <View style={styles.toggleTextGroup}>
         <Text style={styles.label}>{label}</Text>
         <Text style={styles.toggleDescription}>{description}</Text>

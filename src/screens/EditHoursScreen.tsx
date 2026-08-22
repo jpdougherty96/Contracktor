@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useGuardedBack } from '@/src/hooks/useGuardedBack';
 import {
   deleteJobHours,
   fetchJobHours,
@@ -20,6 +21,7 @@ import {
   updateJobHours,
   type JobHoursEntry,
 } from '@/src/lib/jobHours';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Job } from '@/src/types/job';
 
 type EditHoursScreenProps = {
@@ -41,6 +43,22 @@ export function EditHoursScreen({ hoursId, job, onBack, onDeleted, onSaved }: Ed
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [loadKey, setLoadKey] = useState(0);
+  const hasUnsavedChanges = Boolean(
+    hoursEntry &&
+      (hours !== String(minutesToHours(hoursEntry.duration_minutes)) ||
+        hourlyRate !== formatEditableNumber(hoursEntry.hourly_rate) ||
+        workDate !== hoursEntry.work_date ||
+        workerName !== (hoursEntry.worker_name ?? '') ||
+        note !== (hoursEntry.description ?? ''))
+  );
+  const handleBack = useGuardedBack({
+    hasUnsavedChanges,
+    isBusy: isSaving || isDeleting,
+    message: 'Your unsaved changes to this hours entry will be lost.',
+    onBack,
+    title: 'Discard hours changes?',
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -48,6 +66,7 @@ export function EditHoursScreen({ hoursId, job, onBack, onDeleted, onSaved }: Ed
     const loadHours = async () => {
       setIsLoading(true);
       setErrorMessage(null);
+      setHoursEntry(null);
 
       try {
         const nextHoursEntry = await fetchJobHours(hoursId);
@@ -62,7 +81,7 @@ export function EditHoursScreen({ hoursId, job, onBack, onDeleted, onSaved }: Ed
         }
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error instanceof Error ? error.message : 'Unable to load hours.');
+          setErrorMessage(getUserFacingError(error, 'Unable to load hours.'));
         }
       } finally {
         if (isMounted) {
@@ -76,7 +95,7 @@ export function EditHoursScreen({ hoursId, job, onBack, onDeleted, onSaved }: Ed
     return () => {
       isMounted = false;
     };
-  }, [hoursId]);
+  }, [hoursId, loadKey]);
 
   const handleSubmit = async () => {
     setErrorMessage(null);
@@ -111,7 +130,7 @@ export function EditHoursScreen({ hoursId, job, onBack, onDeleted, onSaved }: Ed
       });
       onSaved();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to save hours.');
+      setErrorMessage(getUserFacingError(error, 'Unable to save hours. Try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -145,7 +164,7 @@ export function EditHoursScreen({ hoursId, job, onBack, onDeleted, onSaved }: Ed
       await deleteJobHours(hoursId);
       onDeleted();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to delete hours.');
+      setErrorMessage(getUserFacingError(error, 'Unable to delete hours. Try again.'));
     } finally {
       setIsDeleting(false);
     }
@@ -157,7 +176,10 @@ export function EditHoursScreen({ hoursId, job, onBack, onDeleted, onSaved }: Ed
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-          <Pressable style={styles.backButton} onPress={onBack}>
+          <Pressable
+            disabled={isSaving || isDeleting}
+            style={styles.backButton}
+            onPress={handleBack}>
             <Text style={styles.backButtonText}>Back to job</Text>
           </Pressable>
 
@@ -203,6 +225,11 @@ export function EditHoursScreen({ hoursId, job, onBack, onDeleted, onSaved }: Ed
             <Field label="Note" onChangeText={setNote} placeholder="Optional" value={note} />
 
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+            {!isLoading && !hoursEntry ? (
+              <Pressable style={styles.retryButton} onPress={() => setLoadKey((key) => key + 1)}>
+                <Text style={styles.retryButtonText}>Try again</Text>
+              </Pressable>
+            ) : null}
 
             <Pressable
               disabled={isSaving || isDeleting || isLoading || !hoursEntry}
@@ -354,6 +381,19 @@ const styles = StyleSheet.create({
     color: '#B91C1C',
     fontSize: 14,
     lineHeight: 20,
+  },
+  retryButton: {
+    alignItems: 'center',
+    borderColor: '#335C43',
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  retryButtonText: {
+    color: '#335C43',
+    fontSize: 15,
+    fontWeight: '800',
   },
   saveButton: {
     alignItems: 'center',

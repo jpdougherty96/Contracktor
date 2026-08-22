@@ -11,6 +11,7 @@ import {
   finalizeReceiptCapture,
   uploadReceiptPhoto,
 } from '@/src/lib/receipts';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Job } from '@/src/types/job';
 
 type AddReceiptScreenProps = {
@@ -78,7 +79,7 @@ export function AddReceiptScreen({
 
     } catch (error) {
       setStep('idle');
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to add receipt.');
+      setErrorMessage(getUserFacingError(error, 'Unable to add receipt. Try again.'));
     }
   }, [
     inventoryMode,

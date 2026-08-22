@@ -83,28 +83,11 @@ export async function startJobTimer(
     throw new Error('You must be logged in to start a timer.');
   }
 
-  const activeEntries = await fetchActiveTimeEntries();
-
-  for (const activeEntry of activeEntries) {
-    await stopActiveTimer(activeEntry);
-  }
-
-  const startedAt = new Date();
-
-  const { data, error } = await supabase
-    .from('time_entries')
-    .insert({
-      hourly_rate: timerDefaults.hourlyRate,
-      job_id: job.id,
-      owner_id: userData.user.id,
-      source: 'timer',
-      started_at: startedAt.toISOString(),
-      status: 'active',
-      work_date: startedAt.toISOString().slice(0, 10),
-      worker_name: timerDefaults.workerName,
-    })
-    .select(timeEntryFields)
-    .single();
+  const { data, error } = await supabase.rpc('start_job_timer_atomic', {
+    p_hourly_rate: timerDefaults.hourlyRate,
+    p_job_id: job.id,
+    p_worker_name: timerDefaults.workerName ?? undefined,
+  });
 
   if (error) {
     throw new Error(error.message);

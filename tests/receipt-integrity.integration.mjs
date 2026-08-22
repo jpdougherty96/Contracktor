@@ -45,6 +45,78 @@ test(
       createJob(clientB, accountB.userId, businessB, `Receipt Test B ${suffix}`),
     ]);
 
+    await t.test('timer switching is confirmed by one atomic database capability', async () => {
+      await requiredQuery(
+        clientA
+          .from('jobs')
+          .update({ time_clock_enabled: true })
+          .in('id', [jobA1, jobA2])
+          .select('id')
+      );
+      const startedAt = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      const activeRows = await requiredQuery(
+        clientA
+          .from('time_entries')
+          .insert({
+            business_id: businessA,
+            hourly_rate: 80,
+            job_id: jobA1,
+            owner_id: accountA.userId,
+            source: 'timer',
+            started_at: startedAt,
+            status: 'active',
+            worker_name: 'Timer Tester',
+          })
+          .select('id')
+      );
+      const originalTimerId = activeRows[0].id;
+
+      const newTimer = await requiredRpc(clientA, 'start_job_timer_atomic', {
+        p_hourly_rate: 90,
+        p_job_id: jobA2,
+        p_worker_name: 'Timer Tester',
+      });
+      assert.equal(newTimer.job_id, jobA2);
+      assert.equal(newTimer.status, 'active');
+
+      const stoppedRows = await requiredQuery(
+        clientA
+          .from('time_entries')
+          .select('duration_minutes, status, stopped_at')
+          .eq('id', originalTimerId)
+      );
+      assert.equal(stoppedRows[0].status, 'reviewed');
+      assert.ok(stoppedRows[0].duration_minutes >= 9);
+      assert.ok(stoppedRows[0].stopped_at);
+
+      const timerEvents = await requiredQuery(
+        clientA
+          .from('activity_events')
+          .select('event_type, source_id')
+          .eq('source_table', 'time_entries')
+          .eq('source_id', originalTimerId)
+      );
+      assert.equal(timerEvents[0].event_type, 'hours_logged');
+
+      const failedSwitch = await clientA.rpc('start_job_timer_atomic', {
+        p_hourly_rate: 100,
+        p_job_id: jobB,
+        p_worker_name: 'Timer Tester',
+      });
+      assert.ok(failedSwitch.error);
+
+      const stillActive = await requiredQuery(
+        clientA
+          .from('time_entries')
+          .select('id, job_id, status')
+          .eq('owner_id', accountA.userId)
+          .eq('status', 'active')
+      );
+      assert.equal(stillActive.length, 1);
+      assert.equal(stillActive[0].id, newTimer.id);
+      assert.equal(stillActive[0].job_id, jobA2);
+    });
+
     await t.test('split happy path, retry, reassignment, and partial rollback', async () => {
       const fixture = await createLineReceipt(clientA, {
         businessId: businessA,

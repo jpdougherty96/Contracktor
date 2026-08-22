@@ -13,7 +13,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useGuardedBack } from '@/src/hooks/useGuardedBack';
 import { createJobNote, uploadJobNotePhoto } from '@/src/lib/jobNotes';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Job } from '@/src/types/job';
 
 type AddNoteScreenProps = {
@@ -33,6 +35,13 @@ export function AddNoteScreen({
   const [photos, setPhotos] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const handleBack = useGuardedBack({
+    hasUnsavedChanges: note.trim().length > 0 || photos.length > 0,
+    isBusy: isSaving,
+    message: 'This unsaved note and its attached photos will be lost.',
+    onBack,
+    title: 'Discard note?',
+  });
 
   const handleSubmit = async () => {
     setErrorMessage(null);
@@ -55,7 +64,7 @@ export function AddNoteScreen({
 
       onCreated();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to add note.');
+      setErrorMessage(getUserFacingError(error, 'Unable to add note. Try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -113,7 +122,7 @@ export function AddNoteScreen({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-          <Pressable style={styles.backButton} onPress={onBack}>
+          <Pressable disabled={isSaving} style={styles.backButton} onPress={handleBack}>
             <Text style={styles.backButtonText}>{backLabel}</Text>
           </Pressable>
 

@@ -6,6 +6,7 @@ import {
   fetchToolsInventoryExpenses,
   type ToolsInventoryExpense,
 } from '@/src/lib/toolsInventoryExpenses';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import { colors, radii } from '@/src/styles/theme';
 
 type ToolsInventoryScreenProps = {
@@ -25,9 +26,7 @@ export function ToolsInventoryScreen({ onAddManualExpense, onBack }: ToolsInvent
     try {
       setExpenses(await fetchToolsInventoryExpenses());
     } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : 'Unable to load tools and inventory.'
-      );
+      setErrorMessage(getUserFacingError(error, 'Unable to load tools and inventory. Try again.'));
     } finally {
       setIsLoading(false);
     }

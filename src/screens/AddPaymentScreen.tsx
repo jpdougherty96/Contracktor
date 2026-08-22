@@ -11,7 +11,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useGuardedBack } from '@/src/hooks/useGuardedBack';
 import { createPayment } from '@/src/lib/payments';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Job } from '@/src/types/job';
 
 type AddPaymentScreenProps = {
@@ -32,6 +34,14 @@ export function AddPaymentScreen({
   const [note, setNote] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const handleBack = useGuardedBack({
+    hasUnsavedChanges:
+      amount.trim().length > 0 || note.trim().length > 0 || paymentDate !== getTodayDate(),
+    isBusy: isSaving,
+    message: 'This unsaved payment will be lost.',
+    onBack,
+    title: 'Discard payment?',
+  });
 
   const handleSubmit = async () => {
     setErrorMessage(null);
@@ -58,7 +68,7 @@ export function AddPaymentScreen({
       });
       onCreated();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to add payment.');
+      setErrorMessage(getUserFacingError(error, 'Unable to add payment. Try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -70,7 +80,7 @@ export function AddPaymentScreen({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-          <Pressable style={styles.backButton} onPress={onBack}>
+          <Pressable disabled={isSaving} style={styles.backButton} onPress={handleBack}>
             <Text style={styles.backButtonText}>{backLabel}</Text>
           </Pressable>
 

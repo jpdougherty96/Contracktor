@@ -2627,6 +2627,38 @@ export type Database = {
         Args: { p_receipt_id: string }
         Returns: Json
       }
+      start_job_timer_atomic: {
+        Args: {
+          p_hourly_rate: number
+          p_job_id: string
+          p_worker_name?: string
+        }
+        Returns: {
+          billable: boolean
+          business_id: string
+          created_at: string | null
+          created_by_user_id: string | null
+          description: string | null
+          duration_minutes: number
+          hourly_rate: number
+          id: string
+          job_id: string | null
+          owner_id: string
+          source: string
+          started_at: string | null
+          status: string
+          stopped_at: string | null
+          updated_at: string | null
+          work_date: string
+          worker_name: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "time_entries"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       undo_tell_contracktor_entry: {
         Args: { p_entry_id: string }
         Returns: Json

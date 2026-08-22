@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { confirmAction } from '@/src/lib/confirmAction';
 import { fetchJobs } from '@/src/lib/jobs';
 import {
   fetchActiveTimeEntries,
@@ -11,6 +12,7 @@ import {
   type ActiveTimeEntry,
   type TimeClockDefaults,
 } from '@/src/lib/timeClock';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Job } from '@/src/types/job';
 
 type AddHoursHubScreenProps = {
@@ -33,6 +35,7 @@ export function AddHoursHubScreen({
   const [isLoading, setIsLoading] = useState(true);
   const [busyJobId, setBusyJobId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
 
   const openJobs = useMemo(
     () => jobs.filter((job) => !['completed', 'closed'].includes(job.status.toLowerCase())),
@@ -69,7 +72,7 @@ export function AddHoursHubScreen({
       setActiveEntries(nextActiveEntries);
       setTimerDefaultsByJobId(nextTimerDefaults);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to load hours.');
+      setErrorMessage(getUserFacingError(error, 'Unable to load hours. Try again.'));
     } finally {
       setIsLoading(false);
     }
@@ -88,14 +91,39 @@ export function AddHoursHubScreen({
   }, []);
 
   const handleStart = async (job: Job) => {
+    const activeEntry = activeEntries[0];
+    const activeJob = activeEntry?.job_id
+      ? jobs.find((candidate) => candidate.id === activeEntry.job_id)
+      : null;
+
+    if (activeEntry && activeEntry.job_id !== job.id) {
+      const shouldSwitch = await confirmAction({
+        cancelLabel: 'Keep current timer',
+        confirmLabel: 'Switch timer',
+        destructive: false,
+        message: `This will stop ${activeJob?.name ?? 'the current job'} and record its elapsed time before starting ${job.name}.`,
+        title: 'Switch active timer?',
+      });
+
+      if (!shouldSwitch) {
+        return;
+      }
+    }
+
     setBusyJobId(job.id);
     setErrorMessage(null);
+    setNoticeMessage(null);
 
     try {
       const entry = await startJobTimer(job, timerDefaultsByJobId[job.id]);
       setActiveEntries([entry]);
+      setNoticeMessage(
+        activeEntry && activeEntry.job_id !== job.id
+          ? `${activeJob?.name ?? 'Previous timer'} stopped. ${job.name} timer started.`
+          : `${job.name} timer started.`
+      );
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to start timer.');
+      setErrorMessage(getUserFacingError(error, 'Unable to start timer. Nothing was changed.'));
     } finally {
       setBusyJobId(null);
     }
@@ -104,6 +132,7 @@ export function AddHoursHubScreen({
   const handleStop = async (job: Job, entry: ActiveTimeEntry) => {
     setBusyJobId(job.id);
     setErrorMessage(null);
+    setNoticeMessage(null);
 
     try {
       await stopJobTimer(entry, job);
@@ -111,8 +140,9 @@ export function AddHoursHubScreen({
         currentEntries.filter((currentEntry) => currentEntry.id !== entry.id)
       );
       await loadData();
+      setNoticeMessage(`${job.name} timer stopped and its time was recorded.`);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to stop timer.');
+      setErrorMessage(getUserFacingError(error, 'Unable to stop timer. Try again.'));
     } finally {
       setBusyJobId(null);
     }
@@ -121,7 +151,7 @@ export function AddHoursHubScreen({
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
-        <Pressable style={styles.backButton} onPress={onBack}>
+        <Pressable disabled={busyJobId !== null} style={styles.backButton} onPress={onBack}>
           <Text style={styles.backButtonText}>Back home</Text>
         </Pressable>
 
@@ -131,6 +161,7 @@ export function AddHoursHubScreen({
         </View>
 
         {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+        {noticeMessage ? <Text style={styles.noticeText}>{noticeMessage}</Text> : null}
         {isLoading ? <Text style={styles.messageText}>Loading jobs...</Text> : null}
         {!isLoading && openJobs.length === 0 ? (
           <Text style={styles.messageText}>No open jobs are available.</Text>
@@ -144,7 +175,8 @@ export function AddHoursHubScreen({
                 activeEntry?.hourly_rate ??
                 timerDefaultsByJobId[job.id]?.hourlyRate ??
                 job.hourlyRate;
-              const isBusy = busyJobId === job.id;
+              const isBusy = busyJobId !== null;
+              const isThisJobBusy = busyJobId === job.id;
 
               return (
                 <View key={job.id} style={styles.jobRow}>
@@ -174,7 +206,7 @@ export function AddHoursHubScreen({
                           isBusy && styles.disabledButton,
                         ]}>
                         <Text style={styles.timerButtonText}>
-                          {isBusy ? 'Working...' : activeEntry ? 'Stop' : 'Start'}
+                          {isThisJobBusy ? 'Working...' : activeEntry ? 'Stop' : 'Start'}
                         </Text>
                       </Pressable>
                     </View>
@@ -182,7 +214,10 @@ export function AddHoursHubScreen({
                     <Text style={styles.disabledTimerText}>Time clock off</Text>
                   )}
 
-                  <Pressable style={styles.manualButton} onPress={() => onManualHours(job)}>
+                  <Pressable
+                    disabled={isBusy}
+                    style={[styles.manualButton, isBusy && styles.disabledButton]}
+                    onPress={() => onManualHours(job)}>
                     <Text style={styles.manualButtonText}>Enter hours manually</Text>
                   </Pressable>
                 </View>
@@ -323,6 +358,13 @@ const styles = StyleSheet.create({
   errorText: {
     color: '#B91C1C',
     fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  noticeText: {
+    color: '#335C43',
+    fontSize: 14,
+    fontWeight: '700',
     lineHeight: 20,
     marginBottom: 12,
   },

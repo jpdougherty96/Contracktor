@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { fetchJobPlan, saveJobPlan } from '@/src/lib/jobPlans';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Job } from '@/src/types/job';
 
 // Deferred Phase 1 code: the standalone Job Plan workflow is not routed in
@@ -64,7 +65,7 @@ export function JobPlanScreen({ job, onBack, onSaved }: JobPlanScreenProps) {
         }
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error instanceof Error ? error.message : 'Unable to load job plan.');
+          setErrorMessage(getUserFacingError(error, 'Unable to load job plan.'));
         }
       } finally {
         if (isMounted) {
@@ -110,7 +111,7 @@ export function JobPlanScreen({ job, onBack, onSaved }: JobPlanScreenProps) {
       });
       onSaved();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to save job plan.');
+      setErrorMessage(getUserFacingError(error, 'Unable to save job plan. Try again.'));
     } finally {
       setIsSaving(false);
     }

@@ -8,6 +8,7 @@ import {
   getJobHealth,
 } from '@/src/lib/financials';
 import { fetchJobs } from '@/src/lib/jobs';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Job } from '@/src/types/job';
 
 type JobPickerScreenProps = {
@@ -66,7 +67,7 @@ export function JobPickerScreen({
     try {
       setJobs(await fetchJobs());
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to load jobs.');
+      setErrorMessage(getUserFacingError(error, 'Unable to load jobs. Try again.'));
     } finally {
       setIsLoading(false);
     }

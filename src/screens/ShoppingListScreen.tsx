@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useGuardedBack } from '@/src/hooks/useGuardedBack';
 import { fetchJobs } from '@/src/lib/jobs';
 import {
   createShoppingNeed,
@@ -22,6 +23,7 @@ import {
   updateShoppingNeedDetails,
   type ShoppingNeedWithJob,
 } from '@/src/lib/shoppingNeeds';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import { colors } from '@/src/styles/theme';
 import type { Job } from '@/src/types/job';
 
@@ -41,6 +43,14 @@ export function ShoppingListScreen({ contextJob = null, onBack, onChanged }: Sho
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastDismissedNeed, setLastDismissedNeed] = useState<ShoppingNeedWithJob | null>(null);
+  const handleBack = useGuardedBack({
+    hasUnsavedChanges: newItemText.trim().length > 0 || editingNeedId !== null,
+    isBusy: isSaving,
+    message: 'Your unsaved shopping-list changes will be lost.',
+    onBack,
+    title: 'Discard shopping changes?',
+  });
 
   const groupedNeeds = useMemo(() => groupNeedsByJob(needs), [needs]);
   const activeJobs = useMemo(
@@ -59,7 +69,7 @@ export function ShoppingListScreen({ contextJob = null, onBack, onChanged }: Sho
       setJobs(nextJobs);
       setNeeds(nextNeeds);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Unable to load shopping list.');
+      setError(getUserFacingError(loadError, 'Unable to load shopping list. Try again.'));
     } finally {
       setIsLoading(false);
     }
@@ -69,6 +79,15 @@ export function ShoppingListScreen({ contextJob = null, onBack, onChanged }: Sho
     setSelectedJobId(contextJob?.id ?? null);
     load();
   }, [contextJob?.id, load]);
+
+  useEffect(() => {
+    if (!lastDismissedNeed) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => setLastDismissedNeed(null), 6000);
+    return () => clearTimeout(timeoutId);
+  }, [lastDismissedNeed]);
 
   const handleAdd = async () => {
     const cleanItemText = newItemText.trim();
@@ -92,7 +111,47 @@ export function ShoppingListScreen({ contextJob = null, onBack, onChanged }: Sho
       await load();
       onChanged?.();
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Unable to add shopping need.');
+      setError(getUserFacingError(saveError, 'Unable to add shopping need. Try again.'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDismiss = async (need: ShoppingNeedWithJob) => {
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      await dismissShoppingNeed(need.id);
+      setNeeds((current) => current.filter((candidate) => candidate.id !== need.id));
+      setLastDismissedNeed(need);
+      onChanged?.();
+    } catch (dismissError) {
+      setError(getUserFacingError(dismissError, 'Unable to dismiss shopping need. Try again.'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleUndoDismiss = async () => {
+    if (!lastDismissedNeed) {
+      return;
+    }
+
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      if (lastDismissedNeed.status === 'fulfilled') {
+        await markShoppingNeedFulfilled(lastDismissedNeed.id);
+      } else {
+        await reopenShoppingNeed(lastDismissedNeed.id);
+      }
+      setLastDismissedNeed(null);
+      await load();
+      onChanged?.();
+    } catch (undoError) {
+      setError(getUserFacingError(undoError, 'Unable to restore shopping need. Try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -116,9 +175,7 @@ export function ShoppingListScreen({ contextJob = null, onBack, onChanged }: Sho
       await load();
       onChanged?.();
     } catch (statusError) {
-      setError(
-        statusError instanceof Error ? statusError.message : 'Unable to update shopping need.'
-      );
+      setError(getUserFacingError(statusError, 'Unable to update shopping need. Try again.'));
     }
   };
 
@@ -159,7 +216,7 @@ export function ShoppingListScreen({ contextJob = null, onBack, onChanged }: Sho
       await load();
       onChanged?.();
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Unable to edit shopping need.');
+      setError(getUserFacingError(saveError, 'Unable to edit shopping need. Try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -169,7 +226,7 @@ export function ShoppingListScreen({ contextJob = null, onBack, onChanged }: Sho
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.content}>
-          <Pressable onPress={onBack}>
+          <Pressable disabled={isSaving} onPress={handleBack}>
             <Text style={styles.backLink}>{contextJob ? 'Back to job' : 'Back home'}</Text>
           </Pressable>
 
@@ -181,6 +238,14 @@ export function ShoppingListScreen({ contextJob = null, onBack, onChanged }: Sho
           </View>
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          {lastDismissedNeed ? (
+            <View accessibilityLiveRegion="polite" style={styles.undoPanel}>
+              <Text style={styles.undoText}>Dismissed {formatNeedItem(lastDismissedNeed)}.</Text>
+              <Pressable disabled={isSaving} onPress={handleUndoDismiss} style={styles.undoButton}>
+                <Text style={styles.undoButtonText}>Undo</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
           {isLoading ? (
             <View style={styles.loadingCard}>
@@ -221,7 +286,7 @@ export function ShoppingListScreen({ contextJob = null, onBack, onChanged }: Sho
                             need={need}
                             onCancelEditing={cancelEditing}
                             onChangeEditingText={setEditingText}
-                            onDismiss={() => handleStatusChange(need.id, 'dismiss')}
+                            onDismiss={() => handleDismiss(need)}
                             onSaveEdit={handleSaveEdit}
                             onStartEditing={() => startEditing(need)}
                             onToggleFulfilled={() => handleStatusChange(need.id, 'fulfilled')}
@@ -243,7 +308,7 @@ export function ShoppingListScreen({ contextJob = null, onBack, onChanged }: Sho
                               need={need}
                               onCancelEditing={cancelEditing}
                               onChangeEditingText={setEditingText}
-                              onDismiss={() => handleStatusChange(need.id, 'dismiss')}
+                              onDismiss={() => handleDismiss(need)}
                               onSaveEdit={handleSaveEdit}
                               onStartEditing={() => startEditing(need)}
                               onToggleFulfilled={() => handleStatusChange(need.id, 'open')}
@@ -356,6 +421,7 @@ function ShoppingNeedRow({
     <View style={[styles.needRow, isFulfilled ? styles.fulfilledNeedRow : null]}>
       <Pressable
         accessibilityLabel={isFulfilled ? 'Move shopping need back to open' : 'Check off shopping need'}
+        disabled={isSaving}
         onPress={onToggleFulfilled}
         style={[styles.checkButton, isFulfilled ? styles.fulfilledCheckButton : null]}>
         <Feather
@@ -390,6 +456,7 @@ function ShoppingNeedRow({
         <>
           <Pressable
             accessibilityLabel="Edit shopping need"
+            disabled={isSaving}
             onPress={onStartEditing}
             style={styles.needText}>
             <View style={styles.needTitleRow}>
@@ -410,6 +477,7 @@ function ShoppingNeedRow({
           </Pressable>
           <Pressable
             accessibilityLabel="Dismiss shopping need"
+            disabled={isSaving}
             onPress={onDismiss}
             style={styles.dismissButton}>
             <Feather color={colors.mutedText} name="x" size={18} />
@@ -696,6 +764,33 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 20,
     marginBottom: 12,
+  },
+  undoPanel: {
+    alignItems: 'center',
+    backgroundColor: colors.cardBackground,
+    borderColor: colors.primaryGreen,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+    padding: 12,
+  },
+  undoText: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  undoButton: {
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: 8,
+  },
+  undoButtonText: {
+    color: colors.primaryGreen,
+    fontSize: 15,
+    fontWeight: '900',
   },
   loadingCard: {
     alignItems: 'center',

@@ -14,6 +14,7 @@ import {
   type JobFinancialSnapshotRow,
   type JobMaterialCostEntry,
 } from '@/src/lib/jobFinancials';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Job } from '@/src/types/job';
 
 type JobDashboardScreenProps = {
@@ -82,9 +83,7 @@ export function JobDashboardScreen({
         }
       } catch (error) {
         if (isMounted) {
-          setSnapshotError(
-            error instanceof Error ? error.message : 'Unable to load financial snapshot.'
-          );
+          setSnapshotError(getUserFacingError(error, 'Unable to load financial snapshot.'));
         }
       } finally {
         if (isMounted) {
@@ -116,7 +115,7 @@ export function JobDashboardScreen({
         }
       } catch (error) {
         if (isMounted) {
-          setTruthError(error instanceof Error ? error.message : 'Unable to load job details.');
+          setTruthError(getUserFacingError(error, 'Unable to load job details.'));
         }
       } finally {
         if (isMounted) {
@@ -154,9 +153,7 @@ export function JobDashboardScreen({
         }
       } catch (error) {
         if (isMounted) {
-          setCostDetailsError(
-            error instanceof Error ? error.message : 'Unable to load cost details.'
-          );
+          setCostDetailsError(getUserFacingError(error, 'Unable to load cost details.'));
         }
       } finally {
         if (isMounted) {
@@ -194,7 +191,7 @@ export function JobDashboardScreen({
         }
       } catch (error) {
         if (isMounted) {
-          setActivityError(error instanceof Error ? error.message : 'Unable to load activity.');
+          setActivityError(getUserFacingError(error, 'Unable to load activity.'));
         }
       } finally {
         if (isMounted) {

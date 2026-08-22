@@ -19,6 +19,7 @@ import {
 import { replaceJobCrewMembers } from '@/src/lib/jobCrew';
 import { createJob } from '@/src/lib/jobs';
 import { fetchCurrentProfile } from '@/src/lib/profiles';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Job, JobType } from '@/src/types/job';
 
 type CreateJobScreenProps = {
@@ -157,7 +158,7 @@ export function CreateJobScreen({ onCancel, onCreated }: CreateJobScreenProps) {
 
       onCreated(createdJob);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to create job.');
+      setErrorMessage(getUserFacingError(error, 'Unable to create job. Try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -368,7 +369,12 @@ function ToggleRow({
   onPress: () => void;
 }) {
   return (
-    <Pressable style={styles.toggleRow} onPress={onPress}>
+    <Pressable
+      accessibilityRole="switch"
+      accessibilityState={{ checked: isEnabled }}
+      accessibilityLabel={label}
+      style={styles.toggleRow}
+      onPress={onPress}>
       <View style={styles.toggleTextGroup}>
         <Text style={styles.label}>{label}</Text>
         <Text style={styles.toggleDescription}>{description}</Text>

@@ -12,11 +12,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useGuardedBack } from '@/src/hooks/useGuardedBack';
 import {
   fetchAccountProfile,
   updateAccountProfile,
   type AccountProfile,
 } from '@/src/lib/profiles';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import { colors } from '@/src/styles/theme';
 
 type AccountSettingsScreenProps = {
@@ -44,6 +46,47 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
   const [message, setMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const currentFormSignature = getAccountFormSignature({
+    addressLine1,
+    addressLine2,
+    city,
+    companyName,
+    defaultHourlyRate,
+    defaultInvoiceNote,
+    defaultInvoiceTerms,
+    fullName,
+    invoiceEmail,
+    phone,
+    postalCode,
+    state,
+    website,
+  });
+  const loadedProfileSignature = profile
+    ? getAccountFormSignature({
+        addressLine1: profile.addressLine1 ?? '',
+        addressLine2: profile.addressLine2 ?? '',
+        city: profile.city ?? '',
+        companyName: profile.companyName ?? '',
+        defaultHourlyRate:
+          profile.defaultHourlyRate !== null ? String(profile.defaultHourlyRate) : '',
+        defaultInvoiceNote: profile.defaultInvoiceNote ?? '',
+        defaultInvoiceTerms: profile.defaultInvoiceTerms ?? '',
+        fullName: profile.fullName ?? '',
+        invoiceEmail: profile.invoiceEmail ?? profile.email ?? '',
+        phone: formatPhoneNumber(profile.phone ?? ''),
+        postalCode: profile.postalCode ?? '',
+        state: profile.state ?? '',
+        website: profile.website ?? '',
+      })
+    : currentFormSignature;
+  const hasUnsavedChanges = !isLoading && currentFormSignature !== loadedProfileSignature;
+  const handleBack = useGuardedBack({
+    hasUnsavedChanges,
+    isBusy: isSaving,
+    message: 'Your unsaved account and invoice-profile changes will be lost.',
+    onBack,
+    title: 'Discard account changes?',
+  });
 
   const applyProfileToForm = (nextProfile: AccountProfile) => {
     setFullName(nextProfile.fullName ?? '');
@@ -79,7 +122,7 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
         }
       } catch (profileError) {
         if (isMounted) {
-          setError(profileError instanceof Error ? profileError.message : 'Unable to load account settings.');
+          setError(getUserFacingError(profileError, 'Unable to load account settings.'));
         }
       } finally {
         if (isMounted) {
@@ -130,7 +173,7 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
       setMessage('Account settings saved.');
       onSaved();
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Unable to save account settings.');
+      setError(getUserFacingError(saveError, 'Unable to save account settings. Try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -143,7 +186,7 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
         style={styles.keyboardView}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
           <View style={styles.content}>
-            <Pressable onPress={onBack}>
+            <Pressable disabled={isSaving} onPress={handleBack}>
               <Text style={styles.backLink}>Back home</Text>
             </Pressable>
 
@@ -181,7 +224,7 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
                   </View>
 
                   <View style={styles.fieldGroup}>
-                    <Text style={styles.label}>Company name</Text>
+                    <Text style={styles.label}>Company name (required if no full name)</Text>
                     <TextInput
                       autoCapitalize="words"
                       onChangeText={setCompanyName}
@@ -215,7 +258,7 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
                   </View>
 
                   <View style={styles.fieldGroup}>
-                    <Text style={styles.label}>Invoice email</Text>
+                    <Text style={styles.label}>Invoice email (required)</Text>
                     <TextInput
                       autoCapitalize="none"
                       autoComplete="email"
@@ -230,7 +273,7 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
                   </View>
 
                   <View style={styles.fieldGroup}>
-                    <Text style={styles.label}>Phone</Text>
+                    <Text style={styles.label}>Phone (required)</Text>
                     <TextInput
                       keyboardType="phone-pad"
                       onChangeText={(value) => setPhone(formatPhoneNumber(value))}
@@ -242,7 +285,7 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
                   </View>
 
                   <View style={styles.fieldGroup}>
-                    <Text style={styles.label}>Address line 1</Text>
+                    <Text style={styles.label}>Address line 1 (required)</Text>
                     <TextInput
                       autoCapitalize="words"
                       onChangeText={setAddressLine1}
@@ -267,7 +310,7 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
 
                   <View style={styles.inlineFieldRow}>
                     <View style={styles.inlineFieldGrow}>
-                      <Text style={styles.label}>City</Text>
+                      <Text style={styles.label}>City (required)</Text>
                       <TextInput
                         autoCapitalize="words"
                         onChangeText={setCity}
@@ -278,7 +321,7 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
                       />
                     </View>
                     <View style={styles.inlineFieldSmall}>
-                      <Text style={styles.label}>State</Text>
+                      <Text style={styles.label}>State (required)</Text>
                       <TextInput
                         autoCapitalize="characters"
                         onChangeText={setState}
@@ -291,7 +334,7 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
                   </View>
 
                   <View style={styles.fieldGroup}>
-                    <Text style={styles.label}>ZIP / postal code</Text>
+                    <Text style={styles.label}>ZIP / postal code (required)</Text>
                     <TextInput
                       keyboardType="numbers-and-punctuation"
                       onChangeText={setPostalCode}
@@ -344,7 +387,16 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
                       <Text style={styles.sectionTitle}>Password</Text>
                       <Text style={styles.sectionDetail}>Update the password used to log in.</Text>
                     </View>
-                    <Pressable onPress={onChangePassword} style={styles.secondaryButton}>
+                    <Pressable
+                      onPress={() => {
+                        if (hasUnsavedChanges) {
+                          setError('Save or discard your account changes before changing your password.');
+                          return;
+                        }
+
+                        onChangePassword();
+                      }}
+                      style={styles.secondaryButton}>
                       <Text style={styles.secondaryButtonText}>Change password</Text>
                     </Pressable>
                   </View>
@@ -370,6 +422,10 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+function getAccountFormSignature(values: Record<string, string>): string {
+  return JSON.stringify(values);
 }
 
 function parseOptionalCurrency(value: string): number | null | undefined {

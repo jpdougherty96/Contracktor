@@ -20,6 +20,7 @@ import {
 } from '@/src/lib/jobFinancials';
 import { createAndSharePdf, sanitizePdfFileName } from '@/src/lib/pdfExport';
 import { fetchAccountProfile, type AccountProfile } from '@/src/lib/profiles';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import { buttonStyles, colors, radii } from '@/src/styles/theme';
 import type { Job } from '@/src/types/job';
 
@@ -79,7 +80,7 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
         }
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error instanceof Error ? error.message : 'Unable to build invoice.');
+          setErrorMessage(getUserFacingError(error, 'Unable to build invoice. Try again.'));
         }
       } finally {
         if (isMounted) {
@@ -164,12 +165,12 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
         return;
       }
 
-      const sharedUri = await createAndSharePdf({
+      const result = await createAndSharePdf({
         dialogTitle: 'Share invoice PDF',
         fileBaseName,
         html,
       });
-      setMessage(`PDF ready: ${sharedUri}`);
+      setMessage(result.didOpen ? 'Invoice PDF opened for sharing.' : 'Invoice PDF saved.');
     } catch {
       setMessage('Unable to create invoice PDF.');
     }
@@ -193,7 +194,9 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
               disabled={!canExportInvoice}
               style={[styles.primaryButton, !canExportInvoice && styles.disabledButton]}
               onPress={handlePrint}>
-              <Text style={styles.primaryButtonText}>Print</Text>
+              <Text style={styles.primaryButtonText}>
+                {Platform.OS === 'web' ? 'Print' : 'Share PDF'}
+              </Text>
             </Pressable>
           </View>
         </View>

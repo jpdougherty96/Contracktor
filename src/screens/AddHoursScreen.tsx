@@ -11,9 +11,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useGuardedBack } from '@/src/hooks/useGuardedBack';
 import { fetchJobCrewMembers } from '@/src/lib/jobCrew';
 import { createJobHours } from '@/src/lib/jobHours';
 import { fetchCurrentProfile } from '@/src/lib/profiles';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Job } from '@/src/types/job';
 
 type AddHoursScreenProps = {
@@ -54,6 +56,19 @@ export function AddHoursScreen({
     () => calculateTimeRangeHours(startTime, endTime, breakMinutes),
     [breakMinutes, endTime, startTime]
   );
+  const handleBack = useGuardedBack({
+    hasUnsavedChanges:
+      hours.trim().length > 0 ||
+      startTime.trim().length > 0 ||
+      endTime.trim().length > 0 ||
+      breakMinutes.trim().length > 0 ||
+      note.trim().length > 0 ||
+      workDate !== getTodayDate(),
+    isBusy: isSaving,
+    message: 'These unsaved hours will be lost.',
+    onBack,
+    title: 'Discard hours?',
+  });
 
   const applyCrewOption = useCallback(
     (option: CrewOption) => {
@@ -149,7 +164,7 @@ export function AddHoursScreen({
       });
       onCreated();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to add hours.');
+      setErrorMessage(getUserFacingError(error, 'Unable to add hours. Try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -161,7 +176,7 @@ export function AddHoursScreen({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-          <Pressable style={styles.backButton} onPress={onBack}>
+          <Pressable disabled={isSaving} style={styles.backButton} onPress={handleBack}>
             <Text style={styles.backButtonText}>{backLabel}</Text>
           </Pressable>
 

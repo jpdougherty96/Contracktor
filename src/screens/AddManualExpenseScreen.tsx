@@ -11,11 +11,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useGuardedBack } from '@/src/hooks/useGuardedBack';
 import {
   createManualExpense,
   expenseTypes,
   type ExpenseType,
 } from '@/src/lib/manualExpenses';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import { buttonStyles, colors, radii } from '@/src/styles/theme';
 import type { Job } from '@/src/types/job';
 
@@ -44,6 +46,19 @@ export function AddManualExpenseScreen({
   const [notes, setNotes] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const handleBack = useGuardedBack({
+    hasUnsavedChanges:
+      description.trim().length > 0 ||
+      amount.trim().length > 0 ||
+      notes.trim().length > 0 ||
+      expenseDate !== getTodayDate() ||
+      expenseType !== defaultExpenseType ||
+      billable !== defaultBillable,
+    isBusy: isSaving,
+    message: 'This unsaved expense will be lost.',
+    onBack,
+    title: 'Discard expense?',
+  });
 
   const subtitle = useMemo(() => {
     if (inventoryMode) {
@@ -87,7 +102,7 @@ export function AddManualExpenseScreen({
       });
       onCreated();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to add expense.');
+      setErrorMessage(getUserFacingError(error, 'Unable to add expense. Try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -99,7 +114,7 @@ export function AddManualExpenseScreen({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-          <Pressable style={styles.backButton} onPress={onBack}>
+          <Pressable disabled={isSaving} style={styles.backButton} onPress={handleBack}>
             <Text style={styles.backButtonText}>{backLabel}</Text>
           </Pressable>
 
@@ -128,6 +143,8 @@ export function AddManualExpenseScreen({
               <View style={styles.categoryGrid}>
                 {expenseTypes.map((type) => (
                   <Pressable
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: expenseType === type }}
                     key={type}
                     onPress={() => {
                       setExpenseType(type);
@@ -159,6 +176,8 @@ export function AddManualExpenseScreen({
             />
 
             <Pressable
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: billable }}
               onPress={() => setBillable((current) => !current)}
               style={[styles.billableToggle, billable && styles.selectedBillableToggle]}>
               <View style={[styles.checkbox, billable && styles.checkedBox]} />

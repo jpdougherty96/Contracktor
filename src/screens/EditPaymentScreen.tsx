@@ -12,7 +12,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useGuardedBack } from '@/src/hooks/useGuardedBack';
 import { fetchPayment, updatePayment } from '@/src/lib/payments';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Job } from '@/src/types/job';
 
 type EditPaymentScreenProps = {
@@ -29,6 +31,16 @@ export function EditPaymentScreen({ job, onBack, onSaved, paymentId }: EditPayme
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [baselineSignature, setBaselineSignature] = useState<string | null>(null);
+  const [loadKey, setLoadKey] = useState(0);
+  const currentSignature = JSON.stringify({ amount, note, paymentDate });
+  const handleBack = useGuardedBack({
+    hasUnsavedChanges: baselineSignature !== null && currentSignature !== baselineSignature,
+    isBusy: isSaving,
+    message: 'Your unsaved payment changes will be lost.',
+    onBack,
+    title: 'Discard payment changes?',
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -36,6 +48,7 @@ export function EditPaymentScreen({ job, onBack, onSaved, paymentId }: EditPayme
     const loadPayment = async () => {
       setIsLoading(true);
       setErrorMessage(null);
+      setBaselineSignature(null);
 
       try {
         const payment = await fetchPayment(paymentId);
@@ -44,10 +57,17 @@ export function EditPaymentScreen({ job, onBack, onSaved, paymentId }: EditPayme
           setAmount(String(payment.amount));
           setPaymentDate(payment.payment_date);
           setNote(payment.note ?? '');
+          setBaselineSignature(
+            JSON.stringify({
+              amount: String(payment.amount),
+              note: payment.note ?? '',
+              paymentDate: payment.payment_date,
+            })
+          );
         }
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error instanceof Error ? error.message : 'Unable to load payment.');
+          setErrorMessage(getUserFacingError(error, 'Unable to load payment.'));
         }
       } finally {
         if (isMounted) {
@@ -61,7 +81,7 @@ export function EditPaymentScreen({ job, onBack, onSaved, paymentId }: EditPayme
     return () => {
       isMounted = false;
     };
-  }, [paymentId]);
+  }, [loadKey, paymentId]);
 
   const handleSubmit = async () => {
     setErrorMessage(null);
@@ -88,7 +108,7 @@ export function EditPaymentScreen({ job, onBack, onSaved, paymentId }: EditPayme
       });
       onSaved();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to save payment.');
+      setErrorMessage(getUserFacingError(error, 'Unable to save payment. Try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -100,7 +120,7 @@ export function EditPaymentScreen({ job, onBack, onSaved, paymentId }: EditPayme
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-          <Pressable style={styles.backButton} onPress={onBack}>
+          <Pressable disabled={isSaving} style={styles.backButton} onPress={handleBack}>
             <Text style={styles.backButtonText}>Back to job</Text>
           </Pressable>
 
@@ -133,11 +153,19 @@ export function EditPaymentScreen({ job, onBack, onSaved, paymentId }: EditPayme
             <Field label="Note" onChangeText={setNote} placeholder="Optional" value={note} />
 
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+            {!isLoading && baselineSignature === null ? (
+              <Pressable style={styles.retryButton} onPress={() => setLoadKey((key) => key + 1)}>
+                <Text style={styles.retryButtonText}>Try again</Text>
+              </Pressable>
+            ) : null}
 
             <Pressable
-              disabled={isSaving || isLoading}
+              disabled={isSaving || isLoading || baselineSignature === null}
               onPress={handleSubmit}
-              style={[styles.saveButton, (isSaving || isLoading) && styles.disabledButton]}>
+              style={[
+                styles.saveButton,
+                (isSaving || isLoading || baselineSignature === null) && styles.disabledButton,
+              ]}>
               <Text style={styles.saveButtonText}>{isSaving ? 'Saving...' : 'Save payment'}</Text>
             </Pressable>
           </View>
@@ -261,6 +289,19 @@ const styles = StyleSheet.create({
     color: '#B91C1C',
     fontSize: 14,
     lineHeight: 20,
+  },
+  retryButton: {
+    alignItems: 'center',
+    borderColor: '#335C43',
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  retryButtonText: {
+    color: '#335C43',
+    fontSize: 15,
+    fontWeight: '800',
   },
   saveButton: {
     alignItems: 'center',

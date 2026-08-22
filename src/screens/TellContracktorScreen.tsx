@@ -1,6 +1,7 @@
 import { Feather } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Image,
   KeyboardAvoidingView,
@@ -15,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { uploadJobNotePhoto } from '@/src/lib/jobNotes';
+import { useGuardedBack } from '@/src/hooks/useGuardedBack';
 import {
   commitTellContracktorEntry,
   submitTellContracktorText,
@@ -24,6 +26,7 @@ import {
   type TellContracktorPhotoInput,
   type TellContracktorResult,
 } from '@/src/lib/tellContracktor';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import { colors } from '@/src/styles/theme';
 import type { Job } from '@/src/types/job';
 
@@ -81,6 +84,70 @@ export function TellContracktorScreen({
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isApproved, setIsApproved] = useState(false);
+  const hasLoadedDraftRef = useRef(false);
+  const draftKey = `tell-contracktor-draft:${contextJob?.id ?? 'global'}`;
+  const hasUnsavedWork =
+    !isApproved &&
+    (text.trim().length > 0 || photos.length > 0 || result !== null || proposals.length > 0);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    AsyncStorage.getItem(draftKey)
+      .then((savedText) => {
+        if (isMounted && savedText?.trim()) {
+          setText(savedText);
+          setNoticeMessage('Draft restored.');
+        }
+      })
+      .catch(() => {
+        // Draft persistence is a recovery aid; the visible editor remains usable.
+      })
+      .finally(() => {
+        hasLoadedDraftRef.current = true;
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [draftKey]);
+
+  useEffect(() => {
+    if (!hasLoadedDraftRef.current || isApproved) {
+      return;
+    }
+
+    const saveTimer = setTimeout(() => {
+      if (text.trim()) {
+        void AsyncStorage.setItem(draftKey, text).catch(() => undefined);
+      } else {
+        void AsyncStorage.removeItem(draftKey).catch(() => undefined);
+      }
+    }, 250);
+
+    return () => clearTimeout(saveTimer);
+  }, [draftKey, isApproved, text]);
+
+  const leaveScreen = () => {
+    void AsyncStorage.removeItem(draftKey).catch(() => undefined);
+    onBack();
+  };
+
+  const handleBack = useGuardedBack({
+    hasUnsavedChanges: hasUnsavedWork,
+    isBusy: isSaving,
+    message:
+      photos.length > 0
+        ? 'Your unsaved update and attached photos will be discarded.'
+        : 'Your unsaved update will be discarded.',
+    onBack: leaveScreen,
+    title: 'Discard this update?',
+  });
+
+  const handleDone = () => {
+    void AsyncStorage.removeItem(draftKey).catch(() => undefined);
+    onDone();
+  };
 
   const handleSubmit = async () => {
     const cleanText = text.trim();
@@ -132,7 +199,7 @@ export function TellContracktorScreen({
         setErrorMessage('Choose the job this belongs to.');
       }
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to process this update.');
+      setErrorMessage(getUserFacingError(error, 'Unable to process this update. Try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -171,8 +238,9 @@ export function TellContracktorScreen({
       }
 
       setIsApproved(true);
+      void AsyncStorage.removeItem(draftKey).catch(() => undefined);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to approve these entries.');
+      setErrorMessage(getUserFacingError(error, 'Unable to approve these entries. Try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -193,9 +261,7 @@ export function TellContracktorScreen({
       setProposals([]);
       setNoticeMessage('Update undone. Adjust what you wrote and send it again when ready.');
     } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : 'Unable to undo this Tell conTRACKtor update.'
-      );
+      setErrorMessage(getUserFacingError(error, 'Unable to undo this Tell conTRACKtor update.'));
     } finally {
       setIsSaving(false);
     }
@@ -260,7 +326,7 @@ export function TellContracktorScreen({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-          <Pressable onPress={onBack}>
+          <Pressable disabled={isSaving} onPress={handleBack}>
             <Text style={styles.backLink}>{contextJob ? 'Back to job' : 'Back home'}</Text>
           </Pressable>
 
@@ -450,7 +516,7 @@ export function TellContracktorScreen({
                 style={[styles.undoButton, isSaving ? styles.disabledButton : null]}>
                 <Text style={styles.undoButtonText}>{isSaving ? 'Undoing...' : 'Undo'}</Text>
               </Pressable>
-              <Pressable disabled={isSaving} style={styles.sendButton} onPress={onDone}>
+              <Pressable disabled={isSaving} style={styles.sendButton} onPress={handleDone}>
                 <Text style={styles.sendButtonText}>Done</Text>
               </Pressable>
             </View>
@@ -479,7 +545,10 @@ function ProposalCard({
           <Text style={styles.proposalKind}>{formatProposalKind(proposal.type)}</Text>
           <Text style={styles.proposalJob}>{jobName}</Text>
         </View>
-        <Pressable onPress={onRemove} style={styles.removeProposalButton}>
+        <Pressable
+          accessibilityLabel={`Remove ${formatProposalKind(proposal.type).toLowerCase()} proposal`}
+          onPress={onRemove}
+          style={styles.removeProposalButton}>
           <Feather color={colors.danger} name="x" size={18} />
         </Pressable>
       </View>
@@ -584,7 +653,10 @@ function ShoppingProposalRow({
           style={styles.shoppingItemInput}
           value={proposal.description}
         />
-        <Pressable onPress={onRemove} style={styles.shoppingRemoveButton}>
+        <Pressable
+          accessibilityLabel="Remove shopping item"
+          onPress={onRemove}
+          style={styles.shoppingRemoveButton}>
           <Feather color={colors.danger} name="x" size={18} />
         </Pressable>
       </View>
@@ -1152,9 +1224,9 @@ const styles = StyleSheet.create({
     borderColor: colors.danger,
     borderRadius: 9,
     borderWidth: 1,
-    height: 38,
+    height: 44,
     justifyContent: 'center',
-    width: 38,
+    width: 44,
   },
   shoppingMetaLine: {
     flexDirection: 'row',
@@ -1220,9 +1292,9 @@ const styles = StyleSheet.create({
     borderColor: colors.danger,
     borderRadius: 9,
     borderWidth: 1,
-    height: 36,
+    height: 44,
     justifyContent: 'center',
-    width: 36,
+    width: 44,
   },
   proposalFields: {
     gap: 10,

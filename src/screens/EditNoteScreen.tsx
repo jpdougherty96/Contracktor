@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useGuardedBack } from '@/src/hooks/useGuardedBack';
 import {
   fetchJobNote,
   fetchJobNoteAttachments,
@@ -21,6 +22,7 @@ import {
   uploadJobNotePhoto,
   type JobNoteAttachment,
 } from '@/src/lib/jobNotes';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Job } from '@/src/types/job';
 
 type EditNoteScreenProps = {
@@ -37,6 +39,16 @@ export function EditNoteScreen({ job, noteId, onBack, onSaved }: EditNoteScreenP
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [baselineNote, setBaselineNote] = useState<string | null>(null);
+  const [loadKey, setLoadKey] = useState(0);
+  const handleBack = useGuardedBack({
+    hasUnsavedChanges:
+      baselineNote !== null && (note !== baselineNote || newPhotos.length > 0),
+    isBusy: isSaving,
+    message: 'Your unsaved note changes and new photos will be lost.',
+    onBack,
+    title: 'Discard note changes?',
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -44,6 +56,7 @@ export function EditNoteScreen({ job, noteId, onBack, onSaved }: EditNoteScreenP
     const loadNote = async () => {
       setIsLoading(true);
       setErrorMessage(null);
+      setBaselineNote(null);
 
       try {
         const [nextNote, nextAttachments] = await Promise.all([
@@ -53,12 +66,13 @@ export function EditNoteScreen({ job, noteId, onBack, onSaved }: EditNoteScreenP
 
         if (isMounted) {
           setNote(nextNote.note);
+          setBaselineNote(nextNote.note);
           setAttachments(nextAttachments);
           setNewPhotos([]);
         }
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error instanceof Error ? error.message : 'Unable to load note.');
+          setErrorMessage(getUserFacingError(error, 'Unable to load note.'));
         }
       } finally {
         if (isMounted) {
@@ -72,7 +86,7 @@ export function EditNoteScreen({ job, noteId, onBack, onSaved }: EditNoteScreenP
     return () => {
       isMounted = false;
     };
-  }, [noteId]);
+  }, [loadKey, noteId]);
 
   const handleSubmit = async () => {
     setErrorMessage(null);
@@ -95,7 +109,7 @@ export function EditNoteScreen({ job, noteId, onBack, onSaved }: EditNoteScreenP
 
       onSaved();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to save note.');
+      setErrorMessage(getUserFacingError(error, 'Unable to save note. Try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -153,7 +167,7 @@ export function EditNoteScreen({ job, noteId, onBack, onSaved }: EditNoteScreenP
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-          <Pressable style={styles.backButton} onPress={onBack}>
+          <Pressable disabled={isSaving} style={styles.backButton} onPress={handleBack}>
             <Text style={styles.backButtonText}>Back to job</Text>
           </Pressable>
 
@@ -221,11 +235,19 @@ export function EditNoteScreen({ job, noteId, onBack, onSaved }: EditNoteScreenP
             </View>
 
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+            {!isLoading && baselineNote === null ? (
+              <Pressable style={styles.retryButton} onPress={() => setLoadKey((key) => key + 1)}>
+                <Text style={styles.retryButtonText}>Try again</Text>
+              </Pressable>
+            ) : null}
 
             <Pressable
-              disabled={isSaving || isLoading}
+              disabled={isSaving || isLoading || baselineNote === null}
               onPress={handleSubmit}
-              style={[styles.saveButton, (isSaving || isLoading) && styles.disabledButton]}>
+              style={[
+                styles.saveButton,
+                (isSaving || isLoading || baselineNote === null) && styles.disabledButton,
+              ]}>
               <Text style={styles.saveButtonText}>{isSaving ? 'Saving...' : 'Save note'}</Text>
             </Pressable>
           </View>
@@ -312,6 +334,19 @@ const styles = StyleSheet.create({
     color: '#B91C1C',
     fontSize: 14,
     lineHeight: 20,
+  },
+  retryButton: {
+    alignItems: 'center',
+    borderColor: '#335C43',
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  retryButtonText: {
+    color: '#335C43',
+    fontSize: 15,
+    fontWeight: '800',
   },
   photoHelp: {
     color: '#64748B',

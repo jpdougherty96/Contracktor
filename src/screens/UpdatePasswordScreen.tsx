@@ -13,11 +13,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 
+import { getUserFacingError } from '@/src/lib/userFacingError';
+
 type UpdatePasswordScreenProps = {
+  onBack: () => void;
   onSaved: () => void;
 };
 
-export function UpdatePasswordScreen({ onSaved }: UpdatePasswordScreenProps) {
+export function UpdatePasswordScreen({ onBack, onSaved }: UpdatePasswordScreenProps) {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -45,13 +48,13 @@ export function UpdatePasswordScreen({ onSaved }: UpdatePasswordScreenProps) {
       const { error } = await supabase.auth.updateUser({ password });
 
       if (error) {
-        setMessage(error.message);
+        setMessage('Unable to update password. Check the requirements and try again.');
         return;
       }
 
       onSaved();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to update password.');
+      setMessage(getUserFacingError(error, 'Unable to update password. Try again.'));
     } finally {
       setIsLoading(false);
     }
@@ -63,6 +66,10 @@ export function UpdatePasswordScreen({ onSaved }: UpdatePasswordScreenProps) {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+          <Pressable disabled={isLoading} onPress={onBack} style={styles.backButton}>
+            <Text style={styles.backButtonText}>Cancel password change</Text>
+          </Pressable>
+
           <View style={styles.header}>
             <Text style={styles.appName}>conTRACKtor</Text>
             <Text style={styles.subtitle}>Set a new password for your account.</Text>
@@ -145,7 +152,17 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   header: {
-    marginTop: 32,
+    marginTop: 12,
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  backButtonText: {
+    color: '#335C43',
+    fontSize: 16,
+    fontWeight: '800',
   },
   appName: {
     color: '#1F2933',

@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { fetchJobs } from '@/src/lib/jobs';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import { buttonStyles, colors, radii } from '@/src/styles/theme';
 import type { Job } from '@/src/types/job';
 
@@ -35,7 +36,7 @@ export function JobsListScreen({
     try {
       setJobs(await fetchJobs());
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to load jobs.');
+      setErrorMessage(getUserFacingError(error, 'Unable to load jobs. Try again.'));
     } finally {
       setIsLoading(false);
     }

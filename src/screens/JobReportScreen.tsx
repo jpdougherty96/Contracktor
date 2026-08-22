@@ -12,6 +12,7 @@ import {
   type JobReportPayment,
 } from '@/src/lib/jobReport';
 import { createAndSharePdf, sanitizePdfFileName } from '@/src/lib/pdfExport';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import { buttonStyles, colors, radii } from '@/src/styles/theme';
 import type { Job } from '@/src/types/job';
 
@@ -65,7 +66,7 @@ export function JobReportScreen({ job, onBack }: JobReportScreenProps) {
         }
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error instanceof Error ? error.message : 'Unable to build job report.');
+          setErrorMessage(getUserFacingError(error, 'Unable to build job report. Try again.'));
         }
       } finally {
         if (isMounted) {
@@ -276,12 +277,16 @@ function SummarySection({
     <View style={styles.summarySection}>
       <Text style={styles.sectionTitle}>Summary</Text>
       <View style={styles.summaryGrid}>
-        {rows.map(([label, value]) => (
-          <View key={label} style={styles.summaryItem}>
-            <Text style={styles.summaryLabel}>{label}</Text>
-            <Text style={styles.summaryValue}>{value}</Text>
+        {rows.map(([label, value], index) => {
+          const isBalance = index === rows.length - 1;
+
+          return (
+          <View key={label} style={[styles.summaryItem, isBalance && styles.balanceSummaryItem]}>
+            <Text style={[styles.summaryLabel, isBalance && styles.balanceSummaryText]}>{label}</Text>
+            <Text style={[styles.summaryValue, isBalance && styles.balanceSummaryValue]}>{value}</Text>
           </View>
-        ))}
+          );
+        })}
       </View>
     </View>
   );
@@ -1586,6 +1591,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
     textAlign: 'right',
+  },
+  balanceSummaryItem: {
+    backgroundColor: '#EEF4EF',
+    paddingVertical: 14,
+  },
+  balanceSummaryText: {
+    color: colors.text,
+    fontSize: 16,
+  },
+  balanceSummaryValue: {
+    color: colors.primaryGreen,
+    fontSize: 20,
   },
   sectionTitle: {
     color: colors.text,

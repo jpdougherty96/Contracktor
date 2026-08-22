@@ -16,12 +16,14 @@ import { Feather } from '@expo/vector-icons';
 
 import { clearPasswordRecoveryRequested, markPasswordRecoveryRequested } from '@/src/lib/passwordRecovery';
 import { ensureProfileForUser } from '@/src/lib/profiles';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 
 type AuthScreenProps = {
   configError?: string | null;
 };
 
 type AuthMode = 'login' | 'reset' | 'signup';
+type MessageTone = 'error' | 'success';
 
 export function AuthScreen({ configError }: AuthScreenProps) {
   const [mode, setMode] = useState<AuthMode>('login');
@@ -30,6 +32,7 @@ export function AuthScreen({ configError }: AuthScreenProps) {
   const [fullName, setFullName] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [message, setMessage] = useState<string | null>(configError ?? null);
+  const [messageTone, setMessageTone] = useState<MessageTone>('error');
   const [isLoading, setIsLoading] = useState(false);
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
@@ -39,6 +42,7 @@ export function AuthScreen({ configError }: AuthScreenProps) {
   const handleSubmit = async () => {
     setIsLoading(true);
     setMessage(null);
+    setMessageTone('error');
 
     try {
       const { supabase } = await import('@/src/lib/supabase');
@@ -50,11 +54,12 @@ export function AuthScreen({ configError }: AuthScreenProps) {
         });
 
         if (error) {
-          setMessage(error.message);
+          setMessage('Unable to send the reset email. Check the address and try again.');
           return;
         }
 
         markPasswordRecoveryRequested();
+        setMessageTone('success');
         setMessage('Password reset email sent. Check your inbox for the reset link.');
         return;
       }
@@ -84,6 +89,7 @@ export function AuthScreen({ configError }: AuthScreenProps) {
         }
 
         if (!data.session) {
+          setMessageTone('success');
           setMessage('Account created. Check your email to confirm your account before logging in.');
           setMode('login');
           return;
@@ -93,6 +99,7 @@ export function AuthScreen({ configError }: AuthScreenProps) {
           await ensureProfileForUser(data.user);
         }
 
+        setMessageTone('success');
         setMessage('Account created.');
         return;
       }
@@ -112,7 +119,7 @@ export function AuthScreen({ configError }: AuthScreenProps) {
         await ensureProfileForUser(data.user);
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Authentication failed.');
+      setMessage(getUserFacingError(error, 'Authentication failed. Please try again.'));
     } finally {
       setIsLoading(false);
     }
@@ -121,12 +128,14 @@ export function AuthScreen({ configError }: AuthScreenProps) {
   const toggleMode = () => {
     setMode(isSignup || isReset ? 'login' : 'signup');
     setMessage(null);
+    setMessageTone('error');
   };
 
   const showResetMode = () => {
     setMode('reset');
     setPassword('');
     setMessage(null);
+    setMessageTone('error');
   };
 
   return (
@@ -199,7 +208,11 @@ export function AuthScreen({ configError }: AuthScreenProps) {
               </>
             ) : null}
 
-            {message ? <Text style={styles.message}>{message}</Text> : null}
+            {message ? (
+              <Text style={[styles.message, messageTone === 'success' && styles.successMessage]}>
+                {message}
+              </Text>
+            ) : null}
 
             <Pressable
               disabled={isLoading}
@@ -243,7 +256,7 @@ function getSignupErrorMessage(message: string): string {
     return 'This account already exists. Log in instead, or reset your password.';
   }
 
-  return message;
+  return 'Unable to create the account. Check your details and try again.';
 }
 
 function getLoginErrorMessage(message: string): string {
@@ -360,6 +373,9 @@ const styles = StyleSheet.create({
     color: '#7C2D12',
     fontSize: 14,
     lineHeight: 20,
+  },
+  successMessage: {
+    color: '#335C43',
   },
   submitButton: {
     alignItems: 'center',

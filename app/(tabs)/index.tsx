@@ -1,9 +1,10 @@
 import type { Session } from '@supabase/supabase-js';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useEntitlements } from '@/src/contexts/EntitlementsContext';
+import { ScreenBackProvider } from '@/src/contexts/BackNavigationContext';
 import { getCurrentAuthState, signOut } from '@/src/lib/auth';
 import { fetchGlobalActivity, type GlobalActivityItem } from '@/src/lib/globalActivity';
 import {
@@ -11,6 +12,7 @@ import {
   hasPendingPasswordRecoveryRequest,
 } from '@/src/lib/passwordRecovery';
 import { setReceiptDraftDestination } from '@/src/lib/receipts';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import { AddExpenseMethodScreen } from '@/src/screens/AddExpenseMethodScreen';
 import { AddHoursHubScreen } from '@/src/screens/AddHoursHubScreen';
 import { AddHoursScreen } from '@/src/screens/AddHoursScreen';
@@ -94,6 +96,11 @@ export default function HomeScreen() {
   const [editBackScreen, setEditBackScreen] = useState<Screen>('dashboard');
   const [receiptReviewBackScreen, setReceiptReviewBackScreen] = useState<Screen>('dashboard');
   const [updatePasswordBackScreen, setUpdatePasswordBackScreen] = useState<Screen>('home');
+  const [accountSettingsBackScreen, setAccountSettingsBackScreen] = useState<Screen>('home');
+  const [dashboardBackScreen, setDashboardBackScreen] = useState<Screen>('jobs');
+  const [toolsBackScreen, setToolsBackScreen] = useState<Screen>('home');
+  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
+  const [globalErrorMessage, setGlobalErrorMessage] = useState<string | null>(null);
   const [needsReviewCount, setNeedsReviewCount] = useState(0);
   const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
@@ -102,13 +109,93 @@ export default function HomeScreen() {
   const canUseSmartAllocation = hasFeature('receipt.smart_allocation');
   const canUseShopping = hasFeature('core.shopping');
   const canUseTell = hasFeature('tell.basic');
+  const handleSystemBack = useCallback(() => {
+    let target: Screen | null = null;
+
+    if (isJobPickerScreen(screen)) {
+      target =
+        screen === 'selectJobsForReceiptEdit'
+          ? selectedReceiptId &&
+            selectedReceiptJobs.length === 0 &&
+            !isSelectedReceiptInventoryMode
+            ? 'home'
+            : 'reviewReceipt'
+          : 'home';
+    } else {
+      target = getSystemBackScreen(screen, {
+        addBackScreen,
+        accountSettingsBackScreen,
+        createBackScreen,
+        dashboardBackScreen,
+        editBackScreen,
+        receiptReviewBackScreen,
+        selectedJob,
+        toolsBackScreen,
+        updatePasswordBackScreen,
+      });
+    }
+
+    if (!target) {
+      return false;
+    }
+
+    setScreen(target);
+    return true;
+  }, [
+    addBackScreen,
+    accountSettingsBackScreen,
+    createBackScreen,
+    dashboardBackScreen,
+    editBackScreen,
+    receiptReviewBackScreen,
+    screen,
+    isSelectedReceiptInventoryMode,
+    selectedJob,
+    selectedReceiptId,
+    selectedReceiptJobs.length,
+    toolsBackScreen,
+    updatePasswordBackScreen,
+  ]);
   const renderScreen = (content: ReactNode) => (
-    <View style={styles.appShell}>
-      <View style={[styles.screenFrame, viewportWidth >= 768 && styles.desktopScreenFrame]}>
-        {content}
+    <ScreenBackProvider
+      key={screen}
+      onBack={session && screen !== 'home' ? handleSystemBack : null}
+      screenKey={screen}>
+      <View style={styles.appShell}>
+        <View style={[styles.screenFrame, viewportWidth >= 768 && styles.desktopScreenFrame]}>
+          {content}
+        </View>
+        {noticeMessage ? (
+          <View accessibilityLiveRegion="polite" style={styles.noticeToast}>
+            <Text style={styles.noticeToastText}>{noticeMessage}</Text>
+          </View>
+        ) : null}
+        {globalErrorMessage ? (
+          <View accessibilityLiveRegion="assertive" style={styles.errorToast}>
+            <Text style={styles.errorToastText}>{globalErrorMessage}</Text>
+          </View>
+        ) : null}
       </View>
-    </View>
+    </ScreenBackProvider>
   );
+
+  useEffect(() => {
+    if (!noticeMessage) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => setNoticeMessage(null), 3500);
+    return () => clearTimeout(timeoutId);
+  }, [noticeMessage]);
+
+  useEffect(() => {
+    if (!globalErrorMessage) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => setGlobalErrorMessage(null), 5000);
+    return () => clearTimeout(timeoutId);
+  }, [globalErrorMessage]);
 
   useEffect(() => {
     let isMounted = true;
@@ -161,7 +248,7 @@ export default function HomeScreen() {
         unsubscribe = () => data.subscription.unsubscribe();
       } catch (error) {
         if (isMounted) {
-          setAuthError(error instanceof Error ? error.message : 'Unable to load auth session.');
+          setAuthError(getUserFacingError(error, 'Unable to load your session. Try again.'));
         }
       } finally {
         if (isMounted) {
@@ -243,7 +330,7 @@ export default function HomeScreen() {
       setIsSelectedReceiptInventoryMode(false);
       setScreen('home');
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : 'Unable to log out.');
+      setGlobalErrorMessage(getUserFacingError(error, 'Unable to log out. Try again.'));
     }
   };
 
@@ -298,11 +385,13 @@ export default function HomeScreen() {
     }
 
     if (item.job) {
+      setDashboardBackScreen('activity');
       setScreen('dashboard');
       return;
     }
 
     if (item.type === 'expense') {
+      setToolsBackScreen('activity');
       setScreen('toolsInventory');
     }
   };
@@ -326,9 +415,22 @@ export default function HomeScreen() {
   if (screen === 'updatePassword') {
     return renderScreen(
       <UpdatePasswordScreen
+        onBack={() => {
+          if (isPasswordRecoveryFlowRef.current) {
+            void signOut().finally(() => {
+              isPasswordRecoveryFlowRef.current = false;
+              clearPasswordRecoveryRequested();
+              setScreen('home');
+            });
+            return;
+          }
+
+          setScreen(updatePasswordBackScreen);
+        }}
         onSaved={() => {
           isPasswordRecoveryFlowRef.current = false;
           clearPasswordRecoveryRequested();
+          setNoticeMessage('Password updated.');
           setScreen(updatePasswordBackScreen);
         }}
       />
@@ -338,7 +440,7 @@ export default function HomeScreen() {
   if (screen === 'accountSettings') {
     return renderScreen(
       <AccountSettingsScreen
-        onBack={() => setScreen('home')}
+        onBack={() => setScreen(accountSettingsBackScreen)}
         onChangePassword={() => {
           setUpdatePasswordBackScreen('accountSettings');
           setScreen('updatePassword');
@@ -367,7 +469,10 @@ export default function HomeScreen() {
           setCreateBackScreen('home');
           setScreen('createJob');
         }}
-        onAccountSettings={() => setScreen('accountSettings')}
+        onAccountSettings={() => {
+          setAccountSettingsBackScreen('home');
+          setScreen('accountSettings');
+        }}
         onCaptureReceipt={() => {
           setSelectedJob(null);
           setSelectedReceiptId(null);
@@ -443,10 +548,8 @@ export default function HomeScreen() {
           if (screen === 'selectJobsForReceiptEdit') {
             if (selectedReceiptId && jobs.length === 1 && !includesInventory) {
               await setReceiptDraftDestination(selectedReceiptId, jobs[0].id).catch((error) => {
-                setAuthError(
-                  error instanceof Error
-                    ? error.message
-                    : 'Unable to save receipt destination.'
+                setGlobalErrorMessage(
+                  getUserFacingError(error, 'Unable to save receipt destination.')
                 );
               });
             }
@@ -465,10 +568,8 @@ export default function HomeScreen() {
           if (screen === 'selectJobsForReceiptEdit') {
             if (selectedReceiptId) {
               void setReceiptDraftDestination(selectedReceiptId, null).catch((error) => {
-                setAuthError(
-                  error instanceof Error
-                    ? error.message
-                    : 'Unable to save receipt destination.'
+                setGlobalErrorMessage(
+                  getUserFacingError(error, 'Unable to save receipt destination.')
                 );
               });
             }
@@ -491,7 +592,7 @@ export default function HomeScreen() {
     return renderScreen(
       <JobDashboardScreen
         job={selectedJob}
-        onBack={() => setScreen('jobs')}
+        onBack={() => setScreen(dashboardBackScreen)}
         onAddUpdate={() => setScreen('addUpdate')}
         onCreateInvoice={() => setScreen('invoiceDraft')}
         onEditJob={() => setScreen('editJob')}
@@ -540,7 +641,10 @@ export default function HomeScreen() {
       <InvoiceDraftScreen
         job={selectedJob}
         onBack={() => setScreen('dashboard')}
-        onEditBusinessProfile={() => setScreen('accountSettings')}
+        onEditBusinessProfile={() => {
+          setAccountSettingsBackScreen('invoiceDraft');
+          setScreen('accountSettings');
+        }}
       />
     );
   }
@@ -574,7 +678,7 @@ export default function HomeScreen() {
           setAddCompleteScreen('toolsInventory');
           setScreen('addExpenseMethod');
         }}
-        onBack={() => setScreen('home')}
+        onBack={() => setScreen(toolsBackScreen)}
       />
     );
   }
@@ -612,10 +716,12 @@ export default function HomeScreen() {
         onDeleted={() => {
           setSelectedHoursId(null);
           setDashboardRefreshKey((key) => key + 1);
+          setNoticeMessage('Hours entry removed.');
           setScreen(editBackScreen);
         }}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
+          setNoticeMessage('Hours updated.');
           setScreen(editBackScreen);
         }}
       />
@@ -630,6 +736,7 @@ export default function HomeScreen() {
         onBack={() => setScreen(editBackScreen)}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
+          setNoticeMessage('Note updated.');
           setScreen(editBackScreen);
         }}
       />
@@ -643,6 +750,7 @@ export default function HomeScreen() {
         onBack={() => setScreen(editBackScreen)}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
+          setNoticeMessage('Payment updated.');
           setScreen(editBackScreen);
         }}
         paymentId={selectedPaymentId}
@@ -659,6 +767,7 @@ export default function HomeScreen() {
           setSelectedJob(job);
           setJobsRefreshKey((key) => key + 1);
           setDashboardRefreshKey((key) => key + 1);
+          setNoticeMessage('Job updated.');
           setScreen('dashboard');
         }}
       />
@@ -695,13 +804,21 @@ export default function HomeScreen() {
         }}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setScreen(
-            getReceiptCompleteScreen(
-              selectedReceiptJobs,
-              isSelectedReceiptInventoryMode,
-              canUseActivity
-            )
+          const completeScreen = getReceiptCompleteScreen(
+            selectedReceiptJobs,
+            isSelectedReceiptInventoryMode,
+            canUseActivity
           );
+
+          if (
+            completeScreen === 'dashboard' &&
+            ['activity', 'home', 'jobs'].includes(receiptReviewBackScreen)
+          ) {
+            setDashboardBackScreen(receiptReviewBackScreen);
+          }
+
+          setNoticeMessage('Receipt saved.');
+          setScreen(completeScreen);
         }}
         receiptId={selectedReceiptId}
       />
@@ -759,6 +876,7 @@ export default function HomeScreen() {
         onBack={() => setScreen(addBackScreen)}
         onDone={() => {
           setDashboardRefreshKey((key) => key + 1);
+          setNoticeMessage('Receipt saved.');
           setScreen(
             getReceiptCompleteScreen(
               selectedReceiptJobs,
@@ -796,6 +914,7 @@ export default function HomeScreen() {
         onBack={() => setScreen(addBackScreen)}
         onCreated={() => {
           setDashboardRefreshKey((key) => key + 1);
+          setNoticeMessage('Expense saved.');
           setScreen(addCompleteScreen);
         }}
       />
@@ -810,6 +929,7 @@ export default function HomeScreen() {
         onBack={() => setScreen(addBackScreen)}
         onCreated={() => {
           setDashboardRefreshKey((key) => key + 1);
+          setNoticeMessage('Hours saved.');
           setScreen(addCompleteScreen);
         }}
       />
@@ -824,6 +944,7 @@ export default function HomeScreen() {
         onBack={() => setScreen(addBackScreen)}
         onCreated={() => {
           setDashboardRefreshKey((key) => key + 1);
+          setNoticeMessage('Payment saved.');
           setScreen(addCompleteScreen);
         }}
       />
@@ -838,6 +959,7 @@ export default function HomeScreen() {
         onBack={() => setScreen(addBackScreen)}
         onCreated={() => {
           setDashboardRefreshKey((key) => key + 1);
+          setNoticeMessage('Note saved.');
           setScreen(addCompleteScreen);
         }}
       />
@@ -851,7 +973,30 @@ export default function HomeScreen() {
         onCreated={(job) => {
           setSelectedJob(job);
           setJobsRefreshKey((key) => key + 1);
-          setScreen('home');
+
+          if (isJobPickerScreen(createBackScreen)) {
+            if (createBackScreen === 'selectJobsForReceiptEdit') {
+              setReceiptEditInitialJobIds((current) =>
+                Array.from(new Set([...current, job.id]))
+              );
+              setScreen(createBackScreen);
+              return;
+            }
+
+            if (createBackScreen === 'selectJobForExpense') {
+              setSelectedReceiptJobs([job]);
+              setIsSelectedReceiptInventoryMode(false);
+            }
+
+            setAddBackScreen(createBackScreen);
+            setAddCompleteScreen('home');
+            setScreen(getAddScreenForPicker(createBackScreen));
+            return;
+          }
+
+          setDashboardBackScreen(createBackScreen === 'jobs' ? 'jobs' : 'home');
+          setNoticeMessage('Job created.');
+          setScreen('dashboard');
         }}
       />
     );
@@ -867,12 +1012,75 @@ export default function HomeScreen() {
       onLogout={handleLogout}
       onSelectJob={(job) => {
         setSelectedJob(job);
+        setDashboardBackScreen('jobs');
         setScreen('dashboard');
       }}
       refreshKey={jobsRefreshKey}
       userEmail={session.user.email}
     />
   );
+}
+
+function getSystemBackScreen(
+  screen: Screen,
+  context: {
+    addBackScreen: Screen;
+    accountSettingsBackScreen: Screen;
+    createBackScreen: Screen;
+    dashboardBackScreen: Screen;
+    editBackScreen: Screen;
+    receiptReviewBackScreen: Screen;
+    selectedJob: Job | null;
+    toolsBackScreen: Screen;
+    updatePasswordBackScreen: Screen;
+  }
+): Screen | null {
+  switch (screen) {
+    case 'home':
+      return null;
+    case 'accountSettings':
+      return context.accountSettingsBackScreen;
+    case 'activity':
+    case 'addHoursHub':
+    case 'jobs':
+      return 'home';
+    case 'dashboard':
+      return context.dashboardBackScreen;
+    case 'addUpdate':
+    case 'editJob':
+    case 'invoiceDraft':
+    case 'jobReport':
+    case 'shoppingList':
+      return 'dashboard';
+    case 'addExpenseMethod':
+    case 'addHours':
+    case 'addManualExpense':
+    case 'addNote':
+    case 'addPayment':
+    case 'addReceipt':
+      return context.addBackScreen;
+    case 'createJob':
+      return context.createBackScreen;
+    case 'editHours':
+    case 'editNote':
+    case 'editPayment':
+      return context.editBackScreen;
+    case 'reviewReceipt':
+      return context.receiptReviewBackScreen;
+    case 'tellContracktor':
+      return context.selectedJob ? 'dashboard' : 'home';
+    case 'toolsInventory':
+      return context.toolsBackScreen;
+    case 'updatePassword':
+      return context.updatePasswordBackScreen;
+    case 'selectJobForExpense':
+    case 'selectJobForHours':
+    case 'selectJobForNote':
+    case 'selectJobForPayment':
+      return 'home';
+    case 'selectJobsForReceiptEdit':
+      return 'reviewReceipt';
+  }
 }
 
 function isJobPickerScreen(
@@ -1055,6 +1263,38 @@ const styles = StyleSheet.create({
   desktopScreenFrame: {
     alignSelf: 'center',
     maxWidth: 980,
+  },
+  noticeToast: {
+    alignSelf: 'center',
+    backgroundColor: '#294B38',
+    borderRadius: 10,
+    bottom: 24,
+    maxWidth: 460,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    position: 'absolute',
+  },
+  noticeToastText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  errorToast: {
+    alignSelf: 'center',
+    backgroundColor: '#8F2F28',
+    borderRadius: 10,
+    bottom: 24,
+    maxWidth: 460,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    position: 'absolute',
+  },
+  errorToastText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   safeArea: {
     flex: 1,

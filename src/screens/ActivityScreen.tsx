@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { resolveAttentionItem } from '@/src/lib/activityEvents';
 import { fetchGlobalActivity, type GlobalActivityItem, type GlobalActivitySummary } from '@/src/lib/globalActivity';
+import { getUserFacingError } from '@/src/lib/userFacingError';
 import { colors } from '@/src/styles/theme';
 
 type ActivityScreenProps = {
@@ -28,7 +29,7 @@ export function ActivityScreen({ onBack, onChanged, onOpenItem, refreshKey = 0 }
       const nextSummary = await fetchGlobalActivity();
       setSummary(nextSummary);
     } catch (activityError) {
-      setError(activityError instanceof Error ? activityError.message : 'Unable to load activity.');
+      setError(getUserFacingError(activityError, 'Unable to load activity. Try again.'));
     } finally {
       setIsLoading(false);
     }
@@ -49,7 +50,7 @@ export function ActivityScreen({ onBack, onChanged, onOpenItem, refreshKey = 0 }
         }
       } catch (activityError) {
         if (isMounted) {
-          setError(activityError instanceof Error ? activityError.message : 'Unable to load activity.');
+          setError(getUserFacingError(activityError, 'Unable to load activity. Try again.'));
         }
       } finally {
         if (isMounted) {
@@ -78,7 +79,7 @@ export function ActivityScreen({ onBack, onChanged, onOpenItem, refreshKey = 0 }
       await loadActivity();
       onChanged?.();
     } catch (resolveError) {
-      setError(resolveError instanceof Error ? resolveError.message : 'Unable to mark item reviewed.');
+      setError(getUserFacingError(resolveError, 'Unable to mark this item reviewed. Try again.'));
     } finally {
       setResolvingAttentionItemId(null);
     }
@@ -278,8 +279,7 @@ function ActivityRow({
 function getTodayItems(items: GlobalActivityItem[]) {
   return items
     .filter((item) => isToday(item.capturedAt ?? item.date))
-    .sort(sortCapturedNewestFirst)
-    .slice(0, 10);
+    .sort(sortCapturedNewestFirst);
 }
 
 function getCapturedDetail(item: GlobalActivityItem): string {
