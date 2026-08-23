@@ -35,7 +35,10 @@ test('the app resolves attention state without mutating accepted-receipt history
   ]);
 
   assert.match(activityFeed, /from\('attention_items'\)/);
-  assert.match(activityFeed, /\.eq\('status', 'open'\)/);
+  assert.match(activityFeed, /const durableAttentionEventIds = new Set<string>\(\)/);
+  assert.match(activityFeed, /if \(attention\.status !== 'open'\) \{\s*continue;/);
+  assert.match(activityFeed, /!durableAttentionEventIds\.has\(event\.id\)/);
+  assert.match(activityFeed, /!durableAttentionSourceKeys\.has\(/);
   assert.match(activityApi, /rpc\('resolve_attention_item'/);
   assert.doesNotMatch(activityApi, /from\('activity_events'\)[\s\S]*?\.update\(/);
   assert.match(activityScreen, /item\.attentionItemId/);

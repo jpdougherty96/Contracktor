@@ -62,9 +62,8 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
       .select(
         'id, activity_event_id, business_id, owner_id, job_id, item_type, status, severity, source_table, source_id, title, detail, metadata, opened_at, created_at'
       )
-      .eq('status', 'open')
       .order('opened_at', { ascending: false })
-      .limit(40),
+      .limit(200),
     supabase
       .from('activity_events')
       .select(
@@ -136,7 +135,8 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
 
   const items: GlobalActivityItem[] = [];
   const needsReview: GlobalActivityItem[] = [];
-  const explicitAttentionSourceKeys = new Set<string>();
+  const durableAttentionEventIds = new Set<string>();
+  const durableAttentionSourceKeys = new Set<string>();
   const explicitAttentionReceiptIds = new Set<string>();
 
   for (const attention of attentionResult.data ?? []) {
@@ -145,7 +145,15 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
       attention.source_table,
       attention.source_id
     );
-    explicitAttentionSourceKeys.add(sourceKey);
+    durableAttentionSourceKeys.add(sourceKey);
+
+    if (attention.activity_event_id) {
+      durableAttentionEventIds.add(attention.activity_event_id);
+    }
+
+    if (attention.status !== 'open') {
+      continue;
+    }
 
     const job = getJob(jobsById, attention.job_id);
     const receiptId =
@@ -193,7 +201,8 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
       event.source_table === 'receipts' && event.source_id ? event.source_id : undefined;
     const needsAttention =
       (event.status === 'needs_attention' || event.status === 'review_recommended') &&
-      !explicitAttentionSourceKeys.has(
+      !durableAttentionEventIds.has(event.id) &&
+      !durableAttentionSourceKeys.has(
         getAttentionSourceKey(event.event_type, event.source_table, event.source_id)
       );
     const reviewReason =
