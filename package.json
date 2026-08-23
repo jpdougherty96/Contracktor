@@ -12,6 +12,7 @@
     "lint": "expo lint",
     "test": "node --test ./tests/*.test.mjs",
     "test:integration": "node --test ./tests/receipt-integrity.integration.mjs",
+    "test:tasks:integration": "node --test ./tests/job-tasks.integration.mjs",
     "test:supervision": "node --test ./tests/supervision-boundary.test.mjs",
     "test:tiers": "node --test ./tests/tier-boundary.test.mjs"
   },

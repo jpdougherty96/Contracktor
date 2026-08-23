@@ -23,6 +23,7 @@ export type BasicJobTruthSummary = {
   lastActivityAt: string | null;
   openAttentionCount: number;
   openShoppingNeedCount: number;
+  openTaskCount: number;
 };
 
 export async function fetchJobFinancialSnapshot(
@@ -62,10 +63,15 @@ export async function fetchBasicJobTruthSummary(jobId: string): Promise<BasicJob
   }
 
   if (!userData.user) {
-    return { lastActivityAt: null, openAttentionCount: 0, openShoppingNeedCount: 0 };
+    return {
+      lastActivityAt: null,
+      openAttentionCount: 0,
+      openShoppingNeedCount: 0,
+      openTaskCount: 0,
+    };
   }
 
-  const [attentionResult, shoppingResult, activityResult] = await Promise.all([
+  const [attentionResult, shoppingResult, taskResult, activityResult] = await Promise.all([
     supabase
       .from('attention_items')
       .select('id', { count: 'exact', head: true })
@@ -73,6 +79,11 @@ export async function fetchBasicJobTruthSummary(jobId: string): Promise<BasicJob
       .eq('status', 'open'),
     supabase
       .from('shopping_needs')
+      .select('id', { count: 'exact', head: true })
+      .eq('job_id', jobId)
+      .eq('status', 'open'),
+    supabase
+      .from('job_tasks')
       .select('id', { count: 'exact', head: true })
       .eq('job_id', jobId)
       .eq('status', 'open'),
@@ -93,6 +104,10 @@ export async function fetchBasicJobTruthSummary(jobId: string): Promise<BasicJob
     throw new Error(shoppingResult.error.message);
   }
 
+  if (taskResult.error) {
+    throw new Error(taskResult.error.message);
+  }
+
   if (activityResult.error) {
     throw new Error(activityResult.error.message);
   }
@@ -101,6 +116,7 @@ export async function fetchBasicJobTruthSummary(jobId: string): Promise<BasicJob
     lastActivityAt: activityResult.data?.occurred_at ?? null,
     openAttentionCount: attentionResult.count ?? 0,
     openShoppingNeedCount: shoppingResult.count ?? 0,
+    openTaskCount: taskResult.count ?? 0,
   };
 }
 

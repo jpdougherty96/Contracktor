@@ -1018,6 +1018,190 @@ export type Database = {
           },
         ]
       }
+      job_task_events: {
+        Row: {
+          actor_user_id: string
+          business_id: string
+          created_at: string
+          event_type: string
+          id: string
+          idempotency_key: string
+          job_id: string
+          metadata: Json
+          occurred_at: string
+          owner_id: string
+          source_type: string
+          task_id: string
+          title_snapshot: string
+        }
+        Insert: {
+          actor_user_id: string
+          business_id: string
+          created_at?: string
+          event_type: string
+          id?: string
+          idempotency_key: string
+          job_id: string
+          metadata?: Json
+          occurred_at?: string
+          owner_id: string
+          source_type?: string
+          task_id: string
+          title_snapshot: string
+        }
+        Update: {
+          actor_user_id?: string
+          business_id?: string
+          created_at?: string
+          event_type?: string
+          id?: string
+          idempotency_key?: string
+          job_id?: string
+          metadata?: Json
+          occurred_at?: string
+          owner_id?: string
+          source_type?: string
+          task_id?: string
+          title_snapshot?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_task_events_actor_user_id_fkey"
+            columns: ["actor_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_task_events_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_task_events_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_task_events_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_task_events_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "job_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      job_tasks: {
+        Row: {
+          business_id: string
+          cancelled_at: string | null
+          cancelled_by_user_id: string | null
+          completed_at: string | null
+          completed_by_user_id: string | null
+          created_at: string
+          created_by_user_id: string
+          creation_idempotency_key: string
+          id: string
+          job_id: string
+          owner_id: string
+          source_type: string
+          status: string
+          title: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          business_id: string
+          cancelled_at?: string | null
+          cancelled_by_user_id?: string | null
+          completed_at?: string | null
+          completed_by_user_id?: string | null
+          created_at?: string
+          created_by_user_id: string
+          creation_idempotency_key: string
+          id?: string
+          job_id: string
+          owner_id: string
+          source_type?: string
+          status?: string
+          title: string
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          business_id?: string
+          cancelled_at?: string | null
+          cancelled_by_user_id?: string | null
+          completed_at?: string | null
+          completed_by_user_id?: string | null
+          created_at?: string
+          created_by_user_id?: string
+          creation_idempotency_key?: string
+          id?: string
+          job_id?: string
+          owner_id?: string
+          source_type?: string
+          status?: string
+          title?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_tasks_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_tasks_cancelled_by_user_id_fkey"
+            columns: ["cancelled_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_tasks_completed_by_user_id_fkey"
+            columns: ["completed_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_tasks_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_tasks_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_tasks_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       job_notes: {
         Row: {
           business_id: string
@@ -2472,6 +2656,16 @@ export type Database = {
           receipt_id: string
         }[]
       }
+      change_job_task: {
+        Args: {
+          p_action: string
+          p_expected_updated_at: string
+          p_idempotency_key: string
+          p_task_id: string
+          p_title: string
+        }
+        Returns: Database["public"]["Tables"]["job_tasks"]["Row"]
+      }
       commit_receipt_review: {
         Args: {
           p_expected_updated_at: string | null
@@ -2488,6 +2682,14 @@ export type Database = {
       commit_tell_contracktor_entry_once: {
         Args: { p_entry_id: string; p_proposals: Json }
         Returns: Json
+      }
+      create_job_task: {
+        Args: {
+          p_idempotency_key: string
+          p_job_id: string
+          p_title: string
+        }
+        Returns: Database["public"]["Tables"]["job_tasks"]["Row"]
       }
       default_business_for_user: {
         Args: { p_user_id: string }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { JobTasksPanel } from '@/src/components/JobTasksPanel';
 import { formatCurrency, formatPercent } from '@/src/lib/financials';
 import { fetchJobActivity, type JobActivityItem } from '@/src/lib/jobActivity';
 import {
@@ -29,6 +30,7 @@ type JobDashboardScreenProps = {
   onEditPayment: (paymentId: string) => void;
   onReviewReceipt: (receiptId: string) => void;
   onShoppingList: () => void;
+  onTasksChanged?: () => void;
   refreshKey?: number;
   showShoppingList?: boolean;
 };
@@ -45,6 +47,7 @@ export function JobDashboardScreen({
   onEditPayment,
   onReviewReceipt,
   onShoppingList,
+  onTasksChanged,
   refreshKey = 0,
   showShoppingList = false,
 }: JobDashboardScreenProps) {
@@ -259,6 +262,12 @@ export function JobDashboardScreen({
                     isTruthLoading ? '…' : truthError ? '—' : String(truthSummary?.openShoppingNeedCount ?? 0)
                   }
                 />
+                <SnapshotMetric
+                  label="Open tasks"
+                  value={
+                    isTruthLoading ? '…' : truthError ? '—' : String(truthSummary?.openTaskCount ?? 0)
+                  }
+                />
                 <SnapshotMetric label="Total hours" value={formatNumber(totalHours)} />
                 <SnapshotMetric
                   label="Job cost"
@@ -307,6 +316,12 @@ export function JobDashboardScreen({
             </>
           ) : null}
         </View>
+
+        <JobTasksPanel
+          jobId={job.id}
+          onChanged={onTasksChanged}
+          refreshKey={refreshKey}
+        />
 
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Financial details</Text>
@@ -501,7 +516,7 @@ export function JobDashboardScreen({
             </View>
           ) : null}
           {!isActivityLoading && !activityError && activity.length === 0 ? (
-            <Text style={styles.emptyActivityText}>No receipts, hours, payments, or notes yet.</Text>
+            <Text style={styles.emptyActivityText}>No receipts, hours, payments, notes, or task changes yet.</Text>
           ) : null}
         </View>
       </ScrollView>

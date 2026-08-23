@@ -10,7 +10,7 @@ export type JobActivityItem = {
   paymentId?: string;
   receiptId?: string;
   label: string;
-  type: 'expense' | 'hours' | 'note' | 'payment' | 'receipt';
+  type: 'expense' | 'hours' | 'note' | 'payment' | 'receipt' | 'task';
 };
 
 export async function fetchJobActivity(jobId: string): Promise<JobActivityItem[]> {
@@ -24,7 +24,7 @@ export async function fetchJobActivity(jobId: string): Promise<JobActivityItem[]
     return [];
   }
 
-  const [hoursResult, paymentsResult, expensesResult, receiptsResult, notesResult] = await Promise.all([
+  const [hoursResult, paymentsResult, expensesResult, receiptsResult, notesResult, taskEventsResult] = await Promise.all([
     supabase
       .from('time_entries')
       .select('id, duration_minutes, hourly_rate, work_date, worker_name, description, created_at')
@@ -58,6 +58,12 @@ export async function fetchJobActivity(jobId: string): Promise<JobActivityItem[]
       .eq('job_id', jobId)
       .eq('owner_id', userData.user.id)
       .order('created_at', { ascending: false }),
+    supabase
+      .from('activity_events')
+      .select('id, event_type, title, detail, occurred_at')
+      .eq('job_id', jobId)
+      .eq('source_table', 'job_task_events')
+      .order('occurred_at', { ascending: false }),
   ]);
 
   if (hoursResult.error) {
@@ -78,6 +84,10 @@ export async function fetchJobActivity(jobId: string): Promise<JobActivityItem[]
 
   if (notesResult.error) {
     throw new Error(notesResult.error.message);
+  }
+
+  if (taskEventsResult.error) {
+    throw new Error(taskEventsResult.error.message);
   }
 
   const hourItems: JobActivityItem[] = (hoursResult.data ?? []).map((entry) => ({
@@ -184,6 +194,14 @@ export async function fetchJobActivity(jobId: string): Promise<JobActivityItem[]
     type: 'note',
   }));
 
+  const taskItems: JobActivityItem[] = (taskEventsResult.data ?? []).map((event) => ({
+    date: event.occurred_at,
+    detail: event.detail ?? formatTaskEventType(event.event_type),
+    id: `task-event-${event.id}`,
+    label: event.title,
+    type: 'task',
+  }));
+
   return [
     ...hourItems,
     ...paymentItems,
@@ -191,10 +209,19 @@ export async function fetchJobActivity(jobId: string): Promise<JobActivityItem[]
     ...manualExpenseItems,
     ...draftReceiptItems,
     ...noteItems,
+    ...taskItems,
   ]
     .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
     .filter(dedupeActivityReceiptItems())
     .slice(0, 12);
+}
+
+function formatTaskEventType(value: string): string {
+  return value
+    .replace(/^task_/, '')
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 function dedupeActivityReceiptItems() {

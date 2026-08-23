@@ -646,6 +646,7 @@ export default function HomeScreen() {
           setScreen('reviewReceipt');
         }}
         onShoppingList={() => setScreen('shoppingList')}
+        onTasksChanged={() => setDashboardRefreshKey((key) => key + 1)}
         refreshKey={dashboardRefreshKey}
         showShoppingList={canUseShopping}
       />
