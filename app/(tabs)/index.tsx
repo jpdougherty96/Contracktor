@@ -1,6 +1,7 @@
 import type { Session } from '@supabase/supabase-js';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ImagePickerAsset } from 'expo-image-picker';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,12 +9,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useEntitlements } from '@/src/contexts/EntitlementsContext';
 import { ScreenBackProvider } from '@/src/contexts/BackNavigationContext';
 import { getCurrentAuthState, signOut } from '@/src/lib/auth';
-import { fetchGlobalActivity, type GlobalActivityItem } from '@/src/lib/globalActivity';
+import type { GlobalActivityItem } from '@/src/lib/globalActivity';
 import {
   clearPasswordRecoveryRequested,
   hasPendingPasswordRecoveryRequest,
 } from '@/src/lib/passwordRecovery';
 import { setReceiptDraftDestination } from '@/src/lib/receipts';
+import {
+  globalActivityQueryOptions,
+  jobQueryOptions,
+  serverStateKeys,
+} from '@/src/lib/serverState';
 import { getUserFacingError } from '@/src/lib/userFacingError';
 import { AddExpenseMethodScreen } from '@/src/screens/AddExpenseMethodScreen';
 import { AddHoursScreen } from '@/src/screens/AddHoursScreen';
@@ -74,8 +80,34 @@ type Screen =
   | 'toolsInventory'
   | 'updatePassword';
 
+const routedLegacyScreens = new Set<Screen>([
+  'addUpdate',
+  'createJob',
+  'editHours',
+  'editJob',
+  'editNote',
+  'editPayment',
+  'invoiceDraft',
+  'jobReport',
+  'reviewReceipt',
+  'selectJobsForReceiptEdit',
+  'shoppingList',
+  'toolsInventory',
+]);
+
 export default function HomeScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const legacyParams = useLocalSearchParams<{
+    inventory?: string;
+    jobId?: string;
+    jobIds?: string;
+    legacyScreen?: string;
+    receiptId?: string;
+    recordId?: string;
+    returnContext?: string;
+    returnPath?: string;
+  }>();
   const { width: viewportWidth } = useWindowDimensions();
   const { hasFeature, refresh: refreshEntitlements } = useEntitlements();
   const [session, setSession] = useState<Session | null>(null);
@@ -103,14 +135,57 @@ export default function HomeScreen() {
   const [toolsBackScreen, setToolsBackScreen] = useState<Screen>('home');
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const [globalErrorMessage, setGlobalErrorMessage] = useState<string | null>(null);
-  const [needsReviewCount, setNeedsReviewCount] = useState(0);
   const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
+  const [isLegacyRouteLoading, setIsLegacyRouteLoading] = useState(
+    Boolean(legacyParams.legacyScreen)
+  );
+  const legacyRequestRef = useRef<string | null>(null);
   const isPasswordRecoveryFlowRef = useRef(false);
   const canUseActivity = hasFeature('activity.feed');
   const canUseSmartAllocation = hasFeature('receipt.smart_allocation');
   const canUseShopping = hasFeature('core.shopping');
   const canUseTell = hasFeature('tell.basic');
+  const activitySummaryQuery = useQuery({
+    ...globalActivityQueryOptions(),
+    enabled: Boolean(session && canUseActivity),
+  });
+  const needsReviewCount = activitySummaryQuery.data?.needsReviewCount ?? 0;
+  const returnToRoutedOrigin = useCallback(
+    (returnPath: string | null) => {
+      if (!returnPath) {
+        return false;
+      }
+
+      // The legacy flow was pushed on top of its originating route, so that route is
+      // still on the stack. Dismiss back to it instead of replacing, which would leave
+      // a duplicate entry and make the first Back press look like it did nothing.
+      const dismissOrReplace = (href: Parameters<typeof router.replace>[0]) => {
+        if (router.canDismiss()) {
+          router.dismissTo(href);
+          return;
+        }
+
+        router.replace(href);
+      };
+
+      if (returnPath.startsWith('/jobs/')) {
+        dismissOrReplace({
+          pathname: '/jobs/[jobId]',
+          params: {
+            from: legacyParams.returnContext === 'activity' ? 'activity' : 'jobs',
+            jobId: returnPath.slice('/jobs/'.length),
+          },
+        });
+        return true;
+      }
+
+      dismissOrReplace(returnPath === '/activity' ? '/activity' : '/jobs');
+      return true;
+    },
+    [legacyParams.returnContext, router]
+  );
+
   const handleSystemBack = useCallback(() => {
     let target: Screen | null = null;
 
@@ -141,6 +216,13 @@ export default function HomeScreen() {
       return false;
     }
 
+    if (
+      screen === legacyParams.legacyScreen &&
+      returnToRoutedOrigin(getLegacyReturnPath(legacyParams.returnPath))
+    ) {
+      return true;
+    }
+
     setScreen(target);
     return true;
   }, [
@@ -152,6 +234,9 @@ export default function HomeScreen() {
     receiptReviewBackScreen,
     screen,
     isSelectedReceiptInventoryMode,
+    legacyParams.legacyScreen,
+    legacyParams.returnPath,
+    returnToRoutedOrigin,
     selectedJob,
     selectedReceiptId,
     selectedReceiptJobs.length,
@@ -290,33 +375,165 @@ export default function HomeScreen() {
   }, [canUseActivity, canUseShopping, canUseTell, screen, selectedJob]);
 
   useEffect(() => {
-    let isMounted = true;
+    if (session && canUseActivity && dashboardRefreshKey + jobsRefreshKey > 0) {
+      void queryClient.invalidateQueries({ queryKey: serverStateKeys.activity });
+    }
+  }, [canUseActivity, dashboardRefreshKey, jobsRefreshKey, queryClient, session]);
 
-    const loadNeedsReviewCount = async () => {
-      if (!session || !canUseActivity) {
-        setNeedsReviewCount(0);
+  const finishLegacyFlow = useCallback(
+    (fallbackScreen: Screen) => {
+      if (returnToRoutedOrigin(getLegacyReturnPath(legacyParams.returnPath))) {
         return;
       }
 
-      try {
-        const summary = await fetchGlobalActivity();
+      setScreen(fallbackScreen);
+    },
+    [legacyParams.returnPath, returnToRoutedOrigin]
+  );
 
-        if (isMounted) {
-          setNeedsReviewCount(summary.needsReviewCount);
+  const invalidateRoutedData = useCallback(
+    (jobId?: string | null) => {
+      const invalidations = [
+        queryClient.invalidateQueries({ queryKey: serverStateKeys.jobs }),
+        queryClient.invalidateQueries({ queryKey: serverStateKeys.activity }),
+      ];
+
+      if (jobId) {
+        invalidations.push(
+          queryClient.invalidateQueries({ queryKey: serverStateKeys.job(jobId) })
+        );
+      }
+
+      return Promise.all(invalidations);
+    },
+    [queryClient]
+  );
+
+  useEffect(() => {
+    const requestedScreen = legacyParams.legacyScreen;
+
+    if (!session || !requestedScreen || !isRoutedLegacyScreen(requestedScreen)) {
+      setIsLegacyRouteLoading(false);
+      return;
+    }
+
+    const requestSignature = [
+      requestedScreen,
+      legacyParams.inventory,
+      legacyParams.jobId,
+      legacyParams.jobIds,
+      legacyParams.receiptId,
+      legacyParams.recordId,
+      legacyParams.returnContext,
+      legacyParams.returnPath,
+    ].join('|');
+
+    if (legacyRequestRef.current === requestSignature) {
+      return;
+    }
+
+    legacyRequestRef.current = requestSignature;
+    let isMounted = true;
+
+    const requestedJobIds = Array.from(
+      new Set(
+        [legacyParams.jobId, ...(legacyParams.jobIds?.split(',') ?? [])].filter(
+          (value): value is string => Boolean(value?.trim())
+        )
+      )
+    );
+    // The originating route already warmed these; only block on a spinner when it didn't.
+    const hasCachedJobs = requestedJobIds.every((jobId) =>
+      Boolean(queryClient.getQueryData(serverStateKeys.job(jobId)))
+    );
+
+    setIsLegacyRouteLoading(!hasCachedJobs);
+
+    const openRequestedFlow = async () => {
+      try {
+        const requestedJobs = await Promise.all(
+          requestedJobIds.map((jobId) => queryClient.ensureQueryData(jobQueryOptions(jobId)))
+        );
+        const primaryJob =
+          requestedJobs.find((job) => job.id === legacyParams.jobId) ?? requestedJobs[0] ?? null;
+
+        if (!isMounted) {
+          return;
         }
-      } catch {
+
+        if (requiresJobForLegacyScreen(requestedScreen) && !primaryJob) {
+          throw new Error('This flow requires a job.');
+        }
+
+        if (
+          ['editHours', 'editNote', 'editPayment'].includes(requestedScreen) &&
+          !legacyParams.recordId
+        ) {
+          throw new Error('This flow requires a record.');
+        }
+
+        if (
+          ['reviewReceipt', 'selectJobsForReceiptEdit'].includes(requestedScreen) &&
+          !legacyParams.receiptId
+        ) {
+          throw new Error('This flow requires a receipt.');
+        }
+
+        const returnScreen: Screen =
+          legacyParams.returnPath === '/activity'
+            ? 'activity'
+            : legacyParams.returnPath === '/jobs'
+              ? 'jobs'
+              : 'dashboard';
+
+        setSelectedJob(primaryJob);
+        setSelectedReceiptJobs(requestedJobs);
+        setIsSelectedReceiptInventoryMode(legacyParams.inventory === 'true');
+        setSelectedHoursId(requestedScreen === 'editHours' ? legacyParams.recordId ?? null : null);
+        setSelectedNoteId(requestedScreen === 'editNote' ? legacyParams.recordId ?? null : null);
+        setSelectedPaymentId(requestedScreen === 'editPayment' ? legacyParams.recordId ?? null : null);
+        setSelectedReceiptId(legacyParams.receiptId ?? null);
+        setCreateBackScreen(returnScreen);
+        setDashboardBackScreen(returnScreen);
+        setEditBackScreen(returnScreen);
+        setReceiptReviewBackScreen(returnScreen);
+        setToolsBackScreen(returnScreen);
+
+        if (requestedScreen === 'selectJobsForReceiptEdit') {
+          setReceiptEditInitialJobIds(requestedJobs.map((job) => job.id));
+          setReceiptEditInitialInventorySelected(legacyParams.inventory === 'true');
+        }
+
+        setScreen(requestedScreen);
+      } catch (error) {
         if (isMounted) {
-          setNeedsReviewCount(0);
+          setGlobalErrorMessage(getUserFacingError(error, 'Unable to open that screen. Try again.'));
+          setScreen('home');
+        }
+      } finally {
+        if (isMounted) {
+          setIsLegacyRouteLoading(false);
         }
       }
     };
 
-    loadNeedsReviewCount();
+    void openRequestedFlow();
 
     return () => {
       isMounted = false;
     };
-  }, [canUseActivity, dashboardRefreshKey, jobsRefreshKey, session]);
+  }, [
+    legacyParams.inventory,
+    legacyParams.jobId,
+    legacyParams.jobIds,
+    legacyParams.legacyScreen,
+    legacyParams.receiptId,
+    legacyParams.recordId,
+    legacyParams.returnContext,
+    legacyParams.returnPath,
+    queryClient,
+    session,
+  ]);
 
   const handleLogout = async () => {
     try {
@@ -404,6 +621,10 @@ export default function HomeScreen() {
 
   if (!session) {
     return renderScreen(<AuthScreen configError={authError} />);
+  }
+
+  if (isLegacyRouteLoading) {
+    return <LoadingScreen />;
   }
 
   if (
@@ -504,8 +725,8 @@ export default function HomeScreen() {
               });
           }
         }}
-        onGoToActivity={() => setScreen('activity')}
-        onGoToJobs={() => setScreen('jobs')}
+        onGoToActivity={() => router.push('/activity')}
+        onGoToJobs={() => router.push('/jobs')}
         onStartWork={() => router.push('/start-work')}
         onTellContracktor={() => {
           setSelectedJob(null);
@@ -536,6 +757,15 @@ export default function HomeScreen() {
         initialSelectedJobIds={screen === 'selectJobsForReceiptEdit' ? receiptEditInitialJobIds : []}
         multiSelect={screen === 'selectJobForExpense' || screen === 'selectJobsForReceiptEdit'}
         onBack={() => {
+          if (
+            screen === 'selectJobsForReceiptEdit' &&
+            legacyParams.legacyScreen === 'selectJobsForReceiptEdit' &&
+            getLegacyReturnPath(legacyParams.returnPath)
+          ) {
+            finishLegacyFlow(receiptReviewBackScreen);
+            return;
+          }
+
           if (
             screen === 'selectJobsForReceiptEdit' &&
             selectedReceiptId &&
@@ -618,7 +848,7 @@ export default function HomeScreen() {
     return renderScreen(
       <JobDashboardScreen
         job={selectedJob}
-        onBack={() => setScreen(dashboardBackScreen)}
+        onBack={() => finishLegacyFlow(dashboardBackScreen)}
         onAddUpdate={() => setScreen('addUpdate')}
         onCreateInvoice={() => setScreen('invoiceDraft')}
         onEditJob={() => setScreen('editJob')}
@@ -657,7 +887,7 @@ export default function HomeScreen() {
     return renderScreen(
       <ShoppingListScreen
         contextJob={selectedJob}
-        onBack={() => setScreen('dashboard')}
+        onBack={() => finishLegacyFlow('dashboard')}
         onChanged={() => setDashboardRefreshKey((key) => key + 1)}
       />
     );
@@ -667,7 +897,7 @@ export default function HomeScreen() {
     return renderScreen(
       <InvoiceDraftScreen
         job={selectedJob}
-        onBack={() => setScreen('dashboard')}
+        onBack={() => finishLegacyFlow('dashboard')}
         onEditBusinessProfile={() => {
           setAccountSettingsBackScreen('invoiceDraft');
           setScreen('accountSettings');
@@ -677,7 +907,9 @@ export default function HomeScreen() {
   }
 
   if (screen === 'jobReport' && selectedJob) {
-    return renderScreen(<JobReportScreen job={selectedJob} onBack={() => setScreen('dashboard')} />);
+    return renderScreen(
+      <JobReportScreen job={selectedJob} onBack={() => finishLegacyFlow('dashboard')} />
+    );
   }
 
   if (screen === 'toolsInventory') {
@@ -690,7 +922,7 @@ export default function HomeScreen() {
           setAddCompleteScreen('toolsInventory');
           setScreen('addExpenseMethod');
         }}
-        onBack={() => setScreen(toolsBackScreen)}
+        onBack={() => finishLegacyFlow(toolsBackScreen)}
       />
     );
   }
@@ -724,17 +956,19 @@ export default function HomeScreen() {
       <EditHoursScreen
         hoursId={selectedHoursId}
         job={selectedJob}
-        onBack={() => setScreen(editBackScreen)}
+        onBack={() => finishLegacyFlow(editBackScreen)}
         onDeleted={() => {
           setSelectedHoursId(null);
           setDashboardRefreshKey((key) => key + 1);
           setNoticeMessage('Hours entry removed.');
-          setScreen(editBackScreen);
+          void invalidateRoutedData(selectedJob.id);
+          finishLegacyFlow(editBackScreen);
         }}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
           setNoticeMessage('Hours updated.');
-          setScreen(editBackScreen);
+          void invalidateRoutedData(selectedJob.id);
+          finishLegacyFlow(editBackScreen);
         }}
       />
     );
@@ -745,11 +979,12 @@ export default function HomeScreen() {
       <EditNoteScreen
         job={selectedJob}
         noteId={selectedNoteId}
-        onBack={() => setScreen(editBackScreen)}
+        onBack={() => finishLegacyFlow(editBackScreen)}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
           setNoticeMessage('Note updated.');
-          setScreen(editBackScreen);
+          void invalidateRoutedData(selectedJob.id);
+          finishLegacyFlow(editBackScreen);
         }}
       />
     );
@@ -759,11 +994,12 @@ export default function HomeScreen() {
     return renderScreen(
       <EditPaymentScreen
         job={selectedJob}
-        onBack={() => setScreen(editBackScreen)}
+        onBack={() => finishLegacyFlow(editBackScreen)}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
           setNoticeMessage('Payment updated.');
-          setScreen(editBackScreen);
+          void invalidateRoutedData(selectedJob.id);
+          finishLegacyFlow(editBackScreen);
         }}
         paymentId={selectedPaymentId}
       />
@@ -774,13 +1010,15 @@ export default function HomeScreen() {
     return renderScreen(
       <EditJobScreen
         job={selectedJob}
-        onCancel={() => setScreen('dashboard')}
+        onCancel={() => finishLegacyFlow('dashboard')}
         onSaved={(job) => {
           setSelectedJob(job);
           setJobsRefreshKey((key) => key + 1);
           setDashboardRefreshKey((key) => key + 1);
           setNoticeMessage('Job updated.');
-          setScreen('dashboard');
+          queryClient.setQueryData(serverStateKeys.job(job.id), job);
+          void invalidateRoutedData(job.id);
+          finishLegacyFlow('dashboard');
         }}
       />
     );
@@ -804,7 +1042,7 @@ export default function HomeScreen() {
         inventoryMode={isInventoryOnlyReceipt}
         job={selectedJob}
         jobs={receiptJobs}
-        onBack={() => setScreen(receiptReviewBackScreen)}
+        onBack={() => finishLegacyFlow(receiptReviewBackScreen)}
         onReviewReceipt={(receiptId) => {
           setSelectedReceiptId(receiptId);
           setScreen('reviewReceipt');
@@ -830,7 +1068,8 @@ export default function HomeScreen() {
           }
 
           setNoticeMessage('Receipt saved.');
-          setScreen(completeScreen);
+          void invalidateRoutedData(selectedJob?.id);
+          finishLegacyFlow(completeScreen);
         }}
         receiptId={selectedReceiptId}
       />
@@ -863,7 +1102,7 @@ export default function HomeScreen() {
           setAddCompleteScreen('dashboard');
           setScreen('addPayment');
         }}
-        onBack={() => setScreen('dashboard')}
+        onBack={() => finishLegacyFlow('dashboard')}
       />
     );
   }
@@ -890,7 +1129,8 @@ export default function HomeScreen() {
         onDone={() => {
           setDashboardRefreshKey((key) => key + 1);
           setNoticeMessage('Receipt saved.');
-          setScreen(
+          void invalidateRoutedData(selectedJob?.id);
+          finishLegacyFlow(
             getReceiptCompleteScreen(
               selectedReceiptJobs,
               isSelectedReceiptInventoryMode,
@@ -929,7 +1169,8 @@ export default function HomeScreen() {
         onCreated={() => {
           setDashboardRefreshKey((key) => key + 1);
           setNoticeMessage('Expense saved.');
-          setScreen(addCompleteScreen);
+          void invalidateRoutedData(selectedJob?.id);
+          finishLegacyFlow(addCompleteScreen);
         }}
       />
     );
@@ -944,7 +1185,8 @@ export default function HomeScreen() {
         onCreated={() => {
           setDashboardRefreshKey((key) => key + 1);
           setNoticeMessage('Hours saved.');
-          setScreen(addCompleteScreen);
+          void invalidateRoutedData(selectedJob.id);
+          finishLegacyFlow(addCompleteScreen);
         }}
       />
     );
@@ -959,7 +1201,8 @@ export default function HomeScreen() {
         onCreated={() => {
           setDashboardRefreshKey((key) => key + 1);
           setNoticeMessage('Payment saved.');
-          setScreen(addCompleteScreen);
+          void invalidateRoutedData(selectedJob.id);
+          finishLegacyFlow(addCompleteScreen);
         }}
       />
     );
@@ -974,7 +1217,8 @@ export default function HomeScreen() {
         onCreated={() => {
           setDashboardRefreshKey((key) => key + 1);
           setNoticeMessage('Note saved.');
-          setScreen(addCompleteScreen);
+          void invalidateRoutedData(selectedJob.id);
+          finishLegacyFlow(addCompleteScreen);
         }}
       />
     );
@@ -983,10 +1227,21 @@ export default function HomeScreen() {
   if (screen === 'createJob') {
     return renderScreen(
       <CreateJobScreen
-        onCancel={() => setScreen(createBackScreen)}
+        onCancel={() => finishLegacyFlow(createBackScreen)}
         onCreated={(job) => {
           setSelectedJob(job);
           setJobsRefreshKey((key) => key + 1);
+
+          if (getLegacyReturnPath(legacyParams.returnPath)) {
+            queryClient.setQueryData(serverStateKeys.job(job.id), job);
+            void invalidateRoutedData(job.id);
+            setNoticeMessage('Job created.');
+            router.replace({
+              pathname: '/jobs/[jobId]',
+              params: { from: 'jobs', jobId: job.id },
+            });
+            return;
+          }
 
           if (isJobPickerScreen(createBackScreen)) {
             if (createBackScreen === 'selectJobsForReceiptEdit') {
@@ -1023,14 +1278,12 @@ export default function HomeScreen() {
         setScreen('createJob');
       }}
       onBack={() => setScreen('home')}
-      onLogout={handleLogout}
       onSelectJob={(job) => {
         setSelectedJob(job);
         setDashboardBackScreen('jobs');
         setScreen('dashboard');
       }}
       refreshKey={jobsRefreshKey}
-      userEmail={session.user.email}
     />
   );
 }
@@ -1094,6 +1347,35 @@ function getSystemBackScreen(
     case 'selectJobsForReceiptEdit':
       return 'reviewReceipt';
   }
+}
+
+function isRoutedLegacyScreen(value: string): value is Screen {
+  return routedLegacyScreens.has(value as Screen);
+}
+
+function requiresJobForLegacyScreen(screen: Screen): boolean {
+  return [
+    'addUpdate',
+    'editHours',
+    'editJob',
+    'editNote',
+    'editPayment',
+    'invoiceDraft',
+    'jobReport',
+    'shoppingList',
+  ].includes(screen);
+}
+
+function getLegacyReturnPath(value: string | undefined): string | null {
+  if (value === '/activity' || value === '/jobs') {
+    return value;
+  }
+
+  if (value?.startsWith('/jobs/') && value.slice('/jobs/'.length).trim()) {
+    return value;
+  }
+
+  return null;
 }
 
 function isJobPickerScreen(

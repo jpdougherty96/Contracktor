@@ -7,12 +7,16 @@ import {
 import { useEffect, useRef, type ReactNode } from 'react';
 import { AppState, Platform } from 'react-native';
 
-import { fetchStartWorkJobs } from '@/src/lib/jobs';
+import { fetchGlobalActivity } from '@/src/lib/globalActivity';
+import { fetchJob, fetchJobs, fetchStartWorkJobs } from '@/src/lib/jobs';
 import { supabase } from '@/src/lib/supabase';
 import { fetchActiveTimerState } from '@/src/lib/timeClock';
 
 export const serverStateKeys = {
   activeTimer: ['time-clock', 'active'] as const,
+  activity: ['activity', 'global'] as const,
+  job: (jobId: string) => ['jobs', 'detail', jobId] as const,
+  jobs: ['jobs', 'list'] as const,
   startWorkJobs: ['jobs', 'start-work'] as const,
 };
 
@@ -28,6 +32,27 @@ export const startWorkJobsQueryOptions = () =>
     queryFn: fetchStartWorkJobs,
     queryKey: serverStateKeys.startWorkJobs,
     staleTime: 30_000,
+  });
+
+export const jobsQueryOptions = () =>
+  queryOptions({
+    queryFn: fetchJobs,
+    queryKey: serverStateKeys.jobs,
+    staleTime: 30_000,
+  });
+
+export const jobQueryOptions = (jobId: string) =>
+  queryOptions({
+    queryFn: () => fetchJob(jobId),
+    queryKey: serverStateKeys.job(jobId),
+    staleTime: 30_000,
+  });
+
+export const globalActivityQueryOptions = () =>
+  queryOptions({
+    queryFn: fetchGlobalActivity,
+    queryKey: serverStateKeys.activity,
+    staleTime: 15_000,
   });
 
 export const serverStateClient = new QueryClient({

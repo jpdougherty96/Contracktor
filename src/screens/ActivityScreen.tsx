@@ -1,10 +1,12 @@
 import { Feather } from '@expo/vector-icons';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScreenLayout } from '@/src/components/ScreenLayout';
 import { resolveAttentionItem } from '@/src/lib/activityEvents';
-import { fetchGlobalActivity, type GlobalActivityItem, type GlobalActivitySummary } from '@/src/lib/globalActivity';
+import type { GlobalActivityItem } from '@/src/lib/globalActivity';
+import { globalActivityQueryOptions, serverStateKeys } from '@/src/lib/serverState';
 import { getUserFacingError } from '@/src/lib/userFacingError';
 import { colors } from '@/src/styles/theme';
 
@@ -16,55 +18,22 @@ type ActivityScreenProps = {
 };
 
 export function ActivityScreen({ onBack, onChanged, onOpenItem, refreshKey = 0 }: ActivityScreenProps) {
-  const [summary, setSummary] = useState<GlobalActivitySummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const activityQuery = useQuery(globalActivityQueryOptions());
   const [resolvingAttentionItemId, setResolvingAttentionItemId] = useState<string | null>(null);
-
-  const loadActivity = async () => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const nextSummary = await fetchGlobalActivity();
-      setSummary(nextSummary);
-    } catch (activityError) {
-      setError(getUserFacingError(activityError, 'Unable to load activity. Try again.'));
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const summary = activityQuery.data ?? null;
+  const error =
+    mutationError ??
+    (activityQuery.error
+      ? getUserFacingError(activityQuery.error, 'Unable to load activity. Try again.')
+      : null);
 
   useEffect(() => {
-    let isMounted = true;
-
-    const loadMountedActivity = async () => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const nextSummary = await fetchGlobalActivity();
-
-        if (isMounted) {
-          setSummary(nextSummary);
-        }
-      } catch (activityError) {
-        if (isMounted) {
-          setError(getUserFacingError(activityError, 'Unable to load activity. Try again.'));
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadMountedActivity();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [refreshKey]);
+    if (refreshKey > 0) {
+      void queryClient.invalidateQueries({ queryKey: serverStateKeys.activity });
+    }
+  }, [queryClient, refreshKey]);
 
   const handleResolveItem = async (item: GlobalActivityItem) => {
     if (!item.attentionItemId) {
@@ -72,14 +41,16 @@ export function ActivityScreen({ onBack, onChanged, onOpenItem, refreshKey = 0 }
     }
 
     setResolvingAttentionItemId(item.attentionItemId);
-    setError(null);
+    setMutationError(null);
 
     try {
       await resolveAttentionItem(item.attentionItemId);
-      await loadActivity();
+      await queryClient.invalidateQueries({ queryKey: serverStateKeys.activity });
       onChanged?.();
     } catch (resolveError) {
-      setError(getUserFacingError(resolveError, 'Unable to mark this item reviewed. Try again.'));
+      setMutationError(
+        getUserFacingError(resolveError, 'Unable to mark this item reviewed. Try again.')
+      );
     } finally {
       setResolvingAttentionItemId(null);
     }
@@ -97,34 +68,25 @@ export function ActivityScreen({ onBack, onChanged, onOpenItem, refreshKey = 0 }
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout backLabel="Home" onBack={onBack} title="Activity">
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.content}>
-          <Pressable onPress={onBack}>
-            <Text style={styles.backLink}>Back home</Text>
-          </Pressable>
+          <Text style={styles.introText}>Completed work and items that need attention.</Text>
 
-          <View style={styles.header}>
-            <View>
-              <Text style={styles.title}>Recent activity</Text>
-              <Text style={styles.subtitle}>Completed work and items that need attention.</Text>
-            </View>
-          </View>
-
-          {isLoading ? (
+          {activityQuery.isPending ? (
             <View style={styles.stateCard}>
               <ActivityIndicator color={colors.primaryGreen} />
               <Text style={styles.stateText}>Loading activity...</Text>
             </View>
           ) : null}
 
-          {!isLoading && error ? (
+          {!activityQuery.isPending && error ? (
             <View style={styles.stateCard}>
               <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : null}
 
-          {!isLoading && !error && summary ? (
+          {!activityQuery.isPending && !error && summary ? (
             <>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Needs Attention</Text>
@@ -220,7 +182,7 @@ export function ActivityScreen({ onBack, onChanged, onOpenItem, refreshKey = 0 }
           ) : null}
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </ScreenLayout>
   );
 }
 
@@ -438,10 +400,6 @@ function getToneStyle(tone: GlobalActivityItem['tone']) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.appBackground,
-  },
   container: {
     paddingBottom: 32,
     paddingHorizontal: 20,
@@ -454,27 +412,12 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     width: '100%',
   },
-  backLink: {
-    color: colors.primaryGreen,
-    fontSize: 18,
-    fontWeight: '900',
-    marginBottom: 26,
-  },
-  header: {
-    marginBottom: 24,
-  },
-  title: {
-    color: colors.text,
-    fontSize: 40,
-    fontWeight: '900',
-    lineHeight: 46,
-  },
-  subtitle: {
+  introText: {
     color: colors.mutedText,
     fontSize: 17,
     fontWeight: '700',
     lineHeight: 24,
-    marginTop: 6,
+    marginBottom: 24,
   },
   sectionHeader: {
     alignItems: 'center',

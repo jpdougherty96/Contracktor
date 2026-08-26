@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { fetchJobs } from '@/src/lib/jobs';
+import { ScreenLayout } from '@/src/components/ScreenLayout';
+import { jobsQueryOptions, serverStateKeys } from '@/src/lib/serverState';
 import { getUserFacingError } from '@/src/lib/userFacingError';
 import { buttonStyles, colors, radii } from '@/src/styles/theme';
 import type { Job } from '@/src/types/job';
@@ -11,78 +12,59 @@ type JobsListScreenProps = {
   onBack?: () => void;
   onCreateJob: () => void;
   onSelectJob: (job: Job) => void;
-  onLogout?: () => void;
   refreshKey?: number;
-  userEmail?: string;
 };
 
 export function JobsListScreen({
   onBack,
   onCreateJob,
   onSelectJob,
-  onLogout,
   refreshKey = 0,
 }: JobsListScreenProps) {
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const jobsQuery = useQuery(jobsQueryOptions());
+  const jobs = useMemo(() => jobsQuery.data ?? [], [jobsQuery.data]);
   const openJobs = useMemo(() => jobs.filter((job) => !isClosedJob(job)), [jobs]);
   const closedJobs = useMemo(() => jobs.filter(isClosedJob), [jobs]);
 
-  const loadJobs = useCallback(async () => {
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      setJobs(await fetchJobs());
-    } catch (error) {
-      setErrorMessage(getUserFacingError(error, 'Unable to load jobs. Try again.'));
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    loadJobs();
-  }, [loadJobs, refreshKey]);
+    if (refreshKey > 0) {
+      void queryClient.invalidateQueries({ queryKey: serverStateKeys.jobs });
+    }
+  }, [queryClient, refreshKey]);
+
+  const errorMessage = jobsQuery.error
+    ? getUserFacingError(jobsQuery.error, 'Unable to load jobs. Try again.')
+    : null;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout
+      backLabel="Home"
+      onBack={onBack}
+      rightAction={
+        <Pressable accessibilityRole="button" onPress={onCreateJob} style={styles.headerAction}>
+          <Text style={styles.headerActionText}>New job</Text>
+        </Pressable>
+      }
+      title="Jobs">
       <ScrollView contentContainerStyle={styles.container}>
-        {onBack ? (
-          <Pressable style={styles.backButton} onPress={onBack}>
-            <Text style={styles.backButtonText}>Back home</Text>
-          </Pressable>
-        ) : null}
+        <Text style={styles.introText}>See where each job stands.</Text>
 
-        <View style={styles.header}>
-          <View style={styles.headerTop}>
-            <View style={styles.headerTitle}>
-              <Text style={styles.appName}>conTRACKtor</Text>
-              <Text style={styles.subtitle}>See where each job stands.</Text>
-            </View>
-            {onLogout ? (
-              <Pressable style={styles.logoutButton} onPress={onLogout}>
-                <Text style={styles.logoutButtonText}>Log out</Text>
-              </Pressable>
-            ) : null}
-          </View>
-          <Pressable style={styles.createButton} onPress={onCreateJob}>
-            <Text style={styles.createButtonText}>Create job</Text>
-          </Pressable>
-        </View>
-
-        {isLoading ? <StatePanel title="Loading jobs..." /> : null}
-        {!isLoading && errorMessage ? (
-          <StatePanel title="Unable to load jobs" detail={errorMessage} onRetry={loadJobs} />
+        {jobsQuery.isPending ? <StatePanel title="Loading jobs..." /> : null}
+        {!jobsQuery.isPending && errorMessage ? (
+          <StatePanel
+            title="Unable to load jobs"
+            detail={errorMessage}
+            onRetry={() => void jobsQuery.refetch()}
+          />
         ) : null}
-        {!isLoading && !errorMessage && jobs.length === 0 ? (
+        {!jobsQuery.isPending && !errorMessage && jobs.length === 0 ? (
           <StatePanel
             title="No jobs yet"
             detail="Create your first job to start tracking where the money is going."
           />
         ) : null}
-        {!isLoading && !errorMessage && jobs.length > 0 ? (
+        {!jobsQuery.isPending && !errorMessage && jobs.length > 0 ? (
           <View style={styles.sections}>
             <JobSection
               jobs={openJobs}
@@ -99,7 +81,7 @@ export function JobsListScreen({
           </View>
         ) : null}
       </ScrollView>
-    </SafeAreaView>
+    </ScreenLayout>
   );
 }
 
@@ -477,67 +459,30 @@ function getProgressFillStyle(tone: TriageTone) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.appBackground,
-  },
   container: {
     padding: 20,
     paddingBottom: 36,
   },
-  backButton: {
-    alignSelf: 'flex-start',
-    justifyContent: 'center',
-    marginBottom: 8,
-    minHeight: 44,
-  },
-  backButtonText: {
-    color: colors.primaryGreen,
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  header: {
-    marginBottom: 20,
-  },
-  headerTop: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'space-between',
-  },
-  headerTitle: {
-    flex: 1,
-  },
-  appName: {
-    color: colors.text,
-    fontSize: 34,
-    fontWeight: '800',
-  },
-  subtitle: {
-    color: colors.mutedText,
-    fontSize: 16,
-    marginTop: 4,
-  },
-  createButton: {
-    ...buttonStyles.primary.container,
-    borderRadius: radii.button,
-    marginTop: 16,
-    minHeight: 52,
-  },
-  createButtonText: {
-    ...buttonStyles.primary.text,
-    fontSize: 17,
-  },
-  logoutButton: {
+  headerAction: {
     alignItems: 'center',
+    borderColor: colors.primaryGreen,
+    borderRadius: 9,
+    borderWidth: 1,
     justifyContent: 'center',
-    minHeight: 40,
-    paddingHorizontal: 6,
+    minHeight: 44,
+    paddingHorizontal: 12,
   },
-  logoutButtonText: {
+  headerActionText: {
+    color: colors.primaryGreen,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  introText: {
     color: colors.mutedText,
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '700',
+    lineHeight: 23,
+    marginBottom: 20,
   },
   sections: {
     gap: 24,

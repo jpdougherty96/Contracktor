@@ -100,6 +100,66 @@ test('routed screens keep guarded wayfinding outside scrollable content', async 
   assert.doesNotMatch(manualHours, />{backLabel}</);
 });
 
+test('Jobs, job details, and Activity are real routes with persistent headers', async () => {
+  const [
+    layout,
+    home,
+    jobsRoute,
+    jobRoute,
+    activityRoute,
+    jobsScreen,
+    jobScreen,
+    activityScreen,
+    serverState,
+  ] = await Promise.all([
+    readRepoFile('app/(tabs)/_layout.tsx'),
+    readRepoFile('app/(tabs)/index.tsx'),
+    readRepoFile('app/(tabs)/jobs.tsx'),
+    readRepoFile('app/(tabs)/jobs/[jobId].tsx'),
+    readRepoFile('app/(tabs)/activity.tsx'),
+    readRepoFile('src/screens/JobsListScreen.tsx'),
+    readRepoFile('src/screens/JobDashboardScreen.tsx'),
+    readRepoFile('src/screens/ActivityScreen.tsx'),
+    readRepoFile('src/lib/serverState.tsx'),
+  ]);
+
+  assert.match(layout, /name="jobs"/);
+  assert.match(layout, /name="jobs\/\[jobId\]"/);
+  assert.match(layout, /name="activity"/);
+  assert.match(home, /onGoToJobs=\{\(\) => router\.push\('\/jobs'\)\}/);
+  assert.match(home, /onGoToActivity=\{\(\) => router\.push\('\/activity'\)\}/);
+  assert.match(jobsRoute, /pathname: '\/jobs\/\[jobId\]'/);
+  assert.match(jobRoute, /jobQueryOptions\(jobId/);
+  assert.match(jobRoute, /from === 'activity'/);
+  assert.match(activityRoute, /params: \{ from: 'activity', jobId: item\.job\.id \}/);
+  assert.match(jobsScreen, /<ScreenLayout/);
+  assert.match(jobScreen, /<ScreenLayout/);
+  assert.match(activityScreen, /<ScreenLayout/);
+  assert.doesNotMatch(jobsScreen, />Back home</);
+  assert.doesNotMatch(jobScreen, />Back to jobs</);
+  assert.doesNotMatch(activityScreen, />Back home</);
+  assert.match(serverState, /jobsQueryOptions/);
+  assert.match(serverState, /jobQueryOptions/);
+  assert.match(serverState, /globalActivityQueryOptions/);
+});
+
+test('legacy flow handoff returns to its originating route without duplicating history', async () => {
+  const home = await readRepoFile('app/(tabs)/index.tsx');
+
+  // The legacy screen is pushed on top of its originating route, so the return must
+  // dismiss back to that entry. Replacing leaves a duplicate and swallows one Back press.
+  assert.match(home, /router\.canDismiss\(\)/);
+  assert.match(home, /router\.dismissTo\(href\)/);
+  assert.doesNotMatch(home, /router\.replace\('\/jobs'\)/);
+  assert.doesNotMatch(home, /router\.replace\('\/activity'\)/);
+
+  // Job records for a routed flow come from the shared cache the origin already warmed,
+  // so re-entering an edit screen does not refetch behind a full-screen spinner.
+  assert.match(home, /queryClient\.ensureQueryData\(jobQueryOptions\(jobId\)\)/);
+  assert.match(home, /setIsLegacyRouteLoading\(!hasCachedJobs\)/);
+  assert.doesNotMatch(home, /fetchJob/);
+});
+
 test('timer switches are explicit, universal for active jobs, and atomic in the database', async () => {
   const [hub, timeClock, migration, activeJobMigration, universalTimerMigration] = await Promise.all([
     readRepoFile('src/screens/AddHoursHubScreen.tsx'),

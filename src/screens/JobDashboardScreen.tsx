@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { JobTasksPanel } from '@/src/components/JobTasksPanel';
+import { ScreenLayout } from '@/src/components/ScreenLayout';
 import { formatCurrency, formatPercent } from '@/src/lib/financials';
 import { fetchJobActivity, type JobActivityItem } from '@/src/lib/jobActivity';
 import {
@@ -19,6 +19,7 @@ import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Job } from '@/src/types/job';
 
 type JobDashboardScreenProps = {
+  backLabel?: string;
   job: Job;
   onBack: () => void;
   onAddUpdate: () => void;
@@ -36,6 +37,7 @@ type JobDashboardScreenProps = {
 };
 
 export function JobDashboardScreen({
+  backLabel = 'Jobs',
   job,
   onBack,
   onAddUpdate,
@@ -211,23 +213,23 @@ export function JobDashboardScreen({
   }, [job.id, refreshKey]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <Pressable style={styles.backButton} onPress={onBack}>
-          <Text style={styles.backButtonText}>Back to jobs</Text>
+    <ScreenLayout
+      backLabel={backLabel}
+      onBack={onBack}
+      rightAction={
+        <Pressable accessibilityRole="button" onPress={onEditJob} style={styles.headerEditButton}>
+          <Text style={styles.headerEditButtonText}>Edit</Text>
         </Pressable>
-
-        <View style={styles.header}>
-          <Text style={styles.jobName}>{job.name}</Text>
-          <Text style={styles.clientName}>{job.clientName}</Text>
+      }
+      subtitle={job.clientName}
+      title={job.name}>
+      <ScrollView contentContainerStyle={styles.container}>
+        <View style={styles.jobMeta}>
           {job.location ? <Text style={styles.detailText}>{job.location}</Text> : null}
           <Text style={styles.detailText}>
             Type: {isTimeAndMaterials ? 'Time & materials' : 'Fixed bid'}
           </Text>
           <Text style={styles.detailText}>Status: {job.status}</Text>
-          <Pressable style={styles.editButton} onPress={onEditJob}>
-            <Text style={styles.editButtonText}>Edit job</Text>
-          </Pressable>
         </View>
 
         <View style={styles.snapshotPanel}>
@@ -520,7 +522,7 @@ export function JobDashboardScreen({
           ) : null}
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </ScreenLayout>
   );
 }
 
@@ -642,38 +644,12 @@ function formatCostType(value: string): string {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#F6F5F2',
-  },
   container: {
     padding: 20,
     paddingBottom: 36,
   },
-  backButton: {
-    alignSelf: 'flex-start',
-    minHeight: 44,
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  backButtonText: {
-    color: '#335C43',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  header: {
+  jobMeta: {
     marginBottom: 16,
-  },
-  jobName: {
-    color: '#1F2933',
-    fontSize: 28,
-    fontWeight: '800',
-  },
-  clientName: {
-    color: '#64748B',
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 4,
   },
   detailText: {
     color: '#7C6F64',
@@ -681,21 +657,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 4,
   },
-  editButton: {
+  headerEditButton: {
     alignItems: 'center',
-    alignSelf: 'flex-start',
     borderColor: '#335C43',
-    borderRadius: 8,
+    borderRadius: 9,
     borderWidth: 1,
     justifyContent: 'center',
-    marginTop: 12,
     minHeight: 44,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
   },
-  editButtonText: {
+  headerEditButtonText: {
     color: '#335C43',
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '900',
   },
   panel: {
     backgroundColor: '#FFFFFF',

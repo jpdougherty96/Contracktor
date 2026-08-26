@@ -16,6 +16,8 @@ over feature speed.
 - Start Work and Start Work manual entry use real Expo Router routes.
 - Routed manual entry uses the navigation removal guard for unsaved changes.
 - Routed screens use a shared persistent header outside scrollable content; Home remains headerless.
+- Jobs, `/jobs/[jobId]`, and Activity use real routes, persistent headers, and shared query state.
+- Job detail preserves whether it was opened from Jobs or Activity when navigating back.
 - A privacy-safe client crash boundary and sanitized reporting interface are in place.
 
 ## Next routed flows
@@ -24,11 +26,11 @@ Move one coherent flow at a time. Each checkpoint must pass type-checking, lint,
 database integration tests when applicable, production web export, browser route/history checks,
 and real-device verification.
 
-1. Jobs list and `/jobs/[jobId]` dashboard routes.
-2. Job create/edit and straightforward add/edit record flows.
-3. Activity and Tools / Inventory.
-4. Tell conTRACKtor and shopping flows.
-5. Receipt capture/review last, including every unsaved-draft and financial-integrity guard.
+1. Job create/edit and straightforward add/edit record flows.
+2. Tools / Inventory.
+3. Tell conTRACKtor and shopping flows.
+4. Receipt capture/review last, including every unsaved-draft and financial-integrity guard.
+5. Remove the routed-to-legacy handoff parameters as their destination forms become real routes.
 6. Remove the legacy `Screen` union, back-screen variables, and manual history provider only after
    no screen depends on them.
 
