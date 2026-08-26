@@ -44,24 +44,46 @@ test('guarded drafts protect high-value and simple entry screens', async () => {
 });
 
 test('native and browser Back requests use the current screen guard', async () => {
-  const [provider, index] = await Promise.all([
+  const [provider, guardedBack, index] = await Promise.all([
     readRepoFile('src/contexts/BackNavigationContext.tsx'),
+    readRepoFile('src/hooks/useGuardedBack.ts'),
     readRepoFile('app/(tabs)/index.tsx'),
   ]);
 
   assert.match(provider, /BackHandler\.addEventListener\('hardwareBackPress'/);
   assert.match(provider, /window\.addEventListener\('popstate'/);
   assert.match(provider, /activeHandlerRef\.current/);
+  assert.match(guardedBack, /usePreventRemove/);
+  assert.match(guardedBack, /guardRouteRemoval/);
   assert.match(index, /<ScreenBackProvider/);
   assert.match(index, /setDashboardBackScreen\('activity'\)/);
   assert.match(index, /getAddScreenForPicker\(createBackScreen\)/);
 });
 
+test('Start Work and its manual-hours destination are real guarded routes', async () => {
+  const [layout, index, startWorkRoute, newHoursRoute] = await Promise.all([
+    readRepoFile('app/(tabs)/_layout.tsx'),
+    readRepoFile('app/(tabs)/index.tsx'),
+    readRepoFile('app/(tabs)/start-work.tsx'),
+    readRepoFile('app/(tabs)/hours/new.tsx'),
+  ]);
+
+  assert.match(layout, /name="start-work"/);
+  assert.match(layout, /name="hours\/new"/);
+  assert.match(index, /router\.push\('\/start-work'\)/);
+  assert.doesNotMatch(index, /\| 'addHoursHub'/);
+  assert.match(startWorkRoute, /<AuthenticatedRoute>/);
+  assert.match(startWorkRoute, /pathname: '\/hours\/new'/);
+  assert.match(newHoursRoute, /guardRouteRemoval/);
+  assert.match(newHoursRoute, /jobId/);
+});
+
 test('timer switches are explicit in the UI and atomic in the database', async () => {
-  const [hub, timeClock, migration] = await Promise.all([
+  const [hub, timeClock, migration, activeJobMigration] = await Promise.all([
     readRepoFile('src/screens/AddHoursHubScreen.tsx'),
     readRepoFile('src/lib/timeClock.ts'),
     readRepoFile('supabase/migrations/20260822013000_atomic_timer_switch.sql'),
+    readRepoFile('supabase/migrations/20260825090000_require_active_job_for_timer.sql'),
   ]);
 
   assert.match(hub, /title: 'Switch active timer\?'/);
@@ -71,6 +93,8 @@ test('timer switches are explicit in the UI and atomic in the database', async (
   assert.match(migration, /where owner_id = v_auth_user\s+and status = 'active'\s+for update/i);
   assert.match(migration, /insert into public\.time_entries/);
   assert.match(migration, /perform public\.upsert_activity_event/);
+  assert.match(activeJobMigration, /if v_job\.status <> 'active'/);
+  assert.match(activeJobMigration, /Only active jobs can start a timer/);
 });
 
 test('screens do not expose arbitrary backend error messages', async () => {
@@ -109,6 +133,21 @@ test('screens do not expose arbitrary backend error messages', async () => {
       `${screenPaths[index]} must use curated user-facing errors`
     );
   }
+});
+
+test('client crash handling exposes only a sanitized monitoring event', async () => {
+  const [boundary, monitoring] = await Promise.all([
+    readRepoFile('src/components/ClientErrorBoundary.tsx'),
+    readRepoFile('src/lib/clientMonitoring.ts'),
+  ]);
+
+  assert.match(boundary, /reportClientError\(error, 'react-render'\)/);
+  assert.match(boundary, /Anything already saved remains in your records/);
+  assert.doesNotMatch(monitoring, /message:\s*error\.message/);
+  assert.doesNotMatch(monitoring, /componentStack/);
+  assert.match(monitoring, /\[email\]/);
+  assert.match(monitoring, /\[url\]/);
+  assert.match(monitoring, /\[id\]/);
 });
 
 async function readRepoFile(relativePath) {

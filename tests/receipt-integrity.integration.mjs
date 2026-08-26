@@ -115,6 +115,31 @@ test(
       assert.equal(stillActive.length, 1);
       assert.equal(stillActive[0].id, newTimer.id);
       assert.equal(stillActive[0].job_id, jobA2);
+
+      await requiredQuery(
+        clientA
+          .from('jobs')
+          .update({ status: 'completed' })
+          .eq('id', jobA1)
+          .select('id')
+      );
+      const inactiveSwitch = await clientA.rpc('start_job_timer_atomic', {
+        p_hourly_rate: 100,
+        p_job_id: jobA1,
+        p_worker_name: 'Timer Tester',
+      });
+      assert.ok(inactiveSwitch.error);
+      assert.match(inactiveSwitch.error.message, /Only active jobs can start a timer/i);
+
+      const activeAfterInactiveAttempt = await requiredQuery(
+        clientA
+          .from('time_entries')
+          .select('id, job_id, status')
+          .eq('owner_id', accountA.userId)
+          .eq('status', 'active')
+      );
+      assert.equal(activeAfterInactiveAttempt.length, 1);
+      assert.equal(activeAfterInactiveAttempt[0].id, newTimer.id);
     });
 
     await t.test('split happy path, retry, reassignment, and partial rollback', async () => {

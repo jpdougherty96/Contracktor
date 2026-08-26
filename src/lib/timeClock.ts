@@ -1,5 +1,4 @@
 import { recordActivityEvent } from '@/src/lib/activityEvents';
-import { fetchJobCrewMembers } from '@/src/lib/jobCrew';
 import { fetchCurrentProfile } from '@/src/lib/profiles';
 import { supabase } from '@/src/lib/supabase';
 import type { Tables } from '@/src/types/database';
@@ -16,6 +15,8 @@ export type TimeClockDefaults = {
   hourlyRate: number | null;
   workerName: string | null;
 };
+
+type TimerJob = Pick<Job, 'hourlyRate' | 'id' | 'timeClockEnabled'>;
 
 const timeEntryFields =
   'id, job_id, owner_id, business_id, created_by_user_id, started_at, stopped_at, work_date, duration_minutes, hourly_rate, worker_name, description, billable, source, status, created_at, updated_at';
@@ -77,27 +78,21 @@ export async function fetchActiveTimerState(): Promise<ActiveTimerState | null> 
   };
 }
 
-export async function fetchTimeClockDefaults(job: Job): Promise<TimeClockDefaults> {
-  const [crewMembers, profile] = await Promise.all([
-    fetchJobCrewMembers(job.id).catch(() => []),
-    fetchCurrentProfile().catch(() => ({ defaultHourlyRate: null, displayName: null })),
-  ]);
+export async function fetchTimeClockDefaults(job: TimerJob): Promise<TimeClockDefaults> {
+  const profile = await fetchCurrentProfile().catch(() => ({
+    defaultHourlyRate: null,
+    displayName: null,
+  }));
   const profileName = profile.displayName?.trim() ?? '';
-  const matchingCrewMember =
-    crewMembers.find((member) => member.name.trim() === profileName) ?? crewMembers[0];
 
   return {
-    hourlyRate: firstPositiveRate(
-      matchingCrewMember?.hourly_rate,
-      job.hourlyRate,
-      profile.defaultHourlyRate
-    ),
-    workerName: matchingCrewMember?.name.trim() || profileName || null,
+    hourlyRate: firstPositiveRate(job.hourlyRate, profile.defaultHourlyRate),
+    workerName: profileName || null,
   };
 }
 
 export async function startJobTimer(
-  job: Job,
+  job: TimerJob,
   defaults?: TimeClockDefaults
 ): Promise<ActiveTimeEntry> {
   if (!job.timeClockEnabled) {

@@ -1,4 +1,5 @@
 import { Feather } from '@expo/vector-icons';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -13,7 +14,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { fetchActiveTimerState, stopJobTimer, type ActiveTimerState } from '@/src/lib/timeClock';
+import {
+  activeTimerQueryOptions,
+  serverStateKeys,
+  startWorkJobsQueryOptions,
+} from '@/src/lib/serverState';
+import { stopJobTimer } from '@/src/lib/timeClock';
 import { getUserFacingError } from '@/src/lib/userFacingError';
 import { colors, radii } from '@/src/styles/theme';
 
@@ -69,40 +75,36 @@ export function HomeActionsScreen({
   showTellContracktor = false,
   userEmail,
 }: HomeActionsScreenProps) {
+  const queryClient = useQueryClient();
+  const activeTimerQuery = useQuery(activeTimerQueryOptions());
   const [isAccountOpen, setIsAccountOpen] = useState(false);
-  const [activeTimer, setActiveTimer] = useState<ActiveTimerState | null>(null);
-  const [isStoppingTimer, setIsStoppingTimer] = useState(false);
   const [timerErrorMessage, setTimerErrorMessage] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
   const livePulse = useRef(new Animated.Value(1)).current;
+  const activeTimer = activeTimerQuery.data ?? null;
+  const stopTimerMutation = useMutation({
+    mutationFn: stopJobTimer,
+    onSuccess: () => {
+      queryClient.setQueryData(serverStateKeys.activeTimer, null);
+    },
+  });
+  const isStoppingTimer = stopTimerMutation.isPending;
 
   useEffect(() => {
-    let isMounted = true;
+    void queryClient.prefetchQuery(startWorkJobsQueryOptions());
+  }, [queryClient]);
 
-    const loadActiveTimer = async () => {
-      try {
-        const nextTimer = await fetchActiveTimerState();
-
-        if (isMounted) {
-          setActiveTimer(nextTimer);
-          setNow(Date.now());
-        }
-      } catch (error) {
-        if (isMounted) {
-          setTimerErrorMessage(
-            getUserFacingError(error, 'Unable to load the active timer. Try Start Work to check it.')
-          );
-        }
-      }
-    };
-
-    void loadActiveTimer();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  useEffect(() => {
+    if (activeTimerQuery.error) {
+      setTimerErrorMessage(
+        getUserFacingError(
+          activeTimerQuery.error,
+          'Unable to load the active timer. Try Start Work to check it.'
+        )
+      );
+    }
+  }, [activeTimerQuery.error]);
 
   useEffect(() => {
     if (!activeTimer) {
@@ -183,17 +185,13 @@ export function HomeActionsScreen({
     }
 
     const timerToStop = activeTimer;
-    setIsStoppingTimer(true);
     setTimerErrorMessage(null);
 
     try {
-      await stopJobTimer(timerToStop.entry);
-      setActiveTimer(null);
+      await stopTimerMutation.mutateAsync(timerToStop.entry);
       onTimerStopped?.(timerToStop.jobName);
     } catch (error) {
       setTimerErrorMessage(getUserFacingError(error, 'Unable to stop timer. Try again.'));
-    } finally {
-      setIsStoppingTimer(false);
     }
   };
 

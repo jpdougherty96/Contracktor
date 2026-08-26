@@ -1,5 +1,6 @@
 import type { Session } from '@supabase/supabase-js';
 import type { ImagePickerAsset } from 'expo-image-picker';
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,7 +16,6 @@ import {
 import { setReceiptDraftDestination } from '@/src/lib/receipts';
 import { getUserFacingError } from '@/src/lib/userFacingError';
 import { AddExpenseMethodScreen } from '@/src/screens/AddExpenseMethodScreen';
-import { AddHoursHubScreen } from '@/src/screens/AddHoursHubScreen';
 import { AddHoursScreen } from '@/src/screens/AddHoursScreen';
 import { AddManualExpenseScreen } from '@/src/screens/AddManualExpenseScreen';
 import { AddNoteScreen } from '@/src/screens/AddNoteScreen';
@@ -51,7 +51,6 @@ type Screen =
   | 'dashboard'
   | 'addUpdate'
   | 'addExpenseMethod'
-  | 'addHoursHub'
   | 'addHours'
   | 'addManualExpense'
   | 'addNote'
@@ -76,6 +75,7 @@ type Screen =
   | 'updatePassword';
 
 export default function HomeScreen() {
+  const router = useRouter();
   const { width: viewportWidth } = useWindowDimensions();
   const { hasFeature, refresh: refreshEntitlements } = useEntitlements();
   const [session, setSession] = useState<Session | null>(null);
@@ -506,7 +506,7 @@ export default function HomeScreen() {
         }}
         onGoToActivity={() => setScreen('activity')}
         onGoToJobs={() => setScreen('jobs')}
-        onStartWork={() => setScreen('addHoursHub')}
+        onStartWork={() => router.push('/start-work')}
         onTellContracktor={() => {
           setSelectedJob(null);
           setScreen('tellContracktor');
@@ -678,21 +678,6 @@ export default function HomeScreen() {
 
   if (screen === 'jobReport' && selectedJob) {
     return renderScreen(<JobReportScreen job={selectedJob} onBack={() => setScreen('dashboard')} />);
-  }
-
-  if (screen === 'addHoursHub') {
-    return renderScreen(
-      <AddHoursHubScreen
-        onBack={() => setScreen('home')}
-        onManualHours={(job) => {
-          setSelectedJob(job);
-          setAddBackScreen('addHoursHub');
-          setAddCompleteScreen('addHoursHub');
-          setScreen('addHours');
-        }}
-        refreshKey={dashboardRefreshKey}
-      />
-    );
   }
 
   if (screen === 'toolsInventory') {
@@ -1070,7 +1055,6 @@ function getSystemBackScreen(
     case 'accountSettings':
       return context.accountSettingsBackScreen;
     case 'activity':
-    case 'addHoursHub':
     case 'jobs':
       return 'home';
     case 'dashboard':
@@ -1205,10 +1189,6 @@ function getAddScreenForPicker(
 }
 
 function getAddBackLabel(screen: Screen): string {
-  if (screen === 'addHoursHub') {
-    return 'Back to Start work';
-  }
-
   if (isJobPickerScreen(screen)) {
     return 'Back to job selection';
   }

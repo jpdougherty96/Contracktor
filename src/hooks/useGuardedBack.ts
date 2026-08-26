@@ -1,3 +1,4 @@
+import { useNavigation, usePreventRemove } from '@react-navigation/native';
 import { useCallback, useContext, useEffect } from 'react';
 import { Platform } from 'react-native';
 
@@ -6,6 +7,7 @@ import { confirmAction } from '@/src/lib/confirmAction';
 
 type UseGuardedBackOptions = {
   confirmLabel?: string;
+  guardRouteRemoval?: boolean;
   hasUnsavedChanges: boolean;
   isBusy?: boolean;
   message?: string;
@@ -15,16 +17,23 @@ type UseGuardedBackOptions = {
 
 export function useGuardedBack({
   confirmLabel = 'Discard',
+  guardRouteRemoval = false,
   hasUnsavedChanges,
   isBusy = false,
   message = 'Your unsaved changes will be lost.',
   onBack,
   title = 'Discard changes?',
 }: UseGuardedBackOptions): () => void {
+  const navigation = useNavigation();
   const registerBackHandler = useContext(BackNavigationContext);
   const handleBack = useCallback(async () => {
     if (isBusy) {
       return false;
+    }
+
+    if (guardRouteRemoval) {
+      onBack();
+      return true;
     }
 
     if (
@@ -36,7 +45,19 @@ export function useGuardedBack({
 
     onBack();
     return true;
-  }, [confirmLabel, hasUnsavedChanges, isBusy, message, onBack, title]);
+  }, [confirmLabel, guardRouteRemoval, hasUnsavedChanges, isBusy, message, onBack, title]);
+
+  usePreventRemove(guardRouteRemoval && (hasUnsavedChanges || isBusy), ({ data }) => {
+    if (isBusy) {
+      return;
+    }
+
+    void confirmAction({ confirmLabel, message, title }).then((shouldDiscard) => {
+      if (shouldDiscard) {
+        navigation.dispatch(data.action);
+      }
+    });
+  });
 
   useEffect(() => {
     if (!registerBackHandler) {

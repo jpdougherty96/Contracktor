@@ -32,19 +32,21 @@ test('Home renders one needs-attention signal instead of duplicating the activit
 });
 
 test('Home timer state is live, accessible, stoppable, and motion-safe', async () => {
-  const [home, timeClock, route] = await Promise.all([
+  const [home, timeClock, serverState, route] = await Promise.all([
     readRepoFile('src/screens/HomeActionsScreen.tsx'),
     readRepoFile('src/lib/timeClock.ts'),
+    readRepoFile('src/lib/serverState.tsx'),
     readRepoFile('app/(tabs)/index.tsx'),
   ]);
 
-  assert.match(home, /fetchActiveTimerState\(\)/);
+  assert.match(home, /useQuery\(activeTimerQueryOptions\(\)\)/);
+  assert.match(home, /prefetchQuery\(startWorkJobsQueryOptions\(\)\)/);
   assert.match(home, /name="clock"/);
   assert.match(home, /name="play"/);
   assert.match(home, /styles\.iconLiveDot/);
   assert.match(home, /Running · \{elapsed\}/);
   assert.match(home, /numberOfLines=\{1\}/);
-  assert.match(home, /stopJobTimer\(timerToStop\.entry\)/);
+  assert.match(home, /stopTimerMutation\.mutateAsync\(timerToStop\.entry\)/);
   assert.match(home, /event\.stopPropagation\(\)/);
   assert.match(home, /Stop timer for \$\{activeTimer\.jobName\}/);
   assert.match(home, /isStoppingTimer \? 'Stopping…' : 'Stop'/);
@@ -52,6 +54,8 @@ test('Home timer state is live, accessible, stoppable, and motion-safe', async (
   assert.match(home, /30_000/);
   assert.match(timeClock, /\.from\('jobs'\)\s*\.select\('name'\)/);
   assert.doesNotMatch(timeClock, /fetchJobs\(\)/);
+  assert.match(serverState, /queryFn: fetchActiveTimerState/);
+  assert.match(serverState, /queryFn: fetchStartWorkJobs/);
   assert.match(route, /onTimerStopped=\{\(jobName\) => \{/);
 });
 

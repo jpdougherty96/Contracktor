@@ -20,6 +20,7 @@ import type { Job } from '@/src/types/job';
 
 type AddHoursScreenProps = {
   backLabel?: string;
+  guardRouteRemoval?: boolean;
   job: Job;
   onBack: () => void;
   onCreated: () => void;
@@ -35,6 +36,7 @@ type TimeEntryMode = 'duration' | 'range';
 
 export function AddHoursScreen({
   backLabel = 'Back to updates',
+  guardRouteRemoval = false,
   job,
   onBack,
   onCreated,
@@ -51,19 +53,22 @@ export function AddHoursScreen({
   const [selectedCrewOptionId, setSelectedCrewOptionId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isCreated, setIsCreated] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const calculatedHours = useMemo(
     () => calculateTimeRangeHours(startTime, endTime, breakMinutes),
     [breakMinutes, endTime, startTime]
   );
   const handleBack = useGuardedBack({
+    guardRouteRemoval,
     hasUnsavedChanges:
-      hours.trim().length > 0 ||
-      startTime.trim().length > 0 ||
-      endTime.trim().length > 0 ||
-      breakMinutes.trim().length > 0 ||
-      note.trim().length > 0 ||
-      workDate !== getTodayDate(),
+      !isCreated &&
+      (hours.trim().length > 0 ||
+        startTime.trim().length > 0 ||
+        endTime.trim().length > 0 ||
+        breakMinutes.trim().length > 0 ||
+        note.trim().length > 0 ||
+        workDate !== getTodayDate()),
     isBusy: isSaving,
     message: 'These unsaved hours will be lost.',
     onBack,
@@ -106,12 +111,17 @@ export function AddHoursScreen({
         if (isMounted) {
           setCrewOptions(options);
 
-          const defaultOption =
-            options.find((option) => option.name.trim() === profile.displayName?.trim()) ?? options[0];
+          const defaultOption = options.find(
+            (option) => option.name.trim() === profile.displayName?.trim()
+          );
           if (defaultOption) {
             applyCrewOption(defaultOption);
           } else if (profile.displayName) {
-            setWorkerName((currentWorkerName) => currentWorkerName || profile.displayName || '');
+            setSelectedCrewOptionId(null);
+            setWorkerName(profile.displayName);
+            setHourlyRate(
+              formatEditableNumber(profile.defaultHourlyRate ?? job.hourlyRate ?? null)
+            );
           }
         }
       } catch {
@@ -162,10 +172,11 @@ export function AddHoursScreen({
         workDate,
         workerName,
       });
-      onCreated();
+      setIsCreated(true);
+      setIsSaving(false);
+      setTimeout(onCreated, 0);
     } catch (error) {
       setErrorMessage(getUserFacingError(error, 'Unable to add hours. Try again.'));
-    } finally {
       setIsSaving(false);
     }
   };

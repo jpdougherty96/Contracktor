@@ -17,7 +17,7 @@ test('Home exposes the three MVP capture methods', async () => {
   assert.match(home, /onPress={onCaptureReceipt}/);
   assert.match(home, /onPress={onTellContracktor}/);
   assert.match(home, /onPress={onStartWork}/);
-  assert.equal(route.includes("onStartWork={() => setScreen('addHoursHub')}"), true);
+  assert.equal(route.includes("onStartWork={() => router.push('/start-work')}"), true);
 });
 
 test('non-MVP utilities do not compete in the Home action list', async () => {
@@ -46,18 +46,33 @@ test('the repository records the MVP finish line and scope test', async () => {
 });
 
 test('new jobs make Start Work available by default', async () => {
-  const [createJob, jobs, startWork, timeClock] = await Promise.all([
+  const [createJob, jobs, startWork, timeClock, serverState] = await Promise.all([
     readRepoFile('src/screens/CreateJobScreen.tsx'),
     readRepoFile('src/lib/jobs.ts'),
     readRepoFile('src/screens/AddHoursHubScreen.tsx'),
     readRepoFile('src/lib/timeClock.ts'),
+    readRepoFile('src/lib/serverState.tsx'),
   ]);
 
   assert.match(createJob, /const \[timeClockEnabled, setTimeClockEnabled\] = useState\(true\)/);
   assert.match(jobs, /time_clock_enabled: input\.timeClockEnabled \?\? true/);
-  assert.match(timeClock, /fetchJobCrewMembers\(job\.id\)/);
-  assert.match(timeClock, /matchingCrewMember\?\.hourly_rate/);
-  assert.match(startWork, /startJobTimer\(job, timerDefaultsByJobId\[job\.id\]\)/);
+  assert.doesNotMatch(timeClock, /fetchJobCrewMembers\(job\.id\)/);
+  assert.match(timeClock, /firstPositiveRate\(job\.hourlyRate, profile\.defaultHourlyRate\)/);
+  assert.match(startWork, /useQuery\(startWorkJobsQueryOptions\(\)\)/);
+  assert.match(serverState, /queryFn: fetchStartWorkJobs/);
+  assert.match(startWork, /startJobTimer\(job\)/);
+  assert.doesNotMatch(startWork, /nextJobs\.map/);
+});
+
+test('time entry defaults never silently choose the first crew member', async () => {
+  const [startWork, manualHours] = await Promise.all([
+    readRepoFile('src/lib/timeClock.ts'),
+    readRepoFile('src/screens/AddHoursScreen.tsx'),
+  ]);
+
+  assert.doesNotMatch(startWork, /crewMembers\[0\]/);
+  assert.doesNotMatch(manualHours, /\?\? options\[0\]/);
+  assert.match(manualHours, /setSelectedCrewOptionId\(null\)/);
 });
 
 async function readRepoFile(relativePath) {

@@ -34,8 +34,22 @@ export type UpdateJobInput = CreateJobInput & {
   status: string;
 };
 
+export type StartWorkJob = Pick<
+  Job,
+  | 'clientName'
+  | 'createdAt'
+  | 'hourlyRate'
+  | 'id'
+  | 'name'
+  | 'status'
+  | 'timeClockEnabled'
+  | 'updatedAt'
+>;
+
 const jobFields =
   'id, owner_id, business_id, created_by_user_id, name, client_name, location, job_type, quote_amount, hourly_rate, time_clock_enabled, estimated_labor_hours, estimated_material_cost, estimated_sub_cost, estimated_misc_cost, status, start_date, end_date, created_at, updated_at';
+const startWorkJobFields =
+  'id, name, client_name, hourly_rate, time_clock_enabled, status, created_at, updated_at';
 
 export async function fetchJobs(): Promise<Job[]> {
   const user = await getAuthenticatedUser();
@@ -59,6 +73,58 @@ export async function fetchJobs(): Promise<Job[]> {
   const snapshotsByJobId = await fetchSnapshotSummaries(user.id, jobIds);
 
   return rows.map((row) => mapJobRow(row, snapshotsByJobId.get(row.id)));
+}
+
+export async function fetchJob(jobId: string): Promise<Job> {
+  const user = await getAuthenticatedUser();
+
+  if (!user) {
+    throw new Error('You must be logged in to view this job.');
+  }
+
+  const { data, error } = await supabase
+    .from('jobs')
+    .select(jobFields)
+    .eq('id', jobId)
+    .eq('owner_id', user.id)
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const snapshotsByJobId = await fetchSnapshotSummaries(user.id, [jobId]);
+  return mapJobRow(data, snapshotsByJobId.get(jobId));
+}
+
+export async function fetchStartWorkJobs(): Promise<StartWorkJob[]> {
+  const user = await getAuthenticatedUser();
+
+  if (!user) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from('jobs')
+    .select(startWorkJobFields)
+    .eq('owner_id', user.id)
+    .eq('status', 'active')
+    .order('updated_at', { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data ?? []).map((row) => ({
+    clientName: row.client_name ?? 'No client name',
+    createdAt: row.created_at ?? undefined,
+    hourlyRate: row.hourly_rate,
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    timeClockEnabled: row.time_clock_enabled ?? false,
+    updatedAt: row.updated_at ?? undefined,
+  }));
 }
 
 export async function createJob(input: CreateJobInput): Promise<Job> {

@@ -1,45 +1,48 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { confirmAction } from '@/src/lib/confirmAction';
-import { fetchJobs } from '@/src/lib/jobs';
+import { fetchJob, type StartWorkJob } from '@/src/lib/jobs';
 import {
-  fetchActiveTimeEntries,
-  fetchTimeClockDefaults,
+  activeTimerQueryOptions,
+  serverStateKeys,
+  startWorkJobsQueryOptions,
+} from '@/src/lib/serverState';
+import {
   startJobTimer,
   stopJobTimer,
   type ActiveTimeEntry,
-  type TimeClockDefaults,
 } from '@/src/lib/timeClock';
 import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Job } from '@/src/types/job';
 
 type AddHoursHubScreenProps = {
+  initialNotice?: string | null;
   onBack: () => void;
   onManualHours: (job: Job) => void;
   refreshKey?: number;
 };
 
 export function AddHoursHubScreen({
+  initialNotice = null,
   onBack,
   onManualHours,
   refreshKey = 0,
 }: AddHoursHubScreenProps) {
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [activeEntries, setActiveEntries] = useState<ActiveTimeEntry[]>([]);
-  const [timerDefaultsByJobId, setTimerDefaultsByJobId] = useState<
-    Record<string, TimeClockDefaults>
-  >({});
+  const queryClient = useQueryClient();
+  const jobsQuery = useQuery(startWorkJobsQueryOptions());
+  const activeTimerQuery = useQuery(activeTimerQueryOptions());
   const [now, setNow] = useState(() => Date.now());
-  const [isLoading, setIsLoading] = useState(true);
   const [busyJobId, setBusyJobId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
+  const [noticeMessage, setNoticeMessage] = useState<string | null>(initialNotice);
 
-  const openJobs = useMemo(
-    () => jobs.filter((job) => !['completed', 'closed'].includes(job.status.toLowerCase())),
-    [jobs]
+  const jobs = useMemo(() => jobsQuery.data ?? [], [jobsQuery.data]);
+  const activeEntries = useMemo(
+    () => (activeTimerQuery.data ? [activeTimerQuery.data.entry] : []),
+    [activeTimerQuery.data]
   );
   const activeEntryByJobId = useMemo(() => {
     const entries = new Map<string, ActiveTimeEntry>();
@@ -52,35 +55,20 @@ export function AddHoursHubScreen({
 
     return entries;
   }, [activeEntries]);
-
-  const loadData = useCallback(async () => {
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const [nextJobs, nextActiveEntries] = await Promise.all([
-        fetchJobs(),
-        fetchActiveTimeEntries(),
-      ]);
-      const nextTimerDefaults = Object.fromEntries(
-        await Promise.all(
-          nextJobs.map(async (job) => [job.id, await fetchTimeClockDefaults(job)] as const)
-        )
-      );
-
-      setJobs(nextJobs);
-      setActiveEntries(nextActiveEntries);
-      setTimerDefaultsByJobId(nextTimerDefaults);
-    } catch (error) {
-      setErrorMessage(getUserFacingError(error, 'Unable to load hours. Try again.'));
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  const detachedActiveTimer =
+    activeTimerQuery.data &&
+    !jobs.some((job) => job.id === activeTimerQuery.data?.entry.job_id)
+      ? activeTimerQuery.data
+      : null;
 
   useEffect(() => {
-    loadData();
-  }, [loadData, refreshKey]);
+    if (refreshKey > 0) {
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: serverStateKeys.activeTimer }),
+        queryClient.invalidateQueries({ queryKey: serverStateKeys.startWorkJobs }),
+      ]);
+    }
+  }, [queryClient, refreshKey]);
 
   useEffect(() => {
     const intervalId = setInterval(() => {
@@ -90,8 +78,8 @@ export function AddHoursHubScreen({
     return () => clearInterval(intervalId);
   }, []);
 
-  const handleStart = async (job: Job) => {
-    const activeEntry = activeEntries[0];
+  const handleStart = async (job: StartWorkJob) => {
+    const activeEntry = activeTimerQuery.data?.entry;
     const activeJob = activeEntry?.job_id
       ? jobs.find((candidate) => candidate.id === activeEntry.job_id)
       : null;
@@ -115,8 +103,11 @@ export function AddHoursHubScreen({
     setNoticeMessage(null);
 
     try {
-      const entry = await startJobTimer(job, timerDefaultsByJobId[job.id]);
-      setActiveEntries([entry]);
+      const entry = await startJobTimer(job);
+      queryClient.setQueryData(serverStateKeys.activeTimer, {
+        entry,
+        jobName: job.name,
+      });
       setNoticeMessage(
         activeEntry && activeEntry.job_id !== job.id
           ? `${activeJob?.name ?? 'Previous timer'} stopped. ${job.name} timer started.`
@@ -129,20 +120,31 @@ export function AddHoursHubScreen({
     }
   };
 
-  const handleStop = async (job: Job, entry: ActiveTimeEntry) => {
-    setBusyJobId(job.id);
+  const handleStop = async (jobId: string, jobName: string, entry: ActiveTimeEntry) => {
+    setBusyJobId(jobId);
     setErrorMessage(null);
     setNoticeMessage(null);
 
     try {
       await stopJobTimer(entry);
-      setActiveEntries((currentEntries) =>
-        currentEntries.filter((currentEntry) => currentEntry.id !== entry.id)
-      );
-      await loadData();
-      setNoticeMessage(`${job.name} timer stopped and its time was recorded.`);
+      queryClient.setQueryData(serverStateKeys.activeTimer, null);
+      setNoticeMessage(`${jobName} timer stopped and its time was recorded.`);
     } catch (error) {
       setErrorMessage(getUserFacingError(error, 'Unable to stop timer. Try again.'));
+    } finally {
+      setBusyJobId(null);
+    }
+  };
+
+  const handleManualHours = async (job: StartWorkJob) => {
+    setBusyJobId(job.id);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+
+    try {
+      onManualHours(await fetchJob(job.id));
+    } catch (error) {
+      setErrorMessage(getUserFacingError(error, 'Unable to open manual hours. Try again.'));
     } finally {
       setBusyJobId(null);
     }
@@ -161,19 +163,57 @@ export function AddHoursHubScreen({
         </View>
 
         {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+        {jobsQuery.error || activeTimerQuery.error ? (
+          <Text style={styles.errorText}>
+            {getUserFacingError(
+              jobsQuery.error ?? activeTimerQuery.error,
+              'Unable to load hours. Try again.'
+            )}
+          </Text>
+        ) : null}
         {noticeMessage ? <Text style={styles.noticeText}>{noticeMessage}</Text> : null}
-        {isLoading ? <Text style={styles.messageText}>Loading jobs...</Text> : null}
-        {!isLoading && openJobs.length === 0 ? (
+        {jobsQuery.isPending ? <Text style={styles.messageText}>Loading jobs...</Text> : null}
+        {detachedActiveTimer ? (
+          <View style={styles.detachedTimerCard}>
+            <View style={styles.jobInfo}>
+              <Text style={styles.jobName}>{detachedActiveTimer.jobName}</Text>
+              <Text style={styles.detachedTimerDetail}>
+                This timer is still running, but the job is no longer active.
+              </Text>
+            </View>
+            <View style={styles.timerControls}>
+              <Text style={styles.timerText}>
+                {detachedActiveTimer.entry.started_at
+                  ? formatElapsed(detachedActiveTimer.entry.started_at, now)
+                  : '0:00'}
+              </Text>
+              <Pressable
+                disabled={busyJobId !== null}
+                onPress={() =>
+                  void handleStop(
+                    detachedActiveTimer.entry.job_id ?? detachedActiveTimer.entry.id,
+                    detachedActiveTimer.jobName,
+                    detachedActiveTimer.entry
+                  )
+                }
+                style={[styles.timerButton, styles.stopButton]}>
+                <Text style={styles.timerButtonText}>
+                  {busyJobId !== null ? 'Stopping...' : 'Stop'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+        {!jobsQuery.isPending && jobs.length === 0 ? (
           <Text style={styles.messageText}>No open jobs are available.</Text>
         ) : null}
 
-        {!isLoading && openJobs.length > 0 ? (
+        {!jobsQuery.isPending && jobs.length > 0 ? (
           <View style={styles.list}>
-            {openJobs.map((job) => {
+            {jobs.map((job) => {
               const activeEntry = activeEntryByJobId.get(job.id);
               const displayHourlyRate =
                 activeEntry?.hourly_rate ??
-                timerDefaultsByJobId[job.id]?.hourlyRate ??
                 job.hourlyRate;
               const isBusy = busyJobId !== null;
               const isThisJobBusy = busyJobId === job.id;
@@ -196,10 +236,12 @@ export function AddHoursHubScreen({
                         {activeEntry?.started_at ? formatElapsed(activeEntry.started_at, now) : '0:00'}
                       </Text>
                       <Pressable
-                        disabled={isBusy}
-                        onPress={() =>
-                          activeEntry ? handleStop(job, activeEntry) : handleStart(job)
-                        }
+                            disabled={isBusy}
+                            onPress={() =>
+                              activeEntry
+                                ? handleStop(job.id, job.name, activeEntry)
+                                : handleStart(job)
+                            }
                         style={[
                           styles.timerButton,
                           activeEntry && styles.stopButton,
@@ -217,7 +259,7 @@ export function AddHoursHubScreen({
                   <Pressable
                     disabled={isBusy}
                     style={[styles.manualButton, isBusy && styles.disabledButton]}
-                    onPress={() => onManualHours(job)}>
+                    onPress={() => void handleManualHours(job)}>
                     <Text style={styles.manualButtonText}>Enter hours manually</Text>
                   </Pressable>
                 </View>
@@ -341,6 +383,21 @@ const styles = StyleSheet.create({
     color: '#7C6F64',
     fontSize: 14,
     fontWeight: '800',
+  },
+  detachedTimerCard: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FDBA74',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 14,
+    marginBottom: 14,
+    padding: 16,
+  },
+  detachedTimerDetail: {
+    color: '#9A3412',
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
   },
   manualButton: {
     alignItems: 'center',

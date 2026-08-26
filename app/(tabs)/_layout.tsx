@@ -4,6 +4,8 @@ export default function AppLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
+      <Stack.Screen name="start-work" />
+      <Stack.Screen name="hours/new" />
     </Stack>
   );
 }

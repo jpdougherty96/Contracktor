@@ -37,7 +37,10 @@ jobs:
       - name: Boundary tests
         run: npm test
 
-  receipt-integration:
+      - name: Production web build
+        run: npm run build:web
+
+  database-integration:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -70,3 +73,12 @@ jobs:
           SUPABASE_TEST_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
           SUPABASE_TEST_ALLOW_MUTATION=true \
           npm run test:integration
+
+      - name: Job Tasks integration tests
+        run: |
+          eval "$(supabase status -o env)"
+          SUPABASE_TEST_URL="$API_URL" \
+          SUPABASE_TEST_ANON_KEY="$ANON_KEY" \
+          SUPABASE_TEST_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
+          SUPABASE_TEST_ALLOW_MUTATION=true \
+          npm run test:tasks:integration
