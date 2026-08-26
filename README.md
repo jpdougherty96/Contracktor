@@ -34,7 +34,7 @@ The active app covers:
 - Manual expenses when there is no receipt.
 - Tools / Inventory expense tracking with no job attached.
 - Manual hours.
-- Optional time clock per job.
+- Timer and manual labor entry on every active job.
 - Manual customer-payment ledger entries; online payment processing is not yet implemented.
 - Job notes with photo attachments.
 - Basic invoice draft/export.
@@ -305,7 +305,7 @@ Hours:
 - Add manual hours.
 - Pick a crew member to prefill worker name and hourly rate.
 - Edit hours, worker name, hourly rate, date, and note.
-- Start/stop time clock when enabled for the job.
+- Start/stop the timer on any active job.
 
 Payments:
 - Add/edit customer payments.

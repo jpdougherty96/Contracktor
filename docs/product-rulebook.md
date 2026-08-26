@@ -856,6 +856,10 @@ Combined shopping lists should be generated from open shopping needs across sele
 
 ## 31. Hours And Crew Rules
 
+Every active job supports both a running timer and manual labor entry. Contractors choose whether
+to use the timer; job setup does not ask them to enable the capability. Non-active jobs cannot
+start a new timer.
+
 For crew:
 
 - logged-in worker is known

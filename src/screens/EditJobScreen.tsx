@@ -37,7 +37,6 @@ export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
   const [jobType, setJobType] = useState<JobType>(job.jobType);
   const [quoteAmount, setQuoteAmount] = useState(formatEditableNumber(job.quoteAmount));
   const [hourlyRate, setHourlyRate] = useState(formatEditableNumber(job.hourlyRate));
-  const [timeClockEnabled, setTimeClockEnabled] = useState(job.timeClockEnabled);
   const [estimatedLaborHours, setEstimatedLaborHours] = useState(
     formatEditableNumber(job.estimatedLaborHours)
   );
@@ -154,7 +153,6 @@ export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
         estimatedMiscCost: parsedOtherCost,
         estimatedSubCost: null,
         hourlyRate: parsedHourlyRate,
-        timeClockEnabled,
         location,
         name: name.trim(),
         quoteAmount: parsedQuoteAmount ?? 0,
@@ -245,12 +243,6 @@ export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
               onChangeText={setHourlyRate}
               placeholder="Optional"
             />
-            <ToggleRow
-              description="Show Start and Stop controls for this job in Start work."
-              isEnabled={timeClockEnabled}
-              label="Time clock"
-              onPress={() => setTimeClockEnabled((isEnabled) => !isEnabled)}
-            />
             <View style={styles.field}>
               <Text style={styles.label}>Status</Text>
               <View style={styles.statusGrid}>
@@ -305,35 +297,6 @@ export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
-  );
-}
-
-function ToggleRow({
-  description,
-  isEnabled,
-  label,
-  onPress,
-}: {
-  description: string;
-  isEnabled: boolean;
-  label: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="switch"
-      accessibilityState={{ checked: isEnabled }}
-      accessibilityLabel={label}
-      style={styles.toggleRow}
-      onPress={onPress}>
-      <View style={styles.toggleTextGroup}>
-        <Text style={styles.label}>{label}</Text>
-        <Text style={styles.toggleDescription}>{description}</Text>
-      </View>
-      <View style={[styles.toggleTrack, isEnabled && styles.enabledToggleTrack]}>
-        <View style={[styles.toggleKnob, isEnabled && styles.enabledToggleKnob]} />
-      </View>
-    </Pressable>
   );
 }
 
@@ -472,47 +435,6 @@ const styles = StyleSheet.create({
   },
   field: {
     gap: 6,
-  },
-  toggleRow: {
-    alignItems: 'center',
-    borderColor: '#C9C3B8',
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'space-between',
-    minHeight: 66,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  toggleTextGroup: {
-    flex: 1,
-    gap: 3,
-  },
-  toggleDescription: {
-    color: '#64748B',
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  toggleTrack: {
-    backgroundColor: '#C9C3B8',
-    borderRadius: 999,
-    height: 28,
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-    width: 52,
-  },
-  enabledToggleTrack: {
-    backgroundColor: '#335C43',
-  },
-  toggleKnob: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 999,
-    height: 22,
-    width: 22,
-  },
-  enabledToggleKnob: {
-    alignSelf: 'flex-end',
   },
   label: {
     color: '#475569',

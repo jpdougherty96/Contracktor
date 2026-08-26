@@ -44,7 +44,7 @@ safely resolve.
 
 ### Start Work
 
-Use a timer for work happening now, with manual hours as the fallback.
+Every active job offers a timer for work happening now, with manual hours as the fallback.
 
 All three inputs feed the same job history and financial model.
 

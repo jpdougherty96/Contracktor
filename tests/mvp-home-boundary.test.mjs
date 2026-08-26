@@ -45,22 +45,27 @@ test('the repository records the MVP finish line and scope test', async () => {
   assert.match(mvp, /capture reality, organize reality, or explain the/);
 });
 
-test('new jobs make Start Work available by default', async () => {
-  const [createJob, jobs, startWork, timeClock, serverState] = await Promise.all([
+test('every active job makes timer and manual labor capture available', async () => {
+  const [createJob, editJob, jobs, startWork, timeClock, serverState] = await Promise.all([
     readRepoFile('src/screens/CreateJobScreen.tsx'),
+    readRepoFile('src/screens/EditJobScreen.tsx'),
     readRepoFile('src/lib/jobs.ts'),
     readRepoFile('src/screens/AddHoursHubScreen.tsx'),
     readRepoFile('src/lib/timeClock.ts'),
     readRepoFile('src/lib/serverState.tsx'),
   ]);
 
-  assert.match(createJob, /const \[timeClockEnabled, setTimeClockEnabled\] = useState\(true\)/);
-  assert.match(jobs, /time_clock_enabled: input\.timeClockEnabled \?\? true/);
+  assert.doesNotMatch(createJob, /timeClockEnabled|Time clock/);
+  assert.doesNotMatch(editJob, /timeClockEnabled|Time clock/);
+  assert.match(jobs, /time_clock_enabled: true/);
+  assert.doesNotMatch(jobs, /input\.timeClockEnabled/);
   assert.doesNotMatch(timeClock, /fetchJobCrewMembers\(job\.id\)/);
+  assert.doesNotMatch(timeClock, /Enable the time clock|timeClockEnabled/);
   assert.match(timeClock, /firstPositiveRate\(job\.hourlyRate, profile\.defaultHourlyRate\)/);
   assert.match(startWork, /useQuery\(startWorkJobsQueryOptions\(\)\)/);
   assert.match(serverState, /queryFn: fetchStartWorkJobs/);
   assert.match(startWork, /startJobTimer\(job\)/);
+  assert.doesNotMatch(startWork, /Time clock off|job\.timeClockEnabled/);
   assert.doesNotMatch(startWork, /nextJobs\.map/);
 });
 

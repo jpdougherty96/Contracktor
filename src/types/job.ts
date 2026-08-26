@@ -9,7 +9,6 @@ export type Job = {
   jobType: JobType;
   quoteAmount: number;
   hourlyRate?: number | null;
-  timeClockEnabled: boolean;
   estimatedLaborHours?: number | null;
   estimatedMaterialCost?: number | null;
   estimatedSubCost?: number | null;

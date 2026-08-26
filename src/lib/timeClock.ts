@@ -16,7 +16,7 @@ export type TimeClockDefaults = {
   workerName: string | null;
 };
 
-type TimerJob = Pick<Job, 'hourlyRate' | 'id' | 'timeClockEnabled'>;
+type TimerJob = Pick<Job, 'hourlyRate' | 'id'>;
 
 const timeEntryFields =
   'id, job_id, owner_id, business_id, created_by_user_id, started_at, stopped_at, work_date, duration_minutes, hourly_rate, worker_name, description, billable, source, status, created_at, updated_at';
@@ -95,10 +95,6 @@ export async function startJobTimer(
   job: TimerJob,
   defaults?: TimeClockDefaults
 ): Promise<ActiveTimeEntry> {
-  if (!job.timeClockEnabled) {
-    throw new Error('Enable the time clock for this job before starting a timer.');
-  }
-
   const timerDefaults = defaults ?? (await fetchTimeClockDefaults(job));
 
   if (!timerDefaults.hourlyRate || timerDefaults.hourlyRate <= 0) {

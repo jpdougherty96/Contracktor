@@ -229,31 +229,27 @@ export function AddHoursHubScreen({
                     </Text>
                   </View>
 
-                  {job.timeClockEnabled ? (
-                    <View style={styles.timerControls}>
-                      <Text style={styles.timerText}>
-                        {activeEntry?.started_at ? formatElapsed(activeEntry.started_at, now) : '0:00'}
+                  <View style={styles.timerControls}>
+                    <Text style={styles.timerText}>
+                      {activeEntry?.started_at ? formatElapsed(activeEntry.started_at, now) : '0:00'}
+                    </Text>
+                    <Pressable
+                      disabled={isBusy}
+                      onPress={() =>
+                        activeEntry
+                          ? handleStop(job.id, job.name, activeEntry)
+                          : handleStart(job)
+                      }
+                      style={[
+                        styles.timerButton,
+                        activeEntry && styles.stopButton,
+                        isBusy && styles.disabledButton,
+                      ]}>
+                      <Text style={styles.timerButtonText}>
+                        {isThisJobBusy ? 'Working...' : activeEntry ? 'Stop' : 'Start'}
                       </Text>
-                      <Pressable
-                            disabled={isBusy}
-                            onPress={() =>
-                              activeEntry
-                                ? handleStop(job.id, job.name, activeEntry)
-                                : handleStart(job)
-                            }
-                        style={[
-                          styles.timerButton,
-                          activeEntry && styles.stopButton,
-                          isBusy && styles.disabledButton,
-                        ]}>
-                        <Text style={styles.timerButtonText}>
-                          {isThisJobBusy ? 'Working...' : activeEntry ? 'Stop' : 'Start'}
-                        </Text>
-                      </Pressable>
-                    </View>
-                  ) : (
-                    <Text style={styles.disabledTimerText}>Time clock off</Text>
-                  )}
+                    </Pressable>
+                  </View>
 
                   <Pressable
                     disabled={isBusy}
@@ -354,11 +350,6 @@ const styles = StyleSheet.create({
   timerButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '800',
-  },
-  disabledTimerText: {
-    color: '#7C6F64',
-    fontSize: 14,
     fontWeight: '800',
   },
   detachedTimerCard: {

@@ -2,7 +2,6 @@ const safeMessages = [
   /authentication is required/i,
   /must be logged in/i,
   /permission is required/i,
-  /enable the time clock/i,
   /set the hourly rate/i,
   /already running/i,
   /could not be read/i,

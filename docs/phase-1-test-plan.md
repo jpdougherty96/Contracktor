@@ -72,7 +72,7 @@ Happy path:
 - Current user can be included as the default crew member.
 - Additional crew members and hourly rates can be added.
 - Created jobs appear in Open jobs.
-- Edit job updates basics, type, budgets/rates, time clock setting, status, and crew.
+- Edit job updates basics, type, budgets/rates, status, and crew.
 - Completed/closed jobs move out of Open jobs.
 
 Edge cases:
@@ -214,7 +214,8 @@ Happy path:
 - Hours save with date, duration, worker name, hourly rate, and note.
 - Hours appear in recent activity and labor drill-down.
 - Editing hours updates hours, date, worker name, hourly rate, and note.
-- Time clock can start and stop for jobs where it is enabled.
+- Timer and manual hours are available for every active job.
+- Timer cannot start for a paused, completed, closed, or archived job.
 
 Edge cases:
 - Zero, negative, or non-numeric hours are rejected.

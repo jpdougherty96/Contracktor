@@ -16,13 +16,14 @@ type JobSnapshotSummary = Pick<
   | 'total_hours'
 >;
 
+type JobRow = Omit<Tables<'jobs'>, 'time_clock_enabled'>;
+
 export type CreateJobInput = {
   name: string;
   clientName?: string;
   location?: string;
   jobType?: JobType;
   hourlyRate?: number | null;
-  timeClockEnabled?: boolean;
   quoteAmount: number;
   estimatedLaborHours?: number | null;
   estimatedMaterialCost?: number | null;
@@ -42,14 +43,13 @@ export type StartWorkJob = Pick<
   | 'id'
   | 'name'
   | 'status'
-  | 'timeClockEnabled'
   | 'updatedAt'
 >;
 
 const jobFields =
-  'id, owner_id, business_id, created_by_user_id, name, client_name, location, job_type, quote_amount, hourly_rate, time_clock_enabled, estimated_labor_hours, estimated_material_cost, estimated_sub_cost, estimated_misc_cost, status, start_date, end_date, created_at, updated_at';
+  'id, owner_id, business_id, created_by_user_id, name, client_name, location, job_type, quote_amount, hourly_rate, estimated_labor_hours, estimated_material_cost, estimated_sub_cost, estimated_misc_cost, status, start_date, end_date, created_at, updated_at';
 const startWorkJobFields =
-  'id, name, client_name, hourly_rate, time_clock_enabled, status, created_at, updated_at';
+  'id, name, client_name, hourly_rate, status, created_at, updated_at';
 
 export async function fetchJobs(): Promise<Job[]> {
   const user = await getAuthenticatedUser();
@@ -122,7 +122,6 @@ export async function fetchStartWorkJobs(): Promise<StartWorkJob[]> {
     id: row.id,
     name: row.name,
     status: row.status,
-    timeClockEnabled: row.time_clock_enabled ?? false,
     updatedAt: row.updated_at ?? undefined,
   }));
 }
@@ -146,7 +145,8 @@ export async function createJob(input: CreateJobInput): Promise<Job> {
       job_type: input.jobType ?? 'fixed_bid',
       quote_amount: input.quoteAmount,
       hourly_rate: input.hourlyRate ?? null,
-      time_clock_enabled: input.timeClockEnabled ?? true,
+      // Keep writing the legacy compatibility column until it can be removed safely.
+      time_clock_enabled: true,
       estimated_labor_hours: input.estimatedLaborHours ?? null,
       estimated_material_cost: input.estimatedMaterialCost ?? null,
       estimated_sub_cost: input.estimatedSubCost ?? null,
@@ -183,7 +183,8 @@ export async function updateJob(jobId: string, input: UpdateJobInput): Promise<J
       name: input.name,
       quote_amount: input.quoteAmount,
       hourly_rate: input.hourlyRate ?? null,
-      time_clock_enabled: input.timeClockEnabled ?? true,
+      // Editing an older job also heals any pre-migration disabled value.
+      time_clock_enabled: true,
       status: input.status,
       updated_at: new Date().toISOString(),
     })
@@ -237,7 +238,7 @@ async function fetchSnapshotSummaries(
   );
 }
 
-function mapJobRow(row: Tables<'jobs'>, snapshot?: JobSnapshotSummary): Job {
+function mapJobRow(row: JobRow, snapshot?: JobSnapshotSummary): Job {
   return {
     id: row.id,
     name: row.name,
@@ -246,7 +247,6 @@ function mapJobRow(row: Tables<'jobs'>, snapshot?: JobSnapshotSummary): Job {
     jobType: isJobType(row.job_type) ? row.job_type : 'fixed_bid',
     quoteAmount: row.quote_amount ?? 0,
     hourlyRate: row.hourly_rate,
-    timeClockEnabled: row.time_clock_enabled ?? false,
     estimatedLaborHours: row.estimated_labor_hours,
     estimatedMaterialCost: row.estimated_material_cost,
     estimatedSubCost: row.estimated_sub_cost,

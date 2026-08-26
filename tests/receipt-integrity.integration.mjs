@@ -46,13 +46,15 @@ test(
     ]);
 
     await t.test('timer switching is confirmed by one atomic database capability', async () => {
-      await requiredQuery(
+      const compatibilityRows = await requiredQuery(
         clientA
           .from('jobs')
-          .update({ time_clock_enabled: true })
-          .in('id', [jobA1, jobA2])
-          .select('id')
+          .update({ time_clock_enabled: false })
+          .eq('id', jobA2)
+          .select('id, time_clock_enabled')
       );
+      assert.equal(compatibilityRows[0].time_clock_enabled, true);
+
       const startedAt = new Date(Date.now() - 10 * 60 * 1000).toISOString();
       const activeRows = await requiredQuery(
         clientA

@@ -100,12 +100,13 @@ test('routed screens keep guarded wayfinding outside scrollable content', async 
   assert.doesNotMatch(manualHours, />{backLabel}</);
 });
 
-test('timer switches are explicit in the UI and atomic in the database', async () => {
-  const [hub, timeClock, migration, activeJobMigration] = await Promise.all([
+test('timer switches are explicit, universal for active jobs, and atomic in the database', async () => {
+  const [hub, timeClock, migration, activeJobMigration, universalTimerMigration] = await Promise.all([
     readRepoFile('src/screens/AddHoursHubScreen.tsx'),
     readRepoFile('src/lib/timeClock.ts'),
     readRepoFile('supabase/migrations/20260822013000_atomic_timer_switch.sql'),
     readRepoFile('supabase/migrations/20260825090000_require_active_job_for_timer.sql'),
+    readRepoFile('supabase/migrations/20260825100000_always_available_job_timer.sql'),
   ]);
 
   assert.match(hub, /title: 'Switch active timer\?'/);
@@ -117,6 +118,10 @@ test('timer switches are explicit in the UI and atomic in the database', async (
   assert.match(migration, /perform public\.upsert_activity_event/);
   assert.match(activeJobMigration, /if v_job\.status <> 'active'/);
   assert.match(activeJobMigration, /Only active jobs can start a timer/);
+  assert.match(universalTimerMigration, /new\.time_clock_enabled := true/);
+  assert.match(universalTimerMigration, /alter column time_clock_enabled set default true/);
+  assert.match(universalTimerMigration, /if v_job\.status <> 'active'/);
+  assert.doesNotMatch(universalTimerMigration, /if not v_job\.time_clock_enabled/);
 });
 
 test('screens do not expose arbitrary backend error messages', async () => {
