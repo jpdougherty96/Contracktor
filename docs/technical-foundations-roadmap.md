@@ -15,6 +15,7 @@ over feature speed.
 - Query data is cleared when the authenticated user changes.
 - Start Work and Start Work manual entry use real Expo Router routes.
 - Routed manual entry uses the navigation removal guard for unsaved changes.
+- Routed screens use a shared persistent header outside scrollable content; Home remains headerless.
 - A privacy-safe client crash boundary and sanitized reporting interface are in place.
 
 ## Next routed flows
@@ -33,6 +34,17 @@ and real-device verification.
 
 Routes carry stable record IDs. Screens load authoritative records through shared query options;
 they do not pass whole mutable records through navigation.
+
+Every routed-screen checkpoint also follows these navigation rules:
+
+- Render the shared header outside the screen's `ScrollView`; do not use CSS-style sticky positioning.
+- Keep Home headerless so its reflex-zone actions remain the first content on screen.
+- Let each screen own its guarded Back behavior and pass that action into the shared header.
+- Verify header Back, native gestures, Android Back, and browser history against unsaved-change guards.
+- Reserve the header-right slot for low-consequence context actions such as Edit or Filter.
+- Reserve a fixed bottom action area for the single consequential commit on long forms, such as
+  Save or Approve; ordinary actions scroll with the content.
+- Remove the old in-content Back control as each screen is migrated.
 
 ## Monitoring activation gate
 

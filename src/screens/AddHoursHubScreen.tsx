@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScreenLayout } from '@/src/components/ScreenLayout';
 import { confirmAction } from '@/src/lib/confirmAction';
 import { fetchJob, type StartWorkJob } from '@/src/lib/jobs';
 import {
@@ -151,16 +151,15 @@ export function AddHoursHubScreen({
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout
+      backDisabled={busyJobId !== null}
+      backLabel="Home"
+      onBack={onBack}
+      title="Start work">
       <ScrollView contentContainerStyle={styles.container}>
-        <Pressable disabled={busyJobId !== null} style={styles.backButton} onPress={onBack}>
-          <Text style={styles.backButtonText}>Back home</Text>
-        </Pressable>
-
-        <View style={styles.header}>
-          <Text style={styles.title}>Start work</Text>
-          <Text style={styles.subtitle}>Choose a job to start its timer or enter hours manually.</Text>
-        </View>
+        <Text style={styles.introText}>
+          Choose a job to start its timer or enter hours manually.
+        </Text>
 
         {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
         {jobsQuery.error || activeTimerQuery.error ? (
@@ -268,7 +267,7 @@ export function AddHoursHubScreen({
           </View>
         ) : null}
       </ScrollView>
-    </SafeAreaView>
+    </ScreenLayout>
   );
 }
 
@@ -286,38 +285,16 @@ function formatElapsed(startedAt: string, now: number): string {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#F6F5F2',
-  },
   container: {
     padding: 20,
     paddingBottom: 36,
   },
-  backButton: {
-    alignSelf: 'flex-start',
-    justifyContent: 'center',
-    marginBottom: 8,
-    minHeight: 44,
-  },
-  backButtonText: {
-    color: '#335C43',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  header: {
-    marginBottom: 16,
-  },
-  title: {
-    color: '#1F2933',
-    fontSize: 30,
-    fontWeight: '800',
-  },
-  subtitle: {
+  introText: {
     color: '#64748B',
     fontSize: 16,
     fontWeight: '600',
-    marginTop: 4,
+    lineHeight: 23,
+    marginBottom: 16,
   },
   list: {
     gap: 14,

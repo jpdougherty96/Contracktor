@@ -1,9 +1,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { AuthenticatedRoute } from '@/src/components/AuthenticatedRoute';
 import { RoutedScreenFrame } from '@/src/components/RoutedScreenFrame';
+import { ScreenLayout } from '@/src/components/ScreenLayout';
 import { fetchJob } from '@/src/lib/jobs';
 import { serverStateKeys } from '@/src/lib/serverState';
 import { getUserFacingError } from '@/src/lib/userFacingError';
@@ -13,6 +14,7 @@ import { colors } from '@/src/styles/theme';
 export default function NewHoursRoute() {
   const { jobId } = useLocalSearchParams<{ jobId?: string }>();
   const queryClient = useQueryClient();
+  const returnToStartWork = () => router.replace('/start-work');
   const jobQuery = useQuery({
     enabled: Boolean(jobId),
     queryFn: () => fetchJob(jobId!),
@@ -24,20 +26,21 @@ export default function NewHoursRoute() {
     <AuthenticatedRoute>
       <RoutedScreenFrame>
         {jobId && jobQuery.isPending ? (
-          <View style={styles.messageScreen}>
-            <ActivityIndicator color={colors.primaryGreen} size="large" />
-            <Text style={styles.messageText}>Loading job...</Text>
-          </View>
+          <ScreenLayout backLabel="Start work" onBack={returnToStartWork} title="Add hours">
+            <View style={styles.messageScreen}>
+              <ActivityIndicator color={colors.primaryGreen} size="large" />
+              <Text style={styles.messageText}>Loading job...</Text>
+            </View>
+          </ScreenLayout>
         ) : null}
         {jobQuery.error || !jobId ? (
-          <View style={styles.messageScreen}>
-            <Text style={styles.errorText}>
-              {getUserFacingError(jobQuery.error, 'Unable to open this job. Return to Start Work.')}
-            </Text>
-            <Pressable style={styles.backButton} onPress={() => router.replace('/start-work')}>
-              <Text style={styles.backButtonText}>Back to Start work</Text>
-            </Pressable>
-          </View>
+          <ScreenLayout backLabel="Start work" onBack={returnToStartWork} title="Add hours">
+            <View style={styles.messageScreen}>
+              <Text style={styles.errorText}>
+                {getUserFacingError(jobQuery.error, 'Unable to open this job. Return to Start Work.')}
+              </Text>
+            </View>
+          </ScreenLayout>
         ) : null}
         {jobQuery.data ? (
           <AddHoursScreen
@@ -60,19 +63,6 @@ export default function NewHoursRoute() {
 }
 
 const styles = StyleSheet.create({
-  backButton: {
-    alignItems: 'center',
-    backgroundColor: colors.primaryGreen,
-    borderRadius: 10,
-    justifyContent: 'center',
-    minHeight: 46,
-    paddingHorizontal: 18,
-  },
-  backButtonText: {
-    color: colors.warmWhite,
-    fontSize: 15,
-    fontWeight: '800',
-  },
   errorText: {
     color: colors.danger,
     fontSize: 15,

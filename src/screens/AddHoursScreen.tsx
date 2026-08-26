@@ -9,8 +9,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScreenLayout } from '@/src/components/ScreenLayout';
 import { useGuardedBack } from '@/src/hooks/useGuardedBack';
 import { fetchJobCrewMembers } from '@/src/lib/jobCrew';
 import { createJobHours } from '@/src/lib/jobHours';
@@ -182,20 +182,16 @@ export function AddHoursScreen({
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout
+      backDisabled={isSaving}
+      backLabel={backLabel}
+      onBack={handleBack}
+      subtitle={job.name}
+      title="Add hours">
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-          <Pressable disabled={isSaving} style={styles.backButton} onPress={handleBack}>
-            <Text style={styles.backButtonText}>{backLabel}</Text>
-          </Pressable>
-
-          <View style={styles.header}>
-            <Text style={styles.title}>Add hours</Text>
-            <Text style={styles.subtitle}>{job.name}</Text>
-          </View>
-
           <View style={styles.form}>
             {crewOptions.length > 0 ? (
               <View style={styles.field}>
@@ -327,7 +323,7 @@ export function AddHoursScreen({
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </ScreenLayout>
   );
 }
 
@@ -478,41 +474,12 @@ function isIsoDate(value: string): boolean {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#F6F5F2',
-  },
   keyboardView: {
     flex: 1,
   },
   container: {
     padding: 20,
     paddingBottom: 36,
-  },
-  backButton: {
-    alignSelf: 'flex-start',
-    justifyContent: 'center',
-    marginBottom: 8,
-    minHeight: 44,
-  },
-  backButtonText: {
-    color: '#335C43',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  header: {
-    marginBottom: 16,
-  },
-  title: {
-    color: '#1F2933',
-    fontSize: 30,
-    fontWeight: '800',
-  },
-  subtitle: {
-    color: '#64748B',
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 4,
   },
   form: {
     backgroundColor: '#FFFFFF',

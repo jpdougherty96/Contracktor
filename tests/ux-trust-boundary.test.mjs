@@ -78,6 +78,28 @@ test('Start Work and its manual-hours destination are real guarded routes', asyn
   assert.match(newHoursRoute, /jobId/);
 });
 
+test('routed screens keep guarded wayfinding outside scrollable content', async () => {
+  const [layout, header, home, startWork, manualHours] = await Promise.all([
+    readRepoFile('src/components/ScreenLayout.tsx'),
+    readRepoFile('src/components/ScreenHeader.tsx'),
+    readRepoFile('src/screens/HomeActionsScreen.tsx'),
+    readRepoFile('src/screens/AddHoursHubScreen.tsx'),
+    readRepoFile('src/screens/AddHoursScreen.tsx'),
+  ]);
+
+  assert.match(layout, /<ScreenHeader/);
+  assert.match(layout, /<View style={styles\.body}>{children}<\/View>/);
+  assert.match(header, /accessibilityRole="button"/);
+  assert.match(header, /minHeight: 44/);
+  assert.doesNotMatch(header, /position:\s*['"]sticky['"]/);
+  assert.doesNotMatch(home, /ScreenLayout/);
+  assert.match(startWork, /<ScreenLayout/);
+  assert.match(manualHours, /<ScreenLayout/);
+  assert.match(manualHours, /onBack={handleBack}/);
+  assert.doesNotMatch(startWork, />Back home</);
+  assert.doesNotMatch(manualHours, />{backLabel}</);
+});
+
 test('timer switches are explicit in the UI and atomic in the database', async () => {
   const [hub, timeClock, migration, activeJobMigration] = await Promise.all([
     readRepoFile('src/screens/AddHoursHubScreen.tsx'),
