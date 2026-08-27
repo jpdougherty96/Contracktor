@@ -39,6 +39,9 @@ jobs:
 
       - name: Production web build
         run: npm run build:web
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://ci-build.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ci-build-placeholder
 
   database-integration:
     runs-on: ubuntu-latest
