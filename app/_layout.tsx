@@ -6,6 +6,7 @@ import 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { VercelAnalytics } from '@/src/components/VercelAnalytics';
 import { ClientErrorBoundary } from '@/src/components/ClientErrorBoundary';
+import { AppNoticeProvider } from '@/src/contexts/AppNoticeContext';
 import { EntitlementsProvider } from '@/src/contexts/EntitlementsContext';
 import { ServerStateProvider } from '@/src/lib/serverState';
 
@@ -21,11 +22,13 @@ export default function RootLayout() {
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <ServerStateProvider>
           <EntitlementsProvider>
-            <Stack>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            </Stack>
-            <StatusBar style="auto" />
-            <VercelAnalytics />
+            <AppNoticeProvider>
+              <Stack>
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              </Stack>
+              <StatusBar style="auto" />
+              <VercelAnalytics />
+            </AppNoticeProvider>
           </EntitlementsProvider>
         </ServerStateProvider>
       </ThemeProvider>

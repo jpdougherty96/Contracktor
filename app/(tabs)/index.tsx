@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useEntitlements } from '@/src/contexts/EntitlementsContext';
 import { ScreenBackProvider } from '@/src/contexts/BackNavigationContext';
+import { useAppNotice } from '@/src/contexts/AppNoticeContext';
 import { getCurrentAuthState, signOut } from '@/src/lib/auth';
 import type { GlobalActivityItem } from '@/src/lib/globalActivity';
 import {
@@ -98,6 +99,7 @@ const routedLegacyScreens = new Set<Screen>([
 export default function HomeScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { showNotice } = useAppNotice();
   const legacyParams = useLocalSearchParams<{
     inventory?: string;
     jobId?: string;
@@ -133,7 +135,6 @@ export default function HomeScreen() {
   const [accountSettingsBackScreen, setAccountSettingsBackScreen] = useState<Screen>('home');
   const [dashboardBackScreen, setDashboardBackScreen] = useState<Screen>('jobs');
   const [toolsBackScreen, setToolsBackScreen] = useState<Screen>('home');
-  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const [globalErrorMessage, setGlobalErrorMessage] = useState<string | null>(null);
   const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
@@ -252,11 +253,6 @@ export default function HomeScreen() {
         <View style={[styles.screenFrame, viewportWidth >= 768 && styles.desktopScreenFrame]}>
           {content}
         </View>
-        {noticeMessage ? (
-          <View accessibilityLiveRegion="polite" style={styles.noticeToast}>
-            <Text style={styles.noticeToastText}>{noticeMessage}</Text>
-          </View>
-        ) : null}
         {globalErrorMessage ? (
           <View accessibilityLiveRegion="assertive" style={styles.errorToast}>
             <Text style={styles.errorToastText}>{globalErrorMessage}</Text>
@@ -265,15 +261,6 @@ export default function HomeScreen() {
       </View>
     </ScreenBackProvider>
   );
-
-  useEffect(() => {
-    if (!noticeMessage) {
-      return;
-    }
-
-    const timeoutId = setTimeout(() => setNoticeMessage(null), 3500);
-    return () => clearTimeout(timeoutId);
-  }, [noticeMessage]);
 
   useEffect(() => {
     if (!globalErrorMessage) {
@@ -392,13 +379,20 @@ export default function HomeScreen() {
   );
 
   const invalidateRoutedData = useCallback(
-    (jobId?: string | null) => {
+    (jobIds?: string | null | (string | null | undefined)[]) => {
       const invalidations = [
         queryClient.invalidateQueries({ queryKey: serverStateKeys.jobs }),
         queryClient.invalidateQueries({ queryKey: serverStateKeys.activity }),
       ];
+      const affectedJobIds = Array.from(
+        new Set(
+          (Array.isArray(jobIds) ? jobIds : [jobIds]).filter(
+            (jobId): jobId is string => Boolean(jobId)
+          )
+        )
+      );
 
-      if (jobId) {
+      for (const jobId of affectedJobIds) {
         invalidations.push(
           queryClient.invalidateQueries({ queryKey: serverStateKeys.job(jobId) })
         );
@@ -653,7 +647,7 @@ export default function HomeScreen() {
         onSaved={() => {
           isPasswordRecoveryFlowRef.current = false;
           clearPasswordRecoveryRequested();
-          setNoticeMessage('Password updated.');
+          showNotice('Password updated.');
           setScreen(updatePasswordBackScreen);
         }}
       />
@@ -734,7 +728,7 @@ export default function HomeScreen() {
         }}
         onTimerStopped={(jobName) => {
           setDashboardRefreshKey((key) => key + 1);
-          setNoticeMessage(`${jobName} timer stopped and its time was recorded.`);
+          showNotice(`${jobName} timer stopped and its time was recorded.`);
         }}
         onLogout={handleLogout}
         showActivity={canUseActivity}
@@ -960,13 +954,13 @@ export default function HomeScreen() {
         onDeleted={() => {
           setSelectedHoursId(null);
           setDashboardRefreshKey((key) => key + 1);
-          setNoticeMessage('Hours entry removed.');
+          showNotice('Hours entry removed.');
           void invalidateRoutedData(selectedJob.id);
           finishLegacyFlow(editBackScreen);
         }}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setNoticeMessage('Hours updated.');
+          showNotice('Hours updated.');
           void invalidateRoutedData(selectedJob.id);
           finishLegacyFlow(editBackScreen);
         }}
@@ -982,7 +976,7 @@ export default function HomeScreen() {
         onBack={() => finishLegacyFlow(editBackScreen)}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setNoticeMessage('Note updated.');
+          showNotice('Note updated.');
           void invalidateRoutedData(selectedJob.id);
           finishLegacyFlow(editBackScreen);
         }}
@@ -997,7 +991,7 @@ export default function HomeScreen() {
         onBack={() => finishLegacyFlow(editBackScreen)}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setNoticeMessage('Payment updated.');
+          showNotice('Payment updated.');
           void invalidateRoutedData(selectedJob.id);
           finishLegacyFlow(editBackScreen);
         }}
@@ -1015,7 +1009,7 @@ export default function HomeScreen() {
           setSelectedJob(job);
           setJobsRefreshKey((key) => key + 1);
           setDashboardRefreshKey((key) => key + 1);
-          setNoticeMessage('Job updated.');
+          showNotice('Job updated.');
           queryClient.setQueryData(serverStateKeys.job(job.id), job);
           void invalidateRoutedData(job.id);
           finishLegacyFlow('dashboard');
@@ -1067,8 +1061,11 @@ export default function HomeScreen() {
             setDashboardBackScreen(receiptReviewBackScreen);
           }
 
-          setNoticeMessage('Receipt saved.');
-          void invalidateRoutedData(selectedJob?.id);
+          showNotice('Receipt saved.');
+          void invalidateRoutedData([
+            selectedJob?.id,
+            ...selectedReceiptJobs.map((job) => job.id),
+          ]);
           finishLegacyFlow(completeScreen);
         }}
         receiptId={selectedReceiptId}
@@ -1128,8 +1125,11 @@ export default function HomeScreen() {
         onBack={() => setScreen(addBackScreen)}
         onDone={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setNoticeMessage('Receipt saved.');
-          void invalidateRoutedData(selectedJob?.id);
+          showNotice('Receipt saved.');
+          void invalidateRoutedData([
+            selectedJob?.id,
+            ...selectedReceiptJobs.map((job) => job.id),
+          ]);
           finishLegacyFlow(
             getReceiptCompleteScreen(
               selectedReceiptJobs,
@@ -1168,7 +1168,7 @@ export default function HomeScreen() {
         onBack={() => setScreen(addBackScreen)}
         onCreated={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setNoticeMessage('Expense saved.');
+          showNotice('Expense saved.');
           void invalidateRoutedData(selectedJob?.id);
           finishLegacyFlow(addCompleteScreen);
         }}
@@ -1184,7 +1184,7 @@ export default function HomeScreen() {
         onBack={() => setScreen(addBackScreen)}
         onCreated={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setNoticeMessage('Hours saved.');
+          showNotice('Hours saved.');
           void invalidateRoutedData(selectedJob.id);
           finishLegacyFlow(addCompleteScreen);
         }}
@@ -1200,7 +1200,7 @@ export default function HomeScreen() {
         onBack={() => setScreen(addBackScreen)}
         onCreated={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setNoticeMessage('Payment saved.');
+          showNotice('Payment saved.');
           void invalidateRoutedData(selectedJob.id);
           finishLegacyFlow(addCompleteScreen);
         }}
@@ -1216,7 +1216,7 @@ export default function HomeScreen() {
         onBack={() => setScreen(addBackScreen)}
         onCreated={() => {
           setDashboardRefreshKey((key) => key + 1);
-          setNoticeMessage('Note saved.');
+          showNotice('Note saved.');
           void invalidateRoutedData(selectedJob.id);
           finishLegacyFlow(addCompleteScreen);
         }}
@@ -1235,7 +1235,7 @@ export default function HomeScreen() {
           if (getLegacyReturnPath(legacyParams.returnPath)) {
             queryClient.setQueryData(serverStateKeys.job(job.id), job);
             void invalidateRoutedData(job.id);
-            setNoticeMessage('Job created.');
+            showNotice('Job created.');
             router.replace({
               pathname: '/jobs/[jobId]',
               params: { from: 'jobs', jobId: job.id },
@@ -1264,7 +1264,7 @@ export default function HomeScreen() {
           }
 
           setDashboardBackScreen(createBackScreen === 'jobs' ? 'jobs' : 'home');
-          setNoticeMessage('Job created.');
+          showNotice('Job created.');
           setScreen('dashboard');
         }}
       />
@@ -1554,22 +1554,6 @@ const styles = StyleSheet.create({
   desktopScreenFrame: {
     alignSelf: 'center',
     maxWidth: 980,
-  },
-  noticeToast: {
-    alignSelf: 'center',
-    backgroundColor: '#294B38',
-    borderRadius: 10,
-    bottom: 24,
-    maxWidth: 460,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    position: 'absolute',
-  },
-  noticeToastText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
-    textAlign: 'center',
   },
   errorToast: {
     alignSelf: 'center',

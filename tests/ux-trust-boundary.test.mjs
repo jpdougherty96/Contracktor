@@ -144,7 +144,11 @@ test('Jobs, job details, and Activity are real routes with persistent headers', 
 });
 
 test('legacy flow handoff returns to its originating route without duplicating history', async () => {
-  const home = await readRepoFile('app/(tabs)/index.tsx');
+  const [home, rootLayout, appNotice] = await Promise.all([
+    readRepoFile('app/(tabs)/index.tsx'),
+    readRepoFile('app/_layout.tsx'),
+    readRepoFile('src/contexts/AppNoticeContext.tsx'),
+  ]);
 
   // The legacy screen is pushed on top of its originating route, so the return must
   // dismiss back to that entry. Replacing leaves a duplicate and swallows one Back press.
@@ -158,6 +162,24 @@ test('legacy flow handoff returns to its originating route without duplicating h
   assert.match(home, /queryClient\.ensureQueryData\(jobQueryOptions\(jobId\)\)/);
   assert.match(home, /setIsLegacyRouteLoading\(!hasCachedJobs\)/);
   assert.doesNotMatch(home, /fetchJob/);
+
+  // Success feedback lives above the route stack, so dismissing the temporary legacy
+  // route cannot destroy the confirmation before the user sees it.
+  assert.match(rootLayout, /<AppNoticeProvider>/);
+  assert.match(home, /const \{ showNotice \} = useAppNotice\(\)/);
+  assert.doesNotMatch(home, /setNoticeMessage/);
+  assert.match(appNotice, /accessibilityLiveRegion="polite"/);
+  assert.match(appNotice, /setTimeout\(\(\) => setNotice\(null\), 3500\)/);
+});
+
+test('multi-job receipt saves invalidate every affected job detail cache', async () => {
+  const home = await readRepoFile('app/(tabs)/index.tsx');
+  const receiptInvalidations = home.match(
+    /invalidateRoutedData\(\[\s*selectedJob\?\.id,\s*\.\.\.selectedReceiptJobs\.map\(\(job\) => job\.id\),\s*\]\)/g
+  );
+
+  assert.equal(receiptInvalidations?.length, 2);
+  assert.match(home, /\(jobId\): jobId is string => Boolean\(jobId\)/);
 });
 
 test('timer switches are explicit, universal for active jobs, and atomic in the database', async () => {
