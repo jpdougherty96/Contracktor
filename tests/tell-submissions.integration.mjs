@@ -69,6 +69,42 @@ test(
     assert.equal(claimed[0].entry_id, queuedEntryId);
     await rpc(admin, 'delete_tell_processing_job', { p_msg_id: claimed[0].msg_id });
 
+    // The production Edge worker uses a service-role PostgREST client. RLS
+    // bypass alone is insufficient when the role lacks table-level grants.
+    const workerEntries = await required(
+      admin
+        .from('tell_contracktor_entries')
+        .update({ last_processing_error: null })
+        .eq('id', queuedEntryId)
+        .select('id, status')
+    );
+    assert.equal(workerEntries[0].id, queuedEntryId);
+    const workerJobs = await required(
+      admin.from('jobs').select('id').eq('id', jobId)
+    );
+    assert.equal(workerJobs[0].id, jobId);
+    const workerActivity = await required(
+      admin
+        .from('activity_events')
+        .upsert(
+          {
+            actor_user_id: owner.userId,
+            business_id: businessId,
+            created_by_user_id: owner.userId,
+            event_type: 'tell_worker_permission_test',
+            job_id: jobId,
+            owner_id: owner.userId,
+            source_id: queuedEntryId,
+            source_table: 'tell_contracktor_entries',
+            status: 'completed',
+            title: 'Tell worker permission test',
+          },
+          { onConflict: 'business_id,event_type,source_table,source_id' }
+        )
+        .select('id')
+    );
+    assert.equal(workerActivity.length, 1);
+
     const entries = await required(
       ownerClient
         .from('tell_contracktor_entries')

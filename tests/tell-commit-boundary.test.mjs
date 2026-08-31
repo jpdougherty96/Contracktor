@@ -75,9 +75,11 @@ test('Tell submissions are durable, queued, grouped, and reopenable from attenti
 });
 
 test('Tell queue work is detached from the trigger request and cannot wait forever', async () => {
-  const [tellFunction, worker] = await Promise.all([
+  const [tellFunction, worker, workerGrants, orphanCleanup] = await Promise.all([
     readRepoFile('supabase/functions/tell-contracktor/index.ts'),
     readRepoFile('supabase/functions/process-tell-queue/index.ts'),
+    readRepoFile('supabase/migrations/20260831193500_grant_tell_worker_table_access.sql'),
+    readRepoFile('supabase/migrations/20260831194500_remove_orphaned_tell_queue_messages.sql'),
   ]);
 
   assert.match(worker, /Promise\.allSettled/);
@@ -96,6 +98,13 @@ test('Tell queue work is detached from the trigger request and cannot wait forev
   assert.match(tellFunction, /Tell primary model was rejected; trying configured fallback/);
   assert.doesNotMatch(tellFunction, /OPENAI_COMMAND_MODEL.*OPENAI_RECEIPT_MODEL/);
   assert.match(tellFunction, /console\.error\('Tell processor failed'/);
+  assert.match(workerGrants, /grant select, update\s+on table public\.tell_contracktor_entries\s+to service_role/i);
+  assert.match(workerGrants, /grant select\s+on table public\.jobs\s+to service_role/i);
+  assert.match(workerGrants, /grant select, insert, update\s+on table public\.activity_events\s+to service_role/i);
+  assert.match(worker, /Discarded orphaned Tell queue message/);
+  assert.match(worker, /delete_tell_processing_job/);
+  assert.match(orphanCleanup, /from pgmq\.q_tell_processing/i);
+  assert.match(orphanCleanup, /not exists \(\s+select 1\s+from public\.tell_contracktor_entries/i);
 });
 
 test('legacy note-photo uploads remain idempotent', async () => {

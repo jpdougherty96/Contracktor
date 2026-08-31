@@ -103,17 +103,43 @@ async function processClaimedJob({
       .select('id, business_id, owner_id, job_id, processing_attempts')
       .eq('id', entryId)
       .maybeSingle();
+
+    if (!entry) {
+      const { error: deleteError } = await supabase.rpc('delete_tell_processing_job', {
+        p_msg_id: msgId,
+      });
+      if (deleteError) {
+        console.error('Unable to discard orphaned Tell queue message', {
+          entry_id: entryId,
+          error: deleteError.message,
+          msg_id: msgId,
+        });
+      } else {
+        console.warn('Discarded orphaned Tell queue message', {
+          entry_id: entryId,
+          msg_id: msgId,
+        });
+      }
+      return;
+    }
+
     const attempts = entry?.processing_attempts ?? 0;
 
-    await supabase
+    const { error: updateError } = await supabase
       .from('tell_contracktor_entries')
       .update({
         last_processing_error: message,
         status: attempts >= maxProcessingAttempts ? 'failed' : 'queued',
       })
       .eq('id', entryId);
+    if (updateError) {
+      console.error('Unable to record Tell processing failure', {
+        entry_id: entryId,
+        error: updateError.message,
+      });
+    }
 
-    if (attempts >= maxProcessingAttempts && entry) {
+    if (attempts >= maxProcessingAttempts) {
       const { data: activityEvent } = await supabase
         .from('activity_events')
         .upsert(
