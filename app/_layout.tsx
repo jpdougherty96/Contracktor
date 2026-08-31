@@ -5,6 +5,7 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { VercelAnalytics } from '@/src/components/VercelAnalytics';
+import { VercelSpeedInsights } from '@/src/components/VercelSpeedInsights';
 import { ClientErrorBoundary } from '@/src/components/ClientErrorBoundary';
 import { AppNoticeProvider } from '@/src/contexts/AppNoticeContext';
 import { EntitlementsProvider } from '@/src/contexts/EntitlementsContext';
@@ -28,6 +29,7 @@ export default function RootLayout() {
               </Stack>
               <StatusBar style="auto" />
               <VercelAnalytics />
+              <VercelSpeedInsights />
             </AppNoticeProvider>
           </EntitlementsProvider>
         </ServerStateProvider>
