@@ -86,6 +86,12 @@ test('Tell queue work is detached from the trigger request and cannot wait forev
   assert.match(worker, /AbortSignal\.timeout\(tellProcessingTimeoutMs\)/);
   assert.match(worker, /Tell processing timed out and will be retried/);
   assert.match(tellFunction, /AbortSignal\.timeout\(openAiProcessingTimeoutMs\)/);
+  assert.match(
+    tellFunction,
+    /Deno\.env\.get\('OPENAI_COMMAND_MODEL'\) \?\? 'gpt-4o-mini'/
+  );
+  assert.doesNotMatch(tellFunction, /OPENAI_COMMAND_MODEL.*OPENAI_RECEIPT_MODEL/);
+  assert.match(tellFunction, /console\.error\('Tell processor failed'/);
 });
 
 test('legacy note-photo uploads remain idempotent', async () => {

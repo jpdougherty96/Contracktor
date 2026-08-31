@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
   const supabaseKey = req.headers.get('apikey') ?? Deno.env.get('SUPABASE_ANON_KEY');
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const openAiApiKey = Deno.env.get('OPENAI_API_KEY');
-  const openAiModel = Deno.env.get('OPENAI_COMMAND_MODEL') ?? Deno.env.get('OPENAI_RECEIPT_MODEL') ?? 'gpt-5.4-mini';
+  const openAiModel = Deno.env.get('OPENAI_COMMAND_MODEL') ?? 'gpt-4o-mini';
   const workerSecret = Deno.env.get('TELL_WORKER_SECRET') ?? Deno.env.get('RECEIPT_WORKER_SECRET');
 
   const processEntryId =
@@ -95,8 +95,13 @@ Deno.serve(async (req) => {
       );
       return jsonResponse(result);
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Tell processing failed.';
+      console.error('Tell processor failed', {
+        entry_id: processEntryId,
+        error: message,
+      });
       return jsonResponse(
-        { error: error instanceof Error ? error.message : 'Tell processing failed.' },
+        { error: message },
         500
       );
     }

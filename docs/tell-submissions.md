@@ -40,3 +40,9 @@ that the browser must remain open while AI runs.
 
 The queue reuses the existing `receipt_worker_secret` vault/Edge Function
 secret, with optional support for a dedicated `TELL_WORKER_SECRET` later.
+
+Tell uses its own `OPENAI_COMMAND_MODEL` Edge Function secret instead of
+inheriting the receipt parser's model. The production baseline is
+`gpt-4o-mini`; the code uses the same value if the secret is absent. Keeping
+the models separate prevents a receipt-model change from silently breaking
+the Tell processing queue.
