@@ -5,6 +5,7 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Origin': '*',
 };
+const openAiProcessingTimeoutMs = 45_000;
 
 type JobRow = {
   business_id: string;
@@ -656,6 +657,7 @@ async function parseTellInput(
       'Content-Type': 'application/json',
     },
     method: 'POST',
+    signal: AbortSignal.timeout(openAiProcessingTimeoutMs),
   });
 
   const data = await response.json();

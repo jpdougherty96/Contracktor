@@ -74,6 +74,20 @@ test('Tell submissions are durable, queued, grouped, and reopenable from attenti
   assert.match(activity, /tellSubmissionId/);
 });
 
+test('Tell queue work is detached from the trigger request and cannot wait forever', async () => {
+  const [tellFunction, worker] = await Promise.all([
+    readRepoFile('supabase/functions/tell-contracktor/index.ts'),
+    readRepoFile('supabase/functions/process-tell-queue/index.ts'),
+  ]);
+
+  assert.match(worker, /Promise\.allSettled/);
+  assert.match(worker, /EdgeRuntime\.waitUntil\(processing\)/);
+  assert.match(worker, /status: 'accepted'/);
+  assert.match(worker, /AbortSignal\.timeout\(tellProcessingTimeoutMs\)/);
+  assert.match(worker, /Tell processing timed out and will be retried/);
+  assert.match(tellFunction, /AbortSignal\.timeout\(openAiProcessingTimeoutMs\)/);
+});
+
 test('legacy note-photo uploads remain idempotent', async () => {
   const [migration, notes] = await Promise.all([
     readRepoFile('supabase/migrations/20260820092000_atomic_tell_commit.sql'),
