@@ -88,8 +88,12 @@ test('Tell queue work is detached from the trigger request and cannot wait forev
   assert.match(tellFunction, /AbortSignal\.timeout\(openAiProcessingTimeoutMs\)/);
   assert.match(
     tellFunction,
-    /Deno\.env\.get\('OPENAI_COMMAND_MODEL'\) \?\? 'gpt-4o-mini'/
+    /const defaultOpenAiModel = 'gpt-5\.4-mini'/
   );
+  assert.match(tellFunction, /const defaultOpenAiFallbackModel = 'gpt-4o-mini'/);
+  assert.match(tellFunction, /Deno\.env\.get\('OPENAI_COMMAND_FALLBACK_MODEL'\)/);
+  assert.match(tellFunction, /shouldUseFallbackModel/);
+  assert.match(tellFunction, /Tell primary model was rejected; trying configured fallback/);
   assert.doesNotMatch(tellFunction, /OPENAI_COMMAND_MODEL.*OPENAI_RECEIPT_MODEL/);
   assert.match(tellFunction, /console\.error\('Tell processor failed'/);
 });

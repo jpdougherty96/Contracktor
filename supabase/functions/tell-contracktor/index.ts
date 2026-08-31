@@ -6,6 +6,8 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
 };
 const openAiProcessingTimeoutMs = 45_000;
+const defaultOpenAiModel = 'gpt-5.4-mini';
+const defaultOpenAiFallbackModel = 'gpt-4o-mini';
 
 type JobRow = {
   business_id: string;
@@ -68,7 +70,9 @@ Deno.serve(async (req) => {
   const supabaseKey = req.headers.get('apikey') ?? Deno.env.get('SUPABASE_ANON_KEY');
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const openAiApiKey = Deno.env.get('OPENAI_API_KEY');
-  const openAiModel = Deno.env.get('OPENAI_COMMAND_MODEL') ?? 'gpt-4o-mini';
+  const openAiModel = Deno.env.get('OPENAI_COMMAND_MODEL') ?? defaultOpenAiModel;
+  const openAiFallbackModel =
+    Deno.env.get('OPENAI_COMMAND_FALLBACK_MODEL') ?? defaultOpenAiFallbackModel;
   const workerSecret = Deno.env.get('TELL_WORKER_SECRET') ?? Deno.env.get('RECEIPT_WORKER_SECRET');
 
   const processEntryId =
@@ -91,7 +95,8 @@ Deno.serve(async (req) => {
         serviceClient,
         processEntryId,
         openAiApiKey,
-        openAiModel
+        openAiModel,
+        openAiFallbackModel
       );
       return jsonResponse(result);
     } catch (error) {
@@ -279,7 +284,8 @@ async function processQueuedTellEntry(
   supabase: ReturnType<typeof createClient>,
   entryId: string,
   openAiApiKey: string,
-  openAiModel: string
+  openAiModel: string,
+  openAiFallbackModel: string
 ): Promise<{ entry_id: string; proposal_count: number; status: string }> {
   const { data: entry, error: entryError } = await supabase
     .from('tell_contracktor_entries')
@@ -344,6 +350,7 @@ async function processQueuedTellEntry(
   const parsed = await parseTellInput(
     openAiApiKey,
     openAiModel,
+    openAiFallbackModel,
     rawText,
     photos,
     visibleJobs,
@@ -547,6 +554,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 async function parseTellInput(
   apiKey: string,
   model: string,
+  fallbackModel: string,
   rawText: string,
   photos: TellPhotoInput[],
   jobs: JobRow[],
@@ -572,17 +580,15 @@ async function parseTellInput(
     })),
   ];
 
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    body: JSON.stringify({
-      input: [
-        {
-          content,
-          role: 'user',
-        },
-      ],
-      model,
-      text: {
-        format: {
+  const requestBody = {
+    input: [
+      {
+        content,
+        role: 'user',
+      },
+    ],
+    text: {
+      format: {
           name: 'tell_contracktor_extraction',
           schema: {
             additionalProperties: false,
@@ -654,18 +660,21 @@ async function parseTellInput(
           },
           strict: true,
           type: 'json_schema',
-        },
       },
-    }),
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
     },
-    method: 'POST',
-    signal: AbortSignal.timeout(openAiProcessingTimeoutMs),
-  });
+  };
+  let response = await requestTellExtraction(apiKey, model, requestBody);
+  let data = await response.json();
 
-  const data = await response.json();
+  if (shouldUseFallbackModel(response.status, data, model, fallbackModel)) {
+    console.warn('Tell primary model was rejected; trying configured fallback', {
+      fallback_model: fallbackModel,
+      primary_model: model,
+      status: response.status,
+    });
+    response = await requestTellExtraction(apiKey, fallbackModel, requestBody);
+    data = await response.json();
+  }
 
   if (!response.ok) {
     throw new Error(typeof data?.error?.message === 'string' ? data.error.message : 'OpenAI parsing failed.');
@@ -686,6 +695,50 @@ async function parseTellInput(
     payments: parsed.payments.filter((payment) => payment.amount !== null),
     shopping_needs: parsed.shopping_needs.filter((need) => need.description.trim()),
   };
+}
+
+async function requestTellExtraction(
+  apiKey: string,
+  model: string,
+  requestBody: Record<string, unknown>
+): Promise<Response> {
+  return fetch('https://api.openai.com/v1/responses', {
+    body: JSON.stringify({ ...requestBody, model }),
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+    signal: AbortSignal.timeout(openAiProcessingTimeoutMs),
+  });
+}
+
+function shouldUseFallbackModel(
+  status: number,
+  data: unknown,
+  primaryModel: string,
+  fallbackModel: string
+): boolean {
+  if (!fallbackModel || fallbackModel === primaryModel || ![400, 403, 404].includes(status)) {
+    return false;
+  }
+
+  const error =
+    data && typeof data === 'object' && 'error' in data
+      ? (data as { error?: unknown }).error
+      : null;
+  const serializedError = JSON.stringify(error ?? '').toLowerCase();
+
+  return [
+    'access',
+    'does not exist',
+    'model',
+    'not found',
+    'permission',
+    'unsupported',
+    'verification',
+    'verified',
+  ].some((marker) => serializedError.includes(marker));
 }
 
 function readPhotoInputs(value: unknown): TellPhotoInput[] {

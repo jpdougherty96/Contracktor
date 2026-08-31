@@ -42,7 +42,10 @@ The queue reuses the existing `receipt_worker_secret` vault/Edge Function
 secret, with optional support for a dedicated `TELL_WORKER_SECRET` later.
 
 Tell uses its own `OPENAI_COMMAND_MODEL` Edge Function secret instead of
-inheriting the receipt parser's model. The production baseline is
-`gpt-4o-mini`; the code uses the same value if the secret is absent. Keeping
-the models separate prevents a receipt-model change from silently breaking
-the Tell processing queue.
+inheriting the receipt parser's model. The production baseline and code
+default are `gpt-5.4-mini`. `OPENAI_COMMAND_FALLBACK_MODEL` defaults to
+`gpt-4o-mini` and is attempted only when OpenAI immediately rejects the
+primary model for an access, availability, or compatibility reason. Keeping
+these models separate from receipt extraction prevents a receipt-model change
+from silently breaking the Tell processing queue, while the fallback prevents
+a model rollout or account-access mismatch from stranding submissions.
