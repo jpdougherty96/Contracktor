@@ -28,6 +28,40 @@ export type TellContracktorResult = {
   };
 };
 
+export type TellContracktorSubmissionStatus =
+  | 'uploading'
+  | 'queued'
+  | 'processing'
+  | 'ready_review'
+  | 'needs_info'
+  | 'approved'
+  | 'failed'
+  | 'dismissed'
+  | 'undone'
+  | 'needs_job'
+  | 'processed';
+
+export type TellContracktorSubmission = {
+  createdAt: string;
+  entryId: string;
+  lastProcessingError: string | null;
+  pendingCount: number;
+  proposals: TellContracktorCommitProposal[];
+  rawText: string;
+  result: TellContracktorResult | null;
+  status: TellContracktorSubmissionStatus;
+  totalCount: number;
+};
+
+export type TellContracktorSubmissionSummary = {
+  createdAt: string;
+  entryId: string;
+  pendingCount: number;
+  preview: string;
+  status: TellContracktorSubmissionStatus;
+  totalCount: number;
+};
+
 export type TellContracktorHoursProposal = {
   date: string | null;
   hours: number | null;
@@ -51,6 +85,7 @@ export type TellContracktorPhotoInput = {
 
 export type TellContracktorCommitProposal =
   | {
+      classification?: 'job_update' | 'scope_change';
       id: string;
       job_id: string;
       note: string;
@@ -103,7 +138,7 @@ export async function submitTellContracktorText({
   jobId?: string | null;
   photos?: TellContracktorPhotoInput[];
   text: string;
-}): Promise<TellContracktorResult> {
+}): Promise<{ entry_id: string; status: 'queued' }> {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
 
   if (sessionError) {
@@ -150,14 +185,14 @@ export async function submitTellContracktorText({
     throw new Error(message);
   }
 
-  return responseBody as TellContracktorResult;
+  return responseBody as { entry_id: string; status: 'queued' };
 }
 
 export async function commitTellContracktorEntry(
   entryId: string,
   proposals: TellContracktorCommitProposal[]
 ): Promise<TellContracktorCommitResult> {
-  const { data, error } = await supabase.rpc('commit_tell_contracktor_entry', {
+  const { data, error } = await supabase.rpc('review_tell_contracktor_proposals', {
     p_entry_id: entryId,
     p_proposals: proposals as unknown as Json,
   });
@@ -167,6 +202,139 @@ export async function commitTellContracktorEntry(
   }
 
   return data as unknown as TellContracktorCommitResult;
+}
+
+export async function dismissTellContracktorProposal(
+  entryId: string,
+  proposalId: string
+): Promise<void> {
+  const { error } = await supabase.rpc('dismiss_tell_contracktor_proposal', {
+    p_entry_id: entryId,
+    p_proposal_id: proposalId,
+  });
+
+  if (error) throw new Error(error.message);
+}
+
+export async function retryTellContracktorSubmission(entryId: string): Promise<void> {
+  const { error } = await supabase.rpc('finalize_tell_submission', {
+    p_entry_id: entryId,
+  });
+
+  if (error) throw new Error(error.message);
+}
+
+export async function fetchTellContracktorSubmission(
+  entryId: string
+): Promise<TellContracktorSubmission> {
+  const [{ data: entry, error: entryError }, { data: proposalRows, error: proposalError }] =
+    await Promise.all([
+      supabase
+        .from('tell_contracktor_entries')
+        .select(
+          'id, job_id, raw_text, extraction, status, created_at, last_processing_error'
+        )
+        .eq('id', entryId)
+        .single(),
+      supabase
+        .from('tell_contracktor_proposals')
+        .select('proposal_id, proposal_type, payload, status')
+        .eq('entry_id', entryId)
+        .order('created_at', { ascending: true }),
+    ]);
+
+  if (entryError || !entry) throw new Error(entryError?.message ?? 'Tell submission not found.');
+  if (proposalError) throw new Error(proposalError.message);
+
+  const extraction = asRecord(entry.extraction);
+  const candidateValues = Array.isArray(extraction?.candidates) ? extraction.candidates : [];
+  const candidateIds = candidateValues
+    .map((candidate) => asRecord(candidate)?.id)
+    .filter((id): id is string => typeof id === 'string');
+  const requestedJobIds = Array.from(
+    new Set([entry.job_id, ...candidateIds].filter((id): id is string => Boolean(id)))
+  );
+  let jobs: TellContracktorCandidateJob[] = [];
+
+  if (requestedJobIds.length > 0) {
+    const { data, error } = await supabase
+      .from('jobs')
+      .select('id, owner_id, business_id, name, client_name, status')
+      .in('id', requestedJobIds);
+    if (error) throw new Error(error.message);
+    jobs = data ?? [];
+  } else if (entry.status === 'needs_info' || entry.status === 'needs_job') {
+    const { data, error } = await supabase
+      .from('jobs')
+      .select('id, owner_id, business_id, name, client_name, status')
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (error) throw new Error(error.message);
+    jobs = data ?? [];
+  }
+
+  const proposals = (proposalRows ?? [])
+    .filter((row) => row.status === 'pending')
+    .map((row) => normalizeStoredProposal(row.payload, row.proposal_id, row.proposal_type))
+    .filter((proposal): proposal is TellContracktorCommitProposal => Boolean(proposal));
+  const pendingCount = (proposalRows ?? []).filter((row) => row.status === 'pending').length;
+  const parsed = readParsedTell(extraction);
+  const job = jobs.find((candidate) => candidate.id === entry.job_id);
+  const candidates = jobs.filter((candidate) => candidate.id !== entry.job_id);
+  const result = parsed
+    ? {
+        candidates,
+        entry_id: entry.id,
+        job,
+        needs_job: !entry.job_id,
+        parsed,
+      }
+    : null;
+
+  return {
+    createdAt: entry.created_at ?? new Date().toISOString(),
+    entryId: entry.id,
+    lastProcessingError: entry.last_processing_error,
+    pendingCount,
+    proposals,
+    rawText: entry.raw_text,
+    result,
+    status: entry.status as TellContracktorSubmissionStatus,
+    totalCount: (proposalRows ?? []).length,
+  };
+}
+
+export async function fetchRecentTellContracktorSubmissions(): Promise<
+  TellContracktorSubmissionSummary[]
+> {
+  const { data: entries, error } = await supabase
+    .from('tell_contracktor_entries')
+    .select('id, raw_text, status, created_at')
+    .order('created_at', { ascending: false })
+    .limit(12);
+  if (error) throw new Error(error.message);
+
+  const entryIds = (entries ?? []).map((entry) => entry.id);
+  const { data: proposals, error: proposalsError } = entryIds.length
+    ? await supabase
+        .from('tell_contracktor_proposals')
+        .select('entry_id, status')
+        .in('entry_id', entryIds)
+    : { data: [], error: null };
+  if (proposalsError) throw new Error(proposalsError.message);
+
+  return (entries ?? []).map((entry) => {
+    const entryProposals = (proposals ?? []).filter((proposal) => proposal.entry_id === entry.id);
+    return {
+      createdAt: entry.created_at ?? new Date().toISOString(),
+      entryId: entry.id,
+      pendingCount: entryProposals.filter((proposal) => proposal.status === 'pending').length,
+      preview: entry.raw_text === '[Photo update]' ? 'Photo update' : entry.raw_text,
+      status: entry.status as TellContracktorSubmissionStatus,
+      totalCount: entryProposals.length,
+    };
+  });
 }
 
 export async function undoTellContracktorEntry(entryId: string): Promise<TellContracktorUndoResult> {
@@ -191,4 +359,27 @@ export async function undoTellContracktorEntry(entryId: string): Promise<TellCon
   }
 
   return result;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readParsedTell(value: Record<string, unknown> | null): TellContracktorResult['parsed'] | null {
+  if (!value || typeof value.cleaned_note !== 'string' || typeof value.summary !== 'string') {
+    return null;
+  }
+  return value as unknown as TellContracktorResult['parsed'];
+}
+
+function normalizeStoredProposal(
+  value: unknown,
+  proposalId: string,
+  proposalType: string
+): TellContracktorCommitProposal | null {
+  const payload = asRecord(value);
+  if (!payload || !['note', 'shopping', 'hours'].includes(proposalType)) return null;
+  return { ...payload, id: proposalId, type: proposalType } as TellContracktorCommitProposal;
 }

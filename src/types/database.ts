@@ -2370,6 +2370,39 @@ export type Database = {
           },
         ]
       }
+      tell_contracktor_attachments: {
+        Row: {
+          business_id: string
+          created_at: string
+          entry_id: string
+          file_type: string
+          id: string
+          original_filename: string
+          owner_id: string
+          storage_path: string
+        }
+        Insert: {
+          business_id: string
+          created_at?: string
+          entry_id: string
+          file_type?: string
+          id?: string
+          original_filename: string
+          owner_id: string
+          storage_path: string
+        }
+        Update: {
+          business_id?: string
+          created_at?: string
+          entry_id?: string
+          file_type?: string
+          id?: string
+          original_filename?: string
+          owner_id?: string
+          storage_path?: string
+        }
+        Relationships: []
+      }
       tell_contracktor_entries: {
         Row: {
           business_id: string
@@ -2380,8 +2413,14 @@ export type Database = {
           extraction: Json
           id: string
           job_id: string | null
+          last_processing_error: string | null
+          local_date: string
           owner_id: string
+          processed_at: string | null
+          processing_attempts: number
+          processing_started_at: string | null
           raw_text: string
+          reviewed_at: string | null
           status: string
           updated_at: string | null
         }
@@ -2394,8 +2433,14 @@ export type Database = {
           extraction?: Json
           id?: string
           job_id?: string | null
+          last_processing_error?: string | null
+          local_date?: string
           owner_id: string
+          processed_at?: string | null
+          processing_attempts?: number
+          processing_started_at?: string | null
           raw_text: string
+          reviewed_at?: string | null
           status?: string
           updated_at?: string | null
         }
@@ -2408,8 +2453,14 @@ export type Database = {
           extraction?: Json
           id?: string
           job_id?: string | null
+          last_processing_error?: string | null
+          local_date?: string
           owner_id?: string
+          processed_at?: string | null
+          processing_attempts?: number
+          processing_started_at?: string | null
           raw_text?: string
+          reviewed_at?: string | null
           status?: string
           updated_at?: string | null
         }
@@ -2457,6 +2508,57 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      tell_contracktor_proposals: {
+        Row: {
+          business_id: string
+          created_at: string
+          entry_id: string
+          owner_id: string
+          payload: Json
+          proposal_id: string
+          proposal_type: string
+          record_id: string | null
+          record_table: string | null
+          reviewed_at: string | null
+          reviewed_by_user_id: string | null
+          reviewed_payload: Json | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          business_id: string
+          created_at?: string
+          entry_id: string
+          owner_id: string
+          payload: Json
+          proposal_id: string
+          proposal_type: string
+          record_id?: string | null
+          record_table?: string | null
+          reviewed_at?: string | null
+          reviewed_by_user_id?: string | null
+          reviewed_payload?: Json | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          business_id?: string
+          created_at?: string
+          entry_id?: string
+          owner_id?: string
+          payload?: Json
+          proposal_id?: string
+          proposal_type?: string
+          record_id?: string | null
+          record_table?: string | null
+          reviewed_at?: string | null
+          reviewed_by_user_id?: string | null
+          reviewed_payload?: Json | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       time_entries: {
         Row: {
@@ -2656,6 +2758,10 @@ export type Database = {
           receipt_id: string
         }[]
       }
+      claim_tell_processing_jobs: {
+        Args: { p_limit?: number; p_visibility_timeout?: number }
+        Returns: { entry_id: string; msg_id: number }[]
+      }
       change_job_task: {
         Args: {
           p_action: string
@@ -2699,6 +2805,18 @@ export type Database = {
         Args: { p_msg_id: number }
         Returns: boolean
       }
+      delete_tell_processing_job: {
+        Args: { p_msg_id: number }
+        Returns: boolean
+      }
+      dismiss_tell_contracktor_proposal: {
+        Args: { p_entry_id: string; p_proposal_id: string }
+        Returns: Database["public"]["Tables"]["tell_contracktor_entries"]["Row"]
+      }
+      finalize_tell_submission: {
+        Args: { p_entry_id: string }
+        Returns: Database["public"]["Tables"]["tell_contracktor_entries"]["Row"]
+      }
       finalize_receipt_capture: {
         Args: { p_receipt_id: string }
         Returns: {
@@ -2739,6 +2857,14 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      mark_tell_processing: {
+        Args: { p_entry_id: string }
+        Returns: Database["public"]["Tables"]["tell_contracktor_entries"]["Row"]
+      }
+      review_tell_contracktor_proposals: {
+        Args: { p_entry_id: string; p_proposals: Json }
+        Returns: Json
       }
       get_my_entitlements: { Args: { p_business_id?: string }; Returns: Json }
       mark_receipt_processing: {

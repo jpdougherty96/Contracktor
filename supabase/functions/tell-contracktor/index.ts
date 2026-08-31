@@ -62,12 +62,46 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Method not allowed' }, 405);
   }
 
+  const body = await readBody(req);
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const supabaseKey = req.headers.get('apikey') ?? Deno.env.get('SUPABASE_ANON_KEY');
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const openAiApiKey = Deno.env.get('OPENAI_API_KEY');
   const openAiModel = Deno.env.get('OPENAI_COMMAND_MODEL') ?? Deno.env.get('OPENAI_RECEIPT_MODEL') ?? 'gpt-5.4-mini';
+  const workerSecret = Deno.env.get('TELL_WORKER_SECRET') ?? Deno.env.get('RECEIPT_WORKER_SECRET');
 
-  if (!supabaseUrl || !supabaseKey || !openAiApiKey) {
+  const processEntryId =
+    typeof body.process_entry_id === 'string' ? body.process_entry_id.trim() : '';
+
+  if (processEntryId) {
+    if (!workerSecret || req.headers.get('x-worker-secret') !== workerSecret) {
+      return jsonResponse({ error: 'Unauthorized' }, 401);
+    }
+
+    if (!supabaseUrl || !serviceRoleKey || !openAiApiKey) {
+      return jsonResponse({ error: 'Missing Tell worker secrets' }, 500);
+    }
+
+    try {
+      const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const result = await processQueuedTellEntry(
+        serviceClient,
+        processEntryId,
+        openAiApiKey,
+        openAiModel
+      );
+      return jsonResponse(result);
+    } catch (error) {
+      return jsonResponse(
+        { error: error instanceof Error ? error.message : 'Tell processing failed.' },
+        500
+      );
+    }
+  }
+
+  if (!supabaseUrl || !supabaseKey) {
     return jsonResponse({ error: 'Missing Edge Function secrets' }, 500);
   }
 
@@ -77,7 +111,6 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Missing authenticated user token' }, 401);
   }
 
-  const body = await readBody(req);
   const rawText = typeof body.text === 'string' ? body.text.trim() : '';
   const contextJobId = typeof body.job_id === 'string' ? body.job_id : null;
   const localDate = typeof body.local_date === 'string' ? body.local_date : new Date().toISOString().slice(0, 10);
@@ -145,51 +178,365 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Selected job was not found or is not available.' }, 400);
   }
 
+  const { data: tellEntry, error: entryError } = await supabase
+    .from('tell_contracktor_entries')
+    .insert({
+      business_id: entitlementBusinessId,
+      extraction: {},
+      job_id: contextJob?.id ?? null,
+      local_date: localDate,
+      owner_id: user.id,
+      raw_text: rawText || '[Photo update]',
+      status: 'uploading',
+    })
+    .select('id, status')
+    .single();
+
+  if (entryError || !tellEntry) {
+    return jsonResponse({ error: entryError?.message ?? 'Unable to secure this Tell update.' }, 500);
+  }
+
   try {
-    const parsed = await parseTellInput(openAiApiKey, openAiModel, rawText, photos, visibleJobs, contextJob, localDate);
-    const matchedJob = contextJob ?? getMatchedJob(visibleJobs, parsed);
-    const parsedWithJob = applyDefaultJobToParsedInput(parsed, matchedJob);
+    for (const [index, photo] of photos.entries()) {
+      const extension = getPhotoExtension(photo.mime_type);
+      const storagePath = `${user.id}/tell/${tellEntry.id}/${index + 1}.${extension}`;
+      const { error: uploadError } = await supabase.storage
+        .from('attachments')
+        .upload(storagePath, base64ToArrayBuffer(photo.base64), {
+          contentType: photo.mime_type,
+          upsert: true,
+        });
 
-    if (!matchedJob) {
-      const tellEntry = await createTellEntry(supabase, {
-        cleanedNote: parsedWithJob.cleaned_note,
-        extraction: parsedWithJob,
-        jobId: null,
-        rawText: rawText || '[Photo update]',
-        status: 'needs_job',
-        userId: user.id,
-      });
+      if (uploadError) {
+        throw new Error(uploadError.message);
+      }
 
-      return jsonResponse({
-        candidates: getLikelyJobCandidates(visibleJobs, rawText),
-        entry_id: tellEntry.id,
-        needs_job: true,
-        parsed: parsedWithJob,
-      });
+      const { error: attachmentError } = await supabase
+        .from('tell_contracktor_attachments')
+        .insert({
+          business_id: entitlementBusinessId,
+          entry_id: tellEntry.id,
+          file_type: photo.mime_type,
+          original_filename: `tell-photo-${index + 1}.${extension}`,
+          owner_id: user.id,
+          storage_path: storagePath,
+        });
+
+      if (attachmentError) {
+        throw new Error(attachmentError.message);
+      }
     }
 
-    const tellEntry = await createTellEntry(supabase, {
-      cleanedNote: parsedWithJob.cleaned_note,
-      extraction: parsedWithJob,
-      jobId: matchedJob.id,
-      rawText: rawText || '[Photo update]',
-      status: 'processed',
-      userId: user.id,
+    const { error: queueError } = await supabase.rpc('finalize_tell_submission', {
+      p_entry_id: tellEntry.id,
     });
 
-    return jsonResponse({
-      entry_id: tellEntry.id,
-      job: matchedJob,
-      needs_job: false,
-      parsed: parsedWithJob,
-    });
+    if (queueError) {
+      throw new Error(queueError.message);
+    }
   } catch (error) {
+    await supabase
+      .from('tell_contracktor_entries')
+      .update({
+        last_processing_error:
+          error instanceof Error ? error.message : 'Unable to secure Tell attachments.',
+        status: 'failed',
+      })
+      .eq('id', tellEntry.id);
     return jsonResponse(
-      { error: error instanceof Error ? error.message : 'Tell conTRACKtor failed.' },
+      { error: error instanceof Error ? error.message : 'Unable to secure this Tell update.' },
       500
     );
   }
+
+  if (workerSecret) {
+    const immediateRun = fetch(`${supabaseUrl}/functions/v1/process-tell-queue`, {
+      body: JSON.stringify({ triggered_by: 'tell-submit' }),
+      headers: {
+        Authorization: `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json',
+        apikey: supabaseKey,
+        'x-worker-secret': workerSecret,
+      },
+      method: 'POST',
+    }).catch(() => undefined);
+    const runtime = globalThis as unknown as {
+      EdgeRuntime?: { waitUntil(promise: Promise<unknown>): void };
+    };
+    runtime.EdgeRuntime?.waitUntil(immediateRun);
+  }
+
+  return jsonResponse({ entry_id: tellEntry.id, status: 'queued' }, 202);
 });
+
+async function processQueuedTellEntry(
+  supabase: ReturnType<typeof createClient>,
+  entryId: string,
+  openAiApiKey: string,
+  openAiModel: string
+): Promise<{ entry_id: string; proposal_count: number; status: string }> {
+  const { data: entry, error: entryError } = await supabase
+    .from('tell_contracktor_entries')
+    .select('id, business_id, owner_id, job_id, raw_text, local_date, status')
+    .eq('id', entryId)
+    .single();
+
+  if (entryError || !entry) {
+    throw new Error(entryError?.message ?? 'Tell submission not found.');
+  }
+
+  if (['ready_review', 'needs_info', 'approved', 'dismissed', 'undone'].includes(entry.status)) {
+    return { entry_id: entry.id, proposal_count: 0, status: entry.status };
+  }
+
+  const { error: processingError } = await supabase.rpc('mark_tell_processing', {
+    p_entry_id: entry.id,
+  });
+
+  if (processingError) {
+    throw new Error(processingError.message);
+  }
+
+  const [{ data: jobs, error: jobsError }, { data: attachments, error: attachmentsError }] =
+    await Promise.all([
+      supabase
+        .from('jobs')
+        .select('id, owner_id, business_id, name, client_name, status')
+        .eq('business_id', entry.business_id)
+        .order('created_at', { ascending: false })
+        .limit(80),
+      supabase
+        .from('tell_contracktor_attachments')
+        .select('storage_path, file_type')
+        .eq('entry_id', entry.id)
+        .order('created_at', { ascending: true }),
+    ]);
+
+  if (jobsError) throw new Error(jobsError.message);
+  if (attachmentsError) throw new Error(attachmentsError.message);
+
+  const visibleJobs = (jobs ?? []) as JobRow[];
+  const contextJob = entry.job_id
+    ? visibleJobs.find((job) => job.id === entry.job_id) ?? null
+    : null;
+  const photos: TellPhotoInput[] = [];
+
+  for (const attachment of attachments ?? []) {
+    const { data: blob, error: downloadError } = await supabase.storage
+      .from('attachments')
+      .download(attachment.storage_path);
+    if (downloadError || !blob) {
+      throw new Error(downloadError?.message ?? 'Unable to read a Tell attachment.');
+    }
+    photos.push({
+      base64: arrayBufferToBase64(await blob.arrayBuffer()),
+      mime_type: attachment.file_type || 'image/jpeg',
+    });
+  }
+
+  const rawText = entry.raw_text === '[Photo update]' ? '' : entry.raw_text;
+  const parsed = await parseTellInput(
+    openAiApiKey,
+    openAiModel,
+    rawText,
+    photos,
+    visibleJobs,
+    contextJob,
+    entry.local_date
+  );
+  const matchedJob = contextJob ?? getMatchedJob(visibleJobs, parsed);
+  const parsedWithJob = applyDefaultJobToParsedInput(parsed, matchedJob);
+  const candidates = getLikelyJobCandidates(visibleJobs, rawText);
+  const proposalRows = buildStoredProposalRows({
+    businessId: entry.business_id,
+    entryId: entry.id,
+    jobId: matchedJob?.id ?? null,
+    ownerId: entry.owner_id,
+    parsed: parsedWithJob,
+  });
+  const nextStatus = matchedJob && proposalRows.length > 0 ? 'ready_review' : 'needs_info';
+
+  const { error: clearError } = await supabase
+    .from('tell_contracktor_proposals')
+    .delete()
+    .eq('entry_id', entry.id)
+    .eq('status', 'pending');
+  if (clearError) throw new Error(clearError.message);
+
+  if (proposalRows.length > 0) {
+    const { error: proposalError } = await supabase
+      .from('tell_contracktor_proposals')
+      .upsert(proposalRows, { onConflict: 'entry_id,proposal_id' });
+    if (proposalError) throw new Error(proposalError.message);
+  }
+
+  const { error: updateError } = await supabase
+    .from('tell_contracktor_entries')
+    .update({
+      cleaned_note: parsedWithJob.cleaned_note,
+      extraction: { ...parsedWithJob, candidates },
+      job_id: matchedJob?.id ?? null,
+      last_processing_error: null,
+      processed_at: new Date().toISOString(),
+      status: nextStatus,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', entry.id);
+  if (updateError) throw new Error(updateError.message);
+
+  const suggestionDetail =
+    proposalRows.length === 0
+      ? 'Open this Tell and add the missing information.'
+      : !matchedJob
+        ? `${proposalRows.length} ${proposalRows.length === 1 ? 'suggestion needs' : 'suggestions need'} a job.`
+        : `${proposalRows.length} ${proposalRows.length === 1 ? 'suggestion is' : 'suggestions are'} ready to review.`;
+  const eventTitle = matchedJob ? `${matchedJob.name} update` : 'Tell needs information';
+  const { data: activityEvent, error: activityError } = await supabase
+    .from('activity_events')
+    .upsert(
+      {
+        actor_user_id: entry.owner_id,
+        business_id: entry.business_id,
+        created_by_user_id: entry.owner_id,
+        detail: suggestionDetail,
+        event_type: 'tell_contracktor_processed',
+        job_id: matchedJob?.id ?? null,
+        metadata: { proposal_count: proposalRows.length, summary: parsedWithJob.summary },
+        occurred_at: new Date().toISOString(),
+        owner_id: entry.owner_id,
+        severity: 'warning',
+        source_id: entry.id,
+        source_table: 'tell_contracktor_entries',
+        status: 'needs_attention',
+        title: eventTitle,
+      },
+      { onConflict: 'business_id,event_type,source_table,source_id' }
+    )
+    .select('id')
+    .single();
+  if (activityError) throw new Error(activityError.message);
+
+  const { error: attentionError } = await supabase.from('attention_items').upsert(
+    {
+      activity_event_id: activityEvent.id,
+      business_id: entry.business_id,
+      detail: suggestionDetail,
+      item_type: 'tell_submission',
+      job_id: matchedJob?.id ?? null,
+      metadata: { proposal_count: proposalRows.length },
+      opened_at: new Date().toISOString(),
+      owner_id: entry.owner_id,
+      severity: 'warning',
+      source_id: entry.id,
+      source_table: 'tell_contracktor_entries',
+      status: 'open',
+      title: eventTitle,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'business_id,item_type,source_table,source_id' }
+  );
+  if (attentionError) throw new Error(attentionError.message);
+
+  return { entry_id: entry.id, proposal_count: proposalRows.length, status: nextStatus };
+}
+
+function buildStoredProposalRows({
+  businessId,
+  entryId,
+  jobId,
+  ownerId,
+  parsed,
+}: {
+  businessId: string;
+  entryId: string;
+  jobId: string | null;
+  ownerId: string;
+  parsed: ParsedTellInput;
+}) {
+  const rows: Array<Record<string, unknown>> = [];
+  if (parsed.cleaned_note.trim()) {
+    rows.push({
+      business_id: businessId,
+      entry_id: entryId,
+      owner_id: ownerId,
+      payload: {
+        classification: parsed.scope_or_budget_impact ? 'scope_change' : 'job_update',
+        id: 'note-1',
+        job_id: jobId,
+        note: parsed.cleaned_note.trim(),
+        type: 'note',
+      },
+      proposal_id: 'note-1',
+      proposal_type: 'note',
+      status: 'pending',
+    });
+  }
+  parsed.shopping_needs.forEach((need, index) => {
+    const proposalId = `shopping-${index + 1}`;
+    rows.push({
+      business_id: businessId,
+      entry_id: entryId,
+      owner_id: ownerId,
+      payload: {
+        description: need.description,
+        id: proposalId,
+        job_id: need.job_id ?? jobId,
+        normalized_name: need.normalized_name,
+        quantity: need.quantity,
+        type: 'shopping',
+        unit: need.unit,
+      },
+      proposal_id: proposalId,
+      proposal_type: 'shopping',
+      status: 'pending',
+    });
+  });
+  parsed.hours.forEach((hours, index) => {
+    const proposalId = `hours-${index + 1}`;
+    rows.push({
+      business_id: businessId,
+      entry_id: entryId,
+      owner_id: ownerId,
+      payload: {
+        date: hours.date,
+        hours: hours.hours,
+        id: proposalId,
+        job_id: hours.job_id ?? jobId,
+        note: hours.note,
+        type: 'hours',
+        worker_name: hours.worker_name,
+      },
+      proposal_id: proposalId,
+      proposal_type: 'hours',
+      status: 'pending',
+    });
+  });
+  return rows;
+}
+
+function getPhotoExtension(contentType: string): string {
+  if (contentType.includes('png')) return 'png';
+  if (contentType.includes('webp')) return 'webp';
+  return 'jpg';
+}
+
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = atob(base64.replace(/[^A-Za-z0-9+/=]/g, ''));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes.buffer;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let index = 0; index < bytes.byteLength; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
+  }
+  return btoa(binary);
+}
 
 async function parseTellInput(
   apiKey: string,

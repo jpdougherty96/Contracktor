@@ -10,7 +10,8 @@ export type GlobalActivityType =
   | 'job'
   | 'note'
   | 'payment'
-  | 'receipt';
+  | 'receipt'
+  | 'tell_submission';
 
 export type GlobalActivityItem = {
   activityEventId?: string;
@@ -30,12 +31,14 @@ export type GlobalActivityItem = {
   receiptId?: string;
   receiptIncludesInventoryDestination?: boolean;
   receiptJobs?: Job[];
+  tellSubmissionId?: string;
   reviewReason?: string;
   tone?: 'danger' | 'normal' | 'warning';
   type: GlobalActivityType;
 };
 
 export type GlobalActivitySummary = {
+  hasPendingTellProcessing: boolean;
   items: GlobalActivityItem[];
   needsReview: GlobalActivityItem[];
   needsReviewCount: number;
@@ -49,14 +52,14 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
   }
 
   if (!userData.user) {
-    return { items: [], needsReview: [], needsReviewCount: 0 };
+    return { hasPendingTellProcessing: false, items: [], needsReview: [], needsReviewCount: 0 };
   }
 
   const userId = userData.user.id;
   const jobs = await fetchJobs();
   const jobsById = new Map(jobs.map((job) => [job.id, job]));
 
-  const [attentionResult, eventsResult, hoursResult, paymentsResult, expensesResult, receiptsResult, notesResult] = await Promise.all([
+  const [attentionResult, eventsResult, hoursResult, paymentsResult, expensesResult, receiptsResult, notesResult, tellsResult] = await Promise.all([
     supabase
       .from('attention_items')
       .select(
@@ -73,7 +76,7 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
       .limit(80),
     supabase
       .from('time_entries')
-      .select('id, job_id, duration_minutes, hourly_rate, work_date, worker_name, description, created_at, started_at, stopped_at, status')
+      .select('id, job_id, duration_minutes, hourly_rate, work_date, worker_name, description, created_at, started_at, stopped_at, status, source')
       .eq('owner_id', userId)
       .order('created_at', { ascending: false })
       .limit(80),
@@ -103,6 +106,12 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
       .eq('owner_id', userId)
       .order('created_at', { ascending: false })
       .limit(80),
+    supabase
+      .from('tell_contracktor_entries')
+      .select('id, job_id, raw_text, status, created_at')
+      .in('status', ['queued', 'processing'])
+      .order('created_at', { ascending: false })
+      .limit(20),
   ]);
 
   if (attentionResult.error) {
@@ -133,11 +142,43 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
     throw new Error(notesResult.error.message);
   }
 
+  if (tellsResult.error) {
+    throw new Error(tellsResult.error.message);
+  }
+
   const items: GlobalActivityItem[] = [];
   const needsReview: GlobalActivityItem[] = [];
   const durableAttentionEventIds = new Set<string>();
   const durableAttentionSourceKeys = new Set<string>();
   const explicitAttentionReceiptIds = new Set<string>();
+  const openTellAttentionIds = new Set<string>();
+  const tellCreatedNoteIds = new Set<string>();
+  const tellActivityGroups = new Map<
+    string,
+    {
+      capturedAt: string | null;
+      events: { eventType: string; title: string }[];
+      jobIds: Set<string>;
+      occurredAt: string | null;
+    }
+  >();
+
+  for (const tell of tellsResult.data ?? []) {
+    const job = getJob(jobsById, tell.job_id);
+    items.push({
+      capturedAt: tell.created_at,
+      date: tell.created_at,
+      detail: tell.raw_text === '[Photo update]' ? 'Photo update' : tell.raw_text,
+      id: `tell-processing-${tell.id}`,
+      job,
+      jobId: tell.job_id,
+      jobName: job ? job.name : 'Tell submission',
+      label: 'Tell secured · Processing',
+      tellSubmissionId: tell.id,
+      tone: 'normal',
+      type: 'tell_submission',
+    });
+  }
 
   for (const attention of attentionResult.data ?? []) {
     const sourceKey = getAttentionSourceKey(
@@ -160,9 +201,17 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
       attention.source_table === 'receipts' && attention.source_id
         ? attention.source_id
         : undefined;
+    const tellSubmissionId =
+      attention.source_table === 'tell_contracktor_entries' && attention.source_id
+        ? attention.source_id
+        : undefined;
 
     if (receiptId) {
       explicitAttentionReceiptIds.add(receiptId);
+    }
+
+    if (tellSubmissionId) {
+      openTellAttentionIds.add(tellSubmissionId);
     }
 
     const reviewReason =
@@ -183,8 +232,9 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
       needsReview: true,
       receiptId,
       reviewReason,
+      tellSubmissionId,
       tone: getActivityEventTone(attention.severity),
-      type: receiptId ? 'receipt' : 'activity_event',
+      type: receiptId ? 'receipt' : tellSubmissionId ? 'tell_submission' : 'activity_event',
     };
 
     items.push(item);
@@ -193,6 +243,33 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
 
   for (const event of eventsResult.data ?? []) {
     if (event.event_type === 'tell_contracktor_processed') {
+      continue;
+    }
+
+    const tellSubmissionId = getTellSubmissionId(event.metadata);
+
+    if (tellSubmissionId) {
+      const existing = tellActivityGroups.get(tellSubmissionId);
+      const eventCapturedAt = event.created_at ?? event.occurred_at;
+
+      if (event.source_table === 'job_notes' && event.source_id) {
+        tellCreatedNoteIds.add(event.source_id);
+      }
+
+      if (existing) {
+        existing.events.push({ eventType: event.event_type, title: event.title });
+        if (event.job_id) existing.jobIds.add(event.job_id);
+        existing.occurredAt = newestDate(existing.occurredAt, event.occurred_at);
+        existing.capturedAt = newestDate(existing.capturedAt, eventCapturedAt);
+      } else {
+        tellActivityGroups.set(tellSubmissionId, {
+          capturedAt: eventCapturedAt,
+          events: [{ eventType: event.event_type, title: event.title }],
+          jobIds: new Set(event.job_id ? [event.job_id] : []),
+          occurredAt: event.occurred_at,
+        });
+      }
+
       continue;
     }
 
@@ -238,6 +315,29 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
     }
   }
 
+  for (const [tellSubmissionId, group] of tellActivityGroups) {
+    if (openTellAttentionIds.has(tellSubmissionId)) {
+      continue;
+    }
+
+    const groupJobIds = Array.from(group.jobIds);
+    const job = groupJobIds.length === 1 ? getJob(jobsById, groupJobIds[0]) : null;
+
+    items.push({
+      capturedAt: group.capturedAt,
+      date: group.occurredAt,
+      detail: formatTellActivityDetail(group.events),
+      id: `tell-approved-${tellSubmissionId}`,
+      job,
+      jobId: job?.id ?? null,
+      jobName: groupJobIds.length > 1 ? 'Multiple jobs' : getJobName(job),
+      label: 'Tell update approved',
+      tellSubmissionId,
+      tone: 'normal',
+      type: 'tell_submission',
+    });
+  }
+
   for (const job of jobs) {
     const hasTrackedActivity =
       (job.actualMaterialCost ?? 0) > 0 || (job.actualLaborHours ?? 0) > 0;
@@ -267,6 +367,10 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
   }
 
   for (const entry of hoursResult.data ?? []) {
+    if (entry.source === 'tell_contracktor') {
+      continue;
+    }
+
     const job = getJob(jobsById, entry.job_id);
     const isLongRunningTimer = Boolean(
       entry.status === 'active' &&
@@ -494,6 +598,10 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
   }
 
   for (const note of notesResult.data ?? []) {
+    if (tellCreatedNoteIds.has(note.id)) {
+      continue;
+    }
+
     const job = getJob(jobsById, note.job_id);
 
     items.push({
@@ -515,10 +623,58 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
   const sortedNeedsReview = needsReview.sort(sortNewestFirst).filter(dedupeNeedsReview()).slice(0, 20);
 
   return {
+    hasPendingTellProcessing: (tellsResult.data ?? []).length > 0,
     items: sortedItems,
     needsReview: sortedNeedsReview,
     needsReviewCount: sortedNeedsReview.length,
   };
+}
+
+function getTellSubmissionId(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return null;
+  }
+
+  const record = metadata as Record<string, unknown>;
+  const entryId = record.tell_entry_id ?? record.source_entry_id;
+  return typeof entryId === 'string' && entryId ? entryId : null;
+}
+
+function newestDate(left: string | null, right: string | null): string | null {
+  if (!left) return right;
+  if (!right) return left;
+  return left.localeCompare(right) >= 0 ? left : right;
+}
+
+function formatTellActivityDetail(
+  events: { eventType: string; title: string }[]
+): string {
+  const counts = new Map<string, number>();
+
+  for (const event of events) {
+    const category =
+      event.eventType === 'note_added'
+        ? 'job update'
+        : event.eventType === 'hours_logged'
+          ? 'hours entry'
+          : event.eventType.startsWith('shopping_need_')
+            ? 'shopping item'
+            : event.title.toLowerCase();
+    counts.set(category, (counts.get(category) ?? 0) + 1);
+  }
+
+  const parts = Array.from(counts.entries()).map(([category, count]) =>
+    count === 1 ? category : `${count} ${pluralizeTellActivityCategory(category)}`
+  );
+  const recordLabel = events.length === 1 ? 'record' : 'records';
+  return `${events.length} ${recordLabel} added${parts.length > 0 ? ` · ${parts.join(', ')}` : ''}`;
+}
+
+function pluralizeTellActivityCategory(category: string): string {
+  if (category === 'hours entry') return 'hours entries';
+  if (category === 'job update') return 'job updates';
+  if (category === 'shopping item') return 'shopping items';
+  return `${category}s`;
 }
 
 function getAttentionSourceKey(

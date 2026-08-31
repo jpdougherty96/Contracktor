@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
   KeyboardAvoidingView,
@@ -15,16 +15,21 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { uploadJobNotePhoto } from '@/src/lib/jobNotes';
 import { useGuardedBack } from '@/src/hooks/useGuardedBack';
 import {
   commitTellContracktorEntry,
+  dismissTellContracktorProposal,
+  fetchRecentTellContracktorSubmissions,
+  fetchTellContracktorSubmission,
+  retryTellContracktorSubmission,
   submitTellContracktorText,
   undoTellContracktorEntry,
   type TellContracktorCandidateJob,
   type TellContracktorCommitProposal,
   type TellContracktorPhotoInput,
   type TellContracktorResult,
+  type TellContracktorSubmission,
+  type TellContracktorSubmissionSummary,
 } from '@/src/lib/tellContracktor';
 import { getUserFacingError } from '@/src/lib/userFacingError';
 import { colors } from '@/src/styles/theme';
@@ -32,12 +37,14 @@ import type { Job } from '@/src/types/job';
 
 type TellContracktorScreenProps = {
   contextJob?: Job | null;
+  initialEntryId?: string | null;
   onBack: () => void;
   onDone: () => void;
 };
 
 type Proposal =
   | {
+      classification?: 'job_update' | 'scope_change';
       id: string;
       jobId: string | null;
       note: string;
@@ -72,6 +79,7 @@ type ShoppingProposalGroupData = {
 
 export function TellContracktorScreen({
   contextJob = null,
+  initialEntryId = null,
   onBack,
   onDone,
 }: TellContracktorScreenProps) {
@@ -84,10 +92,14 @@ export function TellContracktorScreen({
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isApproved, setIsApproved] = useState(false);
+  const [activeSubmission, setActiveSubmission] = useState<TellContracktorSubmission | null>(null);
+  const [recentSubmissions, setRecentSubmissions] = useState<TellContracktorSubmissionSummary[]>([]);
+  const [isLoadingSubmission, setIsLoadingSubmission] = useState(false);
   const hasLoadedDraftRef = useRef(false);
   const draftKey = `tell-contracktor-draft:${contextJob?.id ?? 'global'}`;
   const hasUnsavedWork =
     !isApproved &&
+    !activeSubmission &&
     (text.trim().length > 0 || photos.length > 0 || result !== null || proposals.length > 0);
 
   useEffect(() => {
@@ -127,6 +139,52 @@ export function TellContracktorScreen({
 
     return () => clearTimeout(saveTimer);
   }, [draftKey, isApproved, text]);
+
+  const refreshRecentSubmissions = useCallback(async () => {
+    try {
+      setRecentSubmissions(await fetchRecentTellContracktorSubmissions());
+    } catch {
+      // Recent submissions are a convenience; the active Tell flow remains usable.
+    }
+  }, []);
+
+  const loadSubmission = useCallback(async (entryId: string, quiet = false) => {
+    if (!quiet) setIsLoadingSubmission(true);
+    try {
+      const submission = await fetchTellContracktorSubmission(entryId);
+      setActiveSubmission(submission);
+      setResult(submission.result);
+      setProposals(buildEditableProposals(submission.proposals));
+      setSelectedJobId(submission.result?.job?.id ?? contextJob?.id ?? null);
+      setIsApproved(
+        submission.status === 'approved' ||
+          submission.status === 'processed' ||
+          submission.status === 'dismissed'
+      );
+      setErrorMessage(null);
+    } catch (error) {
+      setErrorMessage(getUserFacingError(error, 'Unable to load this Tell submission.'));
+    } finally {
+      if (!quiet) setIsLoadingSubmission(false);
+    }
+  }, [contextJob?.id]);
+
+  useEffect(() => {
+    void refreshRecentSubmissions();
+    if (initialEntryId) void loadSubmission(initialEntryId);
+  }, [initialEntryId, loadSubmission, refreshRecentSubmissions]);
+
+  useEffect(() => {
+    if (!activeSubmission || !['queued', 'processing'].includes(activeSubmission.status)) {
+      return;
+    }
+
+    const poll = setInterval(() => {
+      void loadSubmission(activeSubmission.entryId, true);
+    }, 2500);
+
+    return () => clearInterval(poll);
+  }, [activeSubmission, loadSubmission]);
 
   const leaveScreen = () => {
     void AsyncStorage.removeItem(draftKey).catch(() => undefined);
@@ -184,20 +242,17 @@ export function TellContracktorScreen({
     setIsSaving(true);
 
     try {
-      const nextResult = await submitTellContracktorText({
+      const submission = await submitTellContracktorText({
         jobId: selectedJobId,
         photos: photoInputs,
         text: cleanText,
       });
-
-      const nextProposals = buildProposals(nextResult, selectedJobId);
-
-      setResult(nextResult);
-      setProposals(nextProposals);
-
-      if (nextResult.needs_job) {
-        setErrorMessage('Choose the job this belongs to.');
-      }
+      await AsyncStorage.removeItem(draftKey).catch(() => undefined);
+      setText('');
+      setPhotos([]);
+      setNoticeMessage('Got it. conTRACKtor is working on it.');
+      await loadSubmission(submission.entry_id);
+      await refreshRecentSubmissions();
     } catch (error) {
       setErrorMessage(getUserFacingError(error, 'Unable to process this update. Try again.'));
     } finally {
@@ -221,26 +276,58 @@ export function TellContracktorScreen({
 
     try {
       const commitProposals = buildCommitProposals(proposals, selectedJobId, result);
-      const commitResult = await commitTellContracktorEntry(result.entry_id, commitProposals);
-
-      if (photos.length > 0 && commitResult.created_note_id) {
-        const noteRecord = commitResult.records.find(
-          (record) => record.record_id === commitResult.created_note_id
-        );
-
-        if (noteRecord) {
-          for (const [photoIndex, photo] of photos.entries()) {
-            await uploadJobNotePhoto(noteRecord.job_id, commitResult.created_note_id, photo, {
-              idempotencyKey: `${result.entry_id}-${photoIndex + 1}`,
-            });
-          }
-        }
-      }
-
-      setIsApproved(true);
+      await commitTellContracktorEntry(result.entry_id, commitProposals);
+      await loadSubmission(result.entry_id);
+      await refreshRecentSubmissions();
       void AsyncStorage.removeItem(draftKey).catch(() => undefined);
     } catch (error) {
       setErrorMessage(getUserFacingError(error, 'Unable to approve these entries. Try again.'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleApproveProposal = async (proposal: Proposal) => {
+    if (!result) return;
+    setIsSaving(true);
+    setErrorMessage(null);
+    try {
+      const commitProposals = buildCommitProposals([proposal], selectedJobId, result);
+      await commitTellContracktorEntry(result.entry_id, commitProposals);
+      await loadSubmission(result.entry_id);
+      await refreshRecentSubmissions();
+    } catch (error) {
+      setErrorMessage(getUserFacingError(error, 'Unable to approve this suggestion.'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDismissProposal = async (proposalId: string) => {
+    if (!result) return;
+    setIsSaving(true);
+    setErrorMessage(null);
+    try {
+      await dismissTellContracktorProposal(result.entry_id, proposalId);
+      await loadSubmission(result.entry_id);
+      await refreshRecentSubmissions();
+    } catch (error) {
+      setErrorMessage(getUserFacingError(error, 'Unable to dismiss this suggestion.'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRetry = async () => {
+    if (!activeSubmission) return;
+    setIsSaving(true);
+    setErrorMessage(null);
+    try {
+      await retryTellContracktorSubmission(activeSubmission.entryId);
+      await loadSubmission(activeSubmission.entryId);
+      await refreshRecentSubmissions();
+    } catch (error) {
+      setErrorMessage(getUserFacingError(error, 'Unable to retry this Tell submission.'));
     } finally {
       setIsSaving(false);
     }
@@ -257,8 +344,10 @@ export function TellContracktorScreen({
     try {
       await undoTellContracktorEntry(result.entry_id);
       setIsApproved(false);
+      setActiveSubmission(null);
       setResult(null);
       setProposals([]);
+      await refreshRecentSubmissions();
       setNoticeMessage('Update undone. Adjust what you wrote and send it again when ready.');
     } catch (error) {
       setErrorMessage(getUserFacingError(error, 'Unable to undo this Tell conTRACKtor update.'));
@@ -319,6 +408,10 @@ export function TellContracktorScreen({
     ? getShoppingProposalGroups(proposals, selectedJobId, result)
     : [];
   const nonShoppingProposals = proposals.filter((proposal) => proposal.type !== 'shopping');
+  const isProcessing = Boolean(
+    activeSubmission && ['uploading', 'queued', 'processing'].includes(activeSubmission.status)
+  );
+  const needsMoreInformation = activeSubmission?.status === 'needs_info' && !hasProposals;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -335,17 +428,75 @@ export function TellContracktorScreen({
             <Text style={styles.subtitle}>Type or dictate what happened. conTRACKtor will handle the records.</Text>
           </View>
 
-          {isApproved ? (
-            <View style={styles.savedPanel}>
-              <Feather color={colors.primaryGreen} name="check-circle" size={24} />
+          {isLoadingSubmission ? (
+            <View style={styles.processingPanel}>
+              <Text style={styles.processingTitle}>Loading submission...</Text>
+            </View>
+          ) : null}
+
+          {activeSubmission ? (
+            <View style={styles.sourcePanel}>
+              <Text style={styles.sourceLabel}>Original Tell</Text>
+              <Text style={styles.sourceText}>
+                {activeSubmission.rawText === '[Photo update]'
+                  ? 'Photo update'
+                  : activeSubmission.rawText}
+              </Text>
+            </View>
+          ) : null}
+
+          {isProcessing ? (
+            <View style={styles.processingPanel}>
+              <Feather color={colors.primaryGreen} name="clock" size={24} />
               <View style={styles.savedText}>
-                <Text style={styles.savedTitle}>Saved</Text>
-                <Text style={styles.savedDetail}>Approved entries were added to conTRACKtor.</Text>
+                <Text style={styles.processingTitle}>conTRACKtor is working on it</Text>
+                <Text style={styles.savedDetail}>
+                  This update is secured. You can leave and come back when it is ready.
+                </Text>
               </View>
             </View>
           ) : null}
 
-          {!hasProposals && !isApproved ? (
+          {activeSubmission?.status === 'failed' ? (
+            <View style={styles.failedPanel}>
+              <Text style={styles.processingTitle}>Couldn&apos;t process this Tell</Text>
+              <Text style={styles.savedDetail}>
+                Your original update is safe. Retry processing when you are ready.
+              </Text>
+              {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+              <Pressable
+                disabled={isSaving}
+                onPress={handleRetry}
+                style={[styles.secondaryButton, isSaving ? styles.disabledButton : null]}>
+                <Text style={styles.secondaryButtonText}>{isSaving ? 'Retrying...' : 'Retry'}</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {needsMoreInformation ? (
+            <View style={styles.failedPanel}>
+              <Text style={styles.processingTitle}>More information needed</Text>
+              <Text style={styles.savedDetail}>
+                conTRACKtor could not find a record to suggest. Start a new Tell with the job and action stated clearly.
+              </Text>
+            </View>
+          ) : null}
+
+          {isApproved ? (
+            <View style={styles.savedPanel}>
+              <Feather color={colors.primaryGreen} name="check-circle" size={24} />
+              <View style={styles.savedText}>
+                <Text style={styles.savedTitle}>Review complete</Text>
+                <Text style={styles.savedDetail}>
+                  {activeSubmission?.status === 'dismissed'
+                    ? 'No records were added from this Tell.'
+                    : 'Approved entries were added to conTRACKtor.'}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
+          {!activeSubmission && !isApproved ? (
             <View style={styles.form}>
               {noticeMessage ? <Text style={styles.noticeText}>{noticeMessage}</Text> : null}
               <TextInput
@@ -416,7 +567,7 @@ export function TellContracktorScreen({
                 onPress={handleSubmit}
                 style={[styles.sendButton, isSaving ? styles.disabledButton : null]}>
                 <Text style={styles.sendButtonText}>
-                  {isSaving ? 'Reading...' : 'Send'}
+                  {isSaving ? 'Uploading...' : 'Send'}
                 </Text>
               </Pressable>
             </View>
@@ -425,8 +576,13 @@ export function TellContracktorScreen({
           {hasProposals && !isApproved ? (
             <View style={styles.proposalStack}>
               <View style={styles.proposalHeader}>
-                <Text style={styles.proposalTitle}>Here is what I got</Text>
-                <Text style={styles.proposalHelp}>Review, edit, remove, then approve.</Text>
+                <Text style={styles.proposalTitle}>Suggestions ready to review</Text>
+                <Text style={styles.proposalHelp}>
+                  {activeSubmission?.pendingCount ?? proposals.length}{' '}
+                  {(activeSubmission?.pendingCount ?? proposals.length) === 1
+                    ? 'suggestion remains.'
+                    : 'suggestions remain.'}
+                </Text>
               </View>
 
               {needsJob && result?.candidates ? (
@@ -452,6 +608,8 @@ export function TellContracktorScreen({
                 <ShoppingProposalGroup
                   group={group}
                   key={group.key}
+                  isSaving={isSaving}
+                  onApprove={(proposal) => handleApproveProposal(proposal)}
                   onChange={(nextProposal) =>
                     setProposals((current) =>
                       current.map((candidate) =>
@@ -459,18 +617,16 @@ export function TellContracktorScreen({
                       )
                     )
                   }
-                  onRemove={(proposalId) =>
-                    setProposals((current) =>
-                      current.filter((candidate) => candidate.id !== proposalId)
-                    )
-                  }
+                  onRemove={(proposalId) => handleDismissProposal(proposalId)}
                 />
               ))}
 
               {nonShoppingProposals.map((proposal) => (
                 <ProposalCard
                   jobName={getProposalJobName(proposal, selectedJobId, result)}
+                  isSaving={isSaving}
                   key={proposal.id}
+                  onApprove={() => handleApproveProposal(proposal)}
                   onChange={(nextProposal) =>
                     setProposals((current) =>
                       current.map((candidate) =>
@@ -478,11 +634,7 @@ export function TellContracktorScreen({
                       )
                     )
                   }
-                  onRemove={() =>
-                    setProposals((current) =>
-                      current.filter((candidate) => candidate.id !== proposal.id)
-                    )
-                  }
+                  onRemove={() => handleDismissProposal(proposal.id)}
                   proposal={proposal}
                 />
               ))}
@@ -510,15 +662,35 @@ export function TellContracktorScreen({
           {isApproved ? (
             <View style={styles.savedActions}>
               {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
-              <Pressable
-                disabled={isSaving}
-                onPress={handleUndo}
-                style={[styles.undoButton, isSaving ? styles.disabledButton : null]}>
-                <Text style={styles.undoButtonText}>{isSaving ? 'Undoing...' : 'Undo'}</Text>
-              </Pressable>
+              {activeSubmission?.status !== 'dismissed' ? (
+                <Pressable
+                  disabled={isSaving}
+                  onPress={handleUndo}
+                  style={[styles.undoButton, isSaving ? styles.disabledButton : null]}>
+                  <Text style={styles.undoButtonText}>{isSaving ? 'Undoing...' : 'Undo'}</Text>
+                </Pressable>
+              ) : null}
               <Pressable disabled={isSaving} style={styles.sendButton} onPress={handleDone}>
                 <Text style={styles.sendButtonText}>Done</Text>
               </Pressable>
+            </View>
+          ) : null}
+
+          {!activeSubmission && recentSubmissions.length > 0 ? (
+            <View style={styles.recentSection}>
+              <Text style={styles.recentTitle}>Recent submissions</Text>
+              {recentSubmissions.map((submission) => (
+                <Pressable
+                  key={submission.entryId}
+                  onPress={() => loadSubmission(submission.entryId)}
+                  style={styles.recentRow}>
+                  <View style={styles.recentRowText}>
+                    <Text numberOfLines={1} style={styles.recentPreview}>{submission.preview}</Text>
+                    <Text style={styles.recentStatus}>{formatSubmissionStatus(submission)}</Text>
+                  </View>
+                  <Feather color={colors.mutedText} name="chevron-right" size={20} />
+                </Pressable>
+              ))}
             </View>
           ) : null}
         </ScrollView>
@@ -528,12 +700,16 @@ export function TellContracktorScreen({
 }
 
 function ProposalCard({
+  isSaving,
   jobName,
+  onApprove,
   onChange,
   onRemove,
   proposal,
 }: {
+  isSaving: boolean;
   jobName: string;
+  onApprove: () => void;
   onChange: (proposal: Proposal) => void;
   onRemove: () => void;
   proposal: Proposal;
@@ -542,11 +718,11 @@ function ProposalCard({
     <View style={styles.proposalCard}>
       <View style={styles.proposalCardHeader}>
         <View>
-          <Text style={styles.proposalKind}>{formatProposalKind(proposal.type)}</Text>
+          <Text style={styles.proposalKind}>{formatProposalKind(proposal)}</Text>
           <Text style={styles.proposalJob}>{jobName}</Text>
         </View>
         <Pressable
-          accessibilityLabel={`Remove ${formatProposalKind(proposal.type).toLowerCase()} proposal`}
+          accessibilityLabel={`Remove ${formatProposalKind(proposal).toLowerCase()} proposal`}
           onPress={onRemove}
           style={styles.removeProposalButton}>
           <Feather color={colors.danger} name="x" size={18} />
@@ -595,16 +771,27 @@ function ProposalCard({
         </View>
       ) : null}
 
+      <Pressable
+        disabled={isSaving}
+        onPress={onApprove}
+        style={[styles.approveSuggestionButton, isSaving ? styles.disabledButton : null]}>
+        <Text style={styles.approveSuggestionText}>Approve {formatProposalKind(proposal)}</Text>
+      </Pressable>
+
     </View>
   );
 }
 
 function ShoppingProposalGroup({
   group,
+  isSaving,
+  onApprove,
   onChange,
   onRemove,
 }: {
   group: ShoppingProposalGroupData;
+  isSaving: boolean;
+  onApprove: (proposal: ShoppingProposal) => void;
   onChange: (proposal: ShoppingProposal) => void;
   onRemove: (proposalId: string) => void;
 }) {
@@ -624,6 +811,8 @@ function ShoppingProposalGroup({
         {group.proposals.map((proposal) => (
           <ShoppingProposalRow
             key={proposal.id}
+            isSaving={isSaving}
+            onApprove={() => onApprove(proposal)}
             onChange={onChange}
             onRemove={() => onRemove(proposal.id)}
             proposal={proposal}
@@ -635,10 +824,14 @@ function ShoppingProposalGroup({
 }
 
 function ShoppingProposalRow({
+  isSaving = false,
+  onApprove,
   onChange,
   onRemove,
   proposal,
 }: {
+  isSaving?: boolean;
+  onApprove?: () => void;
   onChange: (proposal: ShoppingProposal) => void;
   onRemove: () => void;
   proposal: ShoppingProposal;
@@ -680,6 +873,14 @@ function ShoppingProposalRow({
           value={proposal.unit}
         />
       </View>
+      {onApprove ? (
+        <Pressable
+          disabled={isSaving}
+          onPress={onApprove}
+          style={[styles.approveSuggestionButton, isSaving ? styles.disabledButton : null]}>
+          <Text style={styles.approveSuggestionText}>Approve item</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -726,44 +927,50 @@ function JobChip({
   );
 }
 
-function buildProposals(result: TellContracktorResult, fallbackJobId: string | null): Proposal[] {
-  const proposals: Proposal[] = [];
-  const defaultJobId = result.job?.id ?? fallbackJobId ?? result.parsed.matched_job_id;
+function buildEditableProposals(stored: TellContracktorCommitProposal[]): Proposal[] {
+  return stored.map((proposal) => {
+    if (proposal.type === 'note') {
+      return {
+        id: proposal.id,
+        classification: proposal.classification,
+        jobId: proposal.job_id ?? null,
+        note: proposal.note,
+        type: 'note' as const,
+      };
+    }
+    if (proposal.type === 'shopping') {
+      return {
+        description: proposal.description,
+        id: proposal.id,
+        jobId: proposal.job_id ?? null,
+        normalizedName: proposal.normalized_name,
+        quantity: proposal.quantity === null ? '' : String(proposal.quantity),
+        type: 'shopping' as const,
+        unit: proposal.unit ?? '',
+      };
+    }
+    return {
+      date: proposal.date ?? getTodayDate(),
+      hours: proposal.hours === null ? '' : String(proposal.hours),
+      id: proposal.id,
+      jobId: proposal.job_id ?? null,
+      note: proposal.note ?? '',
+      type: 'hours' as const,
+      workerName: proposal.worker_name ?? '',
+    };
+  });
+}
 
-  if (result.parsed.cleaned_note.trim()) {
-    proposals.push({
-      id: createLocalId('note'),
-      jobId: defaultJobId,
-      note: result.parsed.cleaned_note.trim(),
-      type: 'note',
-    });
+function formatSubmissionStatus(submission: TellContracktorSubmissionSummary): string {
+  if (['uploading', 'queued', 'processing'].includes(submission.status)) return 'Processing';
+  if (submission.status === 'failed') return "Couldn't process · Tap to retry";
+  if (submission.status === 'needs_info' && submission.pendingCount === 0) return 'Needs information';
+  if (submission.pendingCount > 0) {
+    return `${submission.pendingCount} ${submission.pendingCount === 1 ? 'suggestion' : 'suggestions'} ready`;
   }
-
-  for (const need of result.parsed.shopping_needs) {
-    proposals.push({
-      description: need.description,
-      id: createLocalId('shopping'),
-      jobId: need.job_id ?? defaultJobId,
-      normalizedName: need.normalized_name,
-      quantity: need.quantity === null ? '' : String(need.quantity),
-      type: 'shopping',
-      unit: need.unit ?? '',
-    });
-  }
-
-  for (const hours of result.parsed.hours) {
-    proposals.push({
-      date: hours.date ?? getTodayDate(),
-      hours: hours.hours === null ? '' : String(hours.hours),
-      id: createLocalId('hours'),
-      jobId: hours.job_id ?? defaultJobId,
-      note: hours.note ?? '',
-      type: 'hours',
-      workerName: hours.worker_name ?? '',
-    });
-  }
-
-  return proposals;
+  if (submission.status === 'dismissed') return 'Reviewed · No records added';
+  if (submission.status === 'undone') return 'Undone';
+  return 'Approved';
 }
 
 function buildCommitProposals(
@@ -784,7 +991,13 @@ function buildCommitProposals(
       const note = proposal.note.trim();
 
       if (note) {
-        commitProposals.push({ id: proposal.id, job_id: jobId, note, type: 'note' });
+        commitProposals.push({
+          classification: proposal.classification,
+          id: proposal.id,
+          job_id: jobId,
+          note,
+          type: 'note',
+        });
       }
 
       continue;
@@ -886,16 +1099,16 @@ function getProposalJobName(
   return job?.name ?? 'Job needed';
 }
 
-function formatProposalKind(type: Proposal['type']): string {
-  if (type === 'hours') {
+function formatProposalKind(proposal: Proposal): string {
+  if (proposal.type === 'hours') {
     return 'Hours';
   }
 
-  if (type === 'shopping') {
+  if (proposal.type === 'shopping') {
     return 'Shopping';
   }
 
-  return 'Job note';
+  return proposal.classification === 'scope_change' ? 'Scope change' : 'Job update';
 }
 
 function parseRequiredNumber(value: string): number | null {
@@ -918,10 +1131,6 @@ function parseOptionalNumber(value: string): number | null {
 
 function getTodayDate(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-function createLocalId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 const styles = StyleSheet.create({
@@ -1345,5 +1554,102 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '900',
     lineHeight: 20,
+  },
+  approveSuggestionButton: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.primaryGreen,
+    borderRadius: 9,
+    justifyContent: 'center',
+    minHeight: 42,
+    paddingHorizontal: 14,
+  },
+  approveSuggestionText: {
+    color: colors.warmWhite,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  failedPanel: {
+    backgroundColor: colors.cardBackground,
+    borderColor: colors.standardBorder,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 12,
+    marginBottom: 16,
+    padding: 14,
+  },
+  processingPanel: {
+    alignItems: 'flex-start',
+    backgroundColor: colors.cardBackground,
+    borderColor: colors.standardBorder,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+    padding: 14,
+  },
+  processingTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  recentPreview: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  recentRow: {
+    alignItems: 'center',
+    borderTopColor: colors.standardBorder,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    minHeight: 70,
+    paddingVertical: 12,
+  },
+  recentRowText: {
+    flex: 1,
+    gap: 4,
+  },
+  recentSection: {
+    backgroundColor: colors.cardBackground,
+    borderColor: colors.standardBorder,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 22,
+    paddingHorizontal: 14,
+  },
+  recentStatus: {
+    color: colors.mutedText,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  recentTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '900',
+    paddingVertical: 14,
+  },
+  sourceLabel: {
+    color: colors.mutedText,
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  sourcePanel: {
+    backgroundColor: colors.warmWhite,
+    borderColor: colors.standardBorder,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 7,
+    marginBottom: 16,
+    padding: 14,
+  },
+  sourceText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 22,
   },
 });

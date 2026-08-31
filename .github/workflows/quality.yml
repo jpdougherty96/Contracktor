@@ -85,3 +85,12 @@ jobs:
           SUPABASE_TEST_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
           SUPABASE_TEST_ALLOW_MUTATION=true \
           npm run test:tasks:integration
+
+      - name: Tell submission integration tests
+        run: |
+          eval "$(supabase status -o env)"
+          SUPABASE_TEST_URL="$API_URL" \
+          SUPABASE_TEST_ANON_KEY="$ANON_KEY" \
+          SUPABASE_TEST_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
+          SUPABASE_TEST_ALLOW_MUTATION=true \
+          npm run test:tell:integration

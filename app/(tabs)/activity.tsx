@@ -23,6 +23,11 @@ export default function ActivityRoute() {
 }
 
 function openActivityItem(item: GlobalActivityItem) {
+  if (item.tellSubmissionId) {
+    openLegacyRecord('tellContracktor', item.job?.id ?? '', item.tellSubmissionId);
+    return;
+  }
+
   if (item.receiptId) {
     if (!item.needsReview && item.label === 'Receipt secured') {
       return;
@@ -83,7 +88,7 @@ function openLegacyRecord(legacyScreen: string, jobId: string, recordId: string)
   router.push({
     pathname: '/',
     params: {
-      jobId,
+      jobId: jobId || undefined,
       legacyScreen,
       recordId,
       returnPath: '/activity',

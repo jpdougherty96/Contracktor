@@ -384,6 +384,10 @@ function getIconName(type: GlobalActivityItem['type'], needsReview?: boolean) {
     return 'clipboard';
   }
 
+  if (type === 'tell_submission') {
+    return 'message-square';
+  }
+
   return 'briefcase';
 }
 

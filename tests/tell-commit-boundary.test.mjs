@@ -28,7 +28,7 @@ test('Tell UI sends reviewed proposals through the server commit boundary', asyn
     readRepoFile('supabase/functions/tell-contracktor/index.ts'),
   ]);
 
-  assert.match(tellApi, /rpc\('commit_tell_contracktor_entry'/);
+  assert.match(tellApi, /rpc\('review_tell_contracktor_proposals'/);
   assert.match(screen, /commitTellContracktorEntry\(result\.entry_id, commitProposals\)/);
   assert.doesNotMatch(screen, /createJobNote|createShoppingNeed|createJobHours|createPayment/);
   assert.doesNotMatch(screen, /proposal\.type === 'payment'/);
@@ -36,18 +36,54 @@ test('Tell UI sends reviewed proposals through the server commit boundary', asyn
   assert.match(tellFunction, /Payments are outside the initial Tell workflow/);
 });
 
-test('Tell photo retries use deterministic storage and attachment identities', async () => {
-  const [migration, notes, screen] = await Promise.all([
+test('Tell photos are secured before processing and attached deterministically on approval', async () => {
+  const [migration, tellFunction] = await Promise.all([
+    readRepoFile('supabase/migrations/20260827090000_async_grouped_tell_submissions.sql'),
+    readRepoFile('supabase/functions/tell-contracktor/index.ts'),
+  ]);
+
+  assert.match(migration, /create table if not exists public\.tell_contracktor_attachments/);
+  assert.match(migration, /constraint tell_contracktor_attachments_storage_unique/);
+  assert.match(migration, /on conflict \(storage_path\) do update/);
+  assert.match(tellFunction, /`\$\{user\.id\}\/tell\/\$\{tellEntry\.id\}\/\$\{index \+ 1\}/);
+  assert.match(tellFunction, /upsert: true/);
+});
+
+test('Tell submissions are durable, queued, grouped, and reopenable from attention', async () => {
+  const [migration, tellApi, tellFunction, worker, screen, activity] = await Promise.all([
+    readRepoFile('supabase/migrations/20260827090000_async_grouped_tell_submissions.sql'),
+    readRepoFile('src/lib/tellContracktor.ts'),
+    readRepoFile('supabase/functions/tell-contracktor/index.ts'),
+    readRepoFile('supabase/functions/process-tell-queue/index.ts'),
+    readRepoFile('src/screens/TellContracktorScreen.tsx'),
+    readRepoFile('src/lib/globalActivity.ts'),
+  ]);
+
+  assert.match(migration, /pgmq\.create\('tell_processing'\)/);
+  assert.match(migration, /create table if not exists public\.tell_contracktor_proposals/);
+  assert.match(migration, /status in \('pending', 'approved', 'dismissed'\)/);
+  assert.match(migration, /function public\.review_tell_contracktor_proposals/);
+  assert.match(migration, /function public\.dismiss_tell_contracktor_proposal/);
+  assert.match(tellFunction, /status: 'queued'/);
+  assert.match(tellFunction, /finalize_tell_submission/);
+  assert.match(worker, /claim_tell_processing_jobs/);
+  assert.match(tellApi, /fetchRecentTellContracktorSubmissions/);
+  assert.match(screen, /Recent submissions/);
+  assert.match(screen, /conTRACKtor is working on it/);
+  assert.match(screen, /handleApproveProposal/);
+  assert.match(activity, /tellSubmissionId/);
+});
+
+test('legacy note-photo uploads remain idempotent', async () => {
+  const [migration, notes] = await Promise.all([
     readRepoFile('supabase/migrations/20260820092000_atomic_tell_commit.sql'),
     readRepoFile('src/lib/jobNotes.ts'),
-    readRepoFile('src/screens/TellContracktorScreen.tsx'),
   ]);
 
   assert.match(migration, /attachments_storage_path_unique/);
   assert.match(notes, /idempotencyKey/);
   assert.match(notes, /upsert: Boolean\(options\.idempotencyKey\)/);
   assert.match(notes, /onConflict: 'storage_path'/);
-  assert.match(screen, /idempotencyKey: `\$\{result\.entry_id\}-\$\{photoIndex \+ 1\}`/);
 });
 
 test('Tell Undo reverses only unchanged records and preserves an audit trail', async () => {

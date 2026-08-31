@@ -52,6 +52,8 @@ export const globalActivityQueryOptions = () =>
   queryOptions({
     queryFn: fetchGlobalActivity,
     queryKey: serverStateKeys.activity,
+    refetchInterval: (query) =>
+      query.state.data?.hasPendingTellProcessing ? 3000 : false,
     staleTime: 15_000,
   });
 

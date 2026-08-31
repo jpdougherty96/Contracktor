@@ -74,6 +74,18 @@ test('receipt truth preserves credits and the final amount paid', async () => {
   assert.match(receiptReview, /!hasReceiptAdjustments/);
 });
 
+test('Activity collapses every approved Tell into one parent row', async () => {
+  const activityFeed = await readRepoFile('src/lib/globalActivity.ts');
+
+  assert.match(activityFeed, /const tellActivityGroups = new Map/);
+  assert.match(activityFeed, /getTellSubmissionId\(event\.metadata\)/);
+  assert.match(activityFeed, /id: `tell-approved-\$\{tellSubmissionId\}`/);
+  assert.match(activityFeed, /label: 'Tell update approved'/);
+  assert.match(activityFeed, /if \(entry\.source === 'tell_contracktor'\)/);
+  assert.match(activityFeed, /tellCreatedNoteIds\.has\(note\.id\)/);
+  assert.match(activityFeed, /openTellAttentionIds\.has\(tellSubmissionId\)/);
+});
+
 async function readRepoFile(relativePath) {
   return readFile(new URL(relativePath, `file://${repoRoot}/`), 'utf8');
 }

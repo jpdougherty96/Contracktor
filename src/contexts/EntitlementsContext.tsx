@@ -1,4 +1,4 @@
-import type { Session } from '@supabase/supabase-js';
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import {
   createContext,
   useCallback,
@@ -16,6 +16,7 @@ import {
   type BusinessEntitlements,
   type KnownSubscriptionFeatureKey,
 } from '@/src/lib/entitlements';
+import { getCurrentAuthState } from '@/src/lib/auth';
 import { supabase } from '@/src/lib/supabase';
 
 const freeBaselineFeatures = new Set<KnownSubscriptionFeatureKey>([
@@ -35,21 +36,58 @@ const freeBaselineFeatures = new Set<KnownSubscriptionFeatureKey>([
 ]);
 
 type EntitlementsContextValue = {
+  authError: string | null;
+  authEvent: AuthChangeEvent | null;
   entitlements: BusinessEntitlements | null;
   error: string | null;
   hasFeature: (featureKey: KnownSubscriptionFeatureKey | string) => boolean;
+  isAuthLoading: boolean;
   isLoading: boolean;
+  refreshAuth: () => Promise<void>;
   refresh: () => Promise<void>;
+  session: Session | null;
 };
 
 const EntitlementsContext = createContext<EntitlementsContextValue | null>(null);
 
 export function EntitlementsProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authEvent, setAuthEvent] = useState<AuthChangeEvent | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [entitlements, setEntitlements] = useState<BusinessEntitlements | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const requestIdRef = useRef(0);
+  const authRequestIdRef = useRef(0);
+
+  const refreshAuth = useCallback(async () => {
+    const requestId = authRequestIdRef.current + 1;
+    authRequestIdRef.current = requestId;
+    setIsAuthLoading(true);
+
+    try {
+      const authState = await getCurrentAuthState();
+
+      if (authRequestIdRef.current === requestId) {
+        setSession(authState.session);
+        setAuthError(null);
+      }
+    } catch (loadError) {
+      if (authRequestIdRef.current === requestId) {
+        setSession(null);
+        setAuthError(
+          loadError instanceof Error
+            ? loadError.message
+            : 'Unable to restore your session. Try again.'
+        );
+      }
+    } finally {
+      if (authRequestIdRef.current === requestId) {
+        setIsAuthLoading(false);
+      }
+    }
+  }, []);
 
   const loadEntitlements = useCallback(async (nextSession: Session | null) => {
     const requestId = requestIdRef.current + 1;
@@ -94,46 +132,56 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let isMounted = true;
 
-    void supabase.auth.getSession().then(({ data }) => {
-      if (!isMounted) {
-        return;
-      }
-
-      setSession(data.session);
-      void loadEntitlements(data.session);
-    });
-
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!isMounted) {
         return;
       }
 
       setSession(nextSession);
-      setTimeout(() => {
-        if (isMounted) {
-          void loadEntitlements(nextSession);
-        }
-      }, 0);
+      setAuthEvent(event);
+      setAuthError(null);
+      setIsAuthLoading(false);
     });
+
+    void refreshAuth();
 
     return () => {
       isMounted = false;
       data.subscription.unsubscribe();
     };
-  }, [loadEntitlements]);
+  }, [refreshAuth]);
+
+  useEffect(() => {
+    void loadEntitlements(session);
+  }, [loadEntitlements, session]);
 
   const value = useMemo<EntitlementsContextValue>(
     () => ({
+      authError,
+      authEvent,
       entitlements,
       error,
       hasFeature: (featureKey) =>
         entitlements
           ? isFeatureEnabled(entitlements, featureKey)
           : freeBaselineFeatures.has(featureKey as KnownSubscriptionFeatureKey),
+      isAuthLoading,
+      isLoading,
+      refreshAuth,
+      refresh,
+      session,
+    }),
+    [
+      authError,
+      authEvent,
+      entitlements,
+      error,
+      isAuthLoading,
       isLoading,
       refresh,
-    }),
-    [entitlements, error, isLoading, refresh]
+      refreshAuth,
+      session,
+    ]
   );
 
   return <EntitlementsContext.Provider value={value}>{children}</EntitlementsContext.Provider>;

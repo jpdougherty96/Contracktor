@@ -1,4 +1,3 @@
-import type { Session } from '@supabase/supabase-js';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ImagePickerAsset } from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -9,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useEntitlements } from '@/src/contexts/EntitlementsContext';
 import { ScreenBackProvider } from '@/src/contexts/BackNavigationContext';
 import { useAppNotice } from '@/src/contexts/AppNoticeContext';
-import { getCurrentAuthState, signOut } from '@/src/lib/auth';
+import { signOut } from '@/src/lib/auth';
 import type { GlobalActivityItem } from '@/src/lib/globalActivity';
 import {
   clearPasswordRecoveryRequested,
@@ -93,6 +92,7 @@ const routedLegacyScreens = new Set<Screen>([
   'reviewReceipt',
   'selectJobsForReceiptEdit',
   'shoppingList',
+  'tellContracktor',
   'toolsInventory',
 ]);
 
@@ -111,16 +111,14 @@ export default function HomeScreen() {
     returnPath?: string;
   }>();
   const { width: viewportWidth } = useWindowDimensions();
-  const { hasFeature, refresh: refreshEntitlements } = useEntitlements();
-  const [session, setSession] = useState<Session | null>(null);
-  const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const { authError, authEvent, hasFeature, isAuthLoading, session } = useEntitlements();
   const [screen, setScreen] = useState<Screen>('home');
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [selectedHoursId, setSelectedHoursId] = useState<string | null>(null);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(null);
   const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
+  const [selectedTellEntryId, setSelectedTellEntryId] = useState<string | null>(null);
   const [initialReceiptAsset, setInitialReceiptAsset] = useState<ImagePickerAsset | null>(null);
   const [selectedReceiptJobs, setSelectedReceiptJobs] = useState<Job[]>([]);
   const [isSelectedReceiptInventoryMode, setIsSelectedReceiptInventoryMode] = useState(false);
@@ -142,7 +140,9 @@ export default function HomeScreen() {
     Boolean(legacyParams.legacyScreen)
   );
   const legacyRequestRef = useRef<string | null>(null);
-  const isPasswordRecoveryFlowRef = useRef(false);
+  const isPasswordRecoveryFlowRef = useRef(
+    isPasswordRecoveryUrl() || hasPendingPasswordRecoveryRequest()
+  );
   const canUseActivity = hasFeature('activity.feed');
   const canUseSmartAllocation = hasFeature('receipt.smart_allocation');
   const canUseShopping = hasFeature('core.shopping');
@@ -272,78 +272,34 @@ export default function HomeScreen() {
   }, [globalErrorMessage]);
 
   useEffect(() => {
-    let isMounted = true;
-    let unsubscribe: (() => void) | undefined;
-
-    const loadSession = async () => {
-      try {
-        const startsInPasswordRecoveryFlow =
-          isPasswordRecoveryUrl() || hasPendingPasswordRecoveryRequest();
-        isPasswordRecoveryFlowRef.current = startsInPasswordRecoveryFlow;
-        const authState = await getCurrentAuthState();
-
-        if (isMounted) {
-          setSession(authState.session);
-          setAuthError(null);
-
-          if (startsInPasswordRecoveryFlow) {
-            setScreen('updatePassword');
-          }
-        }
-
-        const { supabase } = await import('@/src/lib/supabase');
-        const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
-          setSession(nextSession);
-          setAuthError(null);
-
-          if (event === 'PASSWORD_RECOVERY') {
-            isPasswordRecoveryFlowRef.current = true;
-            setScreen('updatePassword');
-            return;
-          }
-
-          if (event === 'SIGNED_OUT') {
-            isPasswordRecoveryFlowRef.current = false;
-            clearPasswordRecoveryRequested();
-            setScreen('home');
-            return;
-          }
-
-          if (isPasswordRecoveryFlowRef.current && nextSession) {
-            setScreen('updatePassword');
-            return;
-          }
-
-          if (event === 'SIGNED_IN') {
-            setScreen('home');
-          }
-        });
-
-        unsubscribe = () => data.subscription.unsubscribe();
-      } catch (error) {
-        if (isMounted) {
-          setAuthError(getUserFacingError(error, 'Unable to load your session. Try again.'));
-        }
-      } finally {
-        if (isMounted) {
-          setIsAuthLoading(false);
-        }
-      }
-    };
-
-    loadSession();
-
-    return () => {
-      isMounted = false;
-      unsubscribe?.();
-    };
-  }, []);
+    if (isPasswordRecoveryFlowRef.current && session) {
+      setScreen('updatePassword');
+    }
+  }, [session]);
 
   useEffect(() => {
-    if (session) {
-      void refreshEntitlements();
+    if (authEvent === 'PASSWORD_RECOVERY') {
+      isPasswordRecoveryFlowRef.current = true;
+      setScreen('updatePassword');
+      return;
     }
-  }, [refreshEntitlements, session]);
+
+    if (authEvent === 'SIGNED_OUT') {
+      isPasswordRecoveryFlowRef.current = false;
+      clearPasswordRecoveryRequested();
+      setScreen('home');
+      return;
+    }
+
+    if (isPasswordRecoveryFlowRef.current && session) {
+      setScreen('updatePassword');
+      return;
+    }
+
+    if (authEvent === 'SIGNED_IN') {
+      setScreen('home');
+    }
+  }, [authEvent, session]);
 
   useEffect(() => {
     if (screen === 'activity' && !canUseActivity) {
@@ -487,6 +443,9 @@ export default function HomeScreen() {
         setSelectedNoteId(requestedScreen === 'editNote' ? legacyParams.recordId ?? null : null);
         setSelectedPaymentId(requestedScreen === 'editPayment' ? legacyParams.recordId ?? null : null);
         setSelectedReceiptId(legacyParams.receiptId ?? null);
+        setSelectedTellEntryId(
+          requestedScreen === 'tellContracktor' ? legacyParams.recordId ?? null : null
+        );
         setCreateBackScreen(returnScreen);
         setDashboardBackScreen(returnScreen);
         setEditBackScreen(returnScreen);
@@ -549,6 +508,12 @@ export default function HomeScreen() {
 
   const handleOpenActivityItem = (item: GlobalActivityItem) => {
     setSelectedJob(item.job ?? null);
+
+    if (item.tellSubmissionId) {
+      setSelectedTellEntryId(item.tellSubmissionId);
+      setScreen('tellContracktor');
+      return;
+    }
 
     if (item.receiptId) {
       if (!item.needsReview && item.label === 'Receipt secured') {
@@ -724,6 +689,7 @@ export default function HomeScreen() {
         onStartWork={() => router.push('/start-work')}
         onTellContracktor={() => {
           setSelectedJob(null);
+          setSelectedTellEntryId(null);
           setScreen('tellContracktor');
         }}
         onTimerStopped={(jobName) => {
@@ -925,9 +891,22 @@ export default function HomeScreen() {
     return renderScreen(
       <TellContracktorScreen
         contextJob={selectedJob}
-        onBack={() => setScreen(selectedJob ? 'dashboard' : 'home')}
+        initialEntryId={selectedTellEntryId}
+        onBack={() => {
+          void queryClient.invalidateQueries({ queryKey: serverStateKeys.activity });
+          if (legacyParams.legacyScreen === 'tellContracktor') {
+            finishLegacyFlow('home');
+            return;
+          }
+          setScreen(selectedJob ? 'dashboard' : 'home');
+        }}
         onDone={() => {
           setDashboardRefreshKey((key) => key + 1);
+          void queryClient.invalidateQueries({ queryKey: serverStateKeys.activity });
+          if (legacyParams.legacyScreen === 'tellContracktor') {
+            finishLegacyFlow('home');
+            return;
+          }
           setScreen(selectedJob ? 'dashboard' : 'home');
         }}
       />
