@@ -1,0 +1,22 @@
+{
+  "name": "conTRACKtor",
+  "short_name": "conTRACKtor",
+  "description": "Job records, receipts, hours, costs, and invoices for contractors.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F5F1E8",
+  "theme_color": "#F5F1E8",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

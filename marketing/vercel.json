@@ -1,5 +1,42 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": null,
+  "installCommand": "",
+  "outputDirectory": ".",
   "cleanUrls": true,
+  "redirects": [
+    {
+      "source": "/jobs",
+      "destination": "https://app.contracktor.app/jobs",
+      "permanent": false
+    },
+    {
+      "source": "/jobs/:path*",
+      "destination": "https://app.contracktor.app/jobs/:path*",
+      "permanent": false
+    },
+    {
+      "source": "/activity",
+      "destination": "https://app.contracktor.app/activity",
+      "permanent": false
+    },
+    {
+      "source": "/start-work",
+      "destination": "https://app.contracktor.app/start-work",
+      "permanent": false
+    },
+    {
+      "source": "/hours/new",
+      "destination": "https://app.contracktor.app/hours/new",
+      "permanent": false
+    },
+    {
+      "source": "/signup",
+      "destination": "https://app.contracktor.app/signup",
+      "permanent": false
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",

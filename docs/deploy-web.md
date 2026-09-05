@@ -47,6 +47,9 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
 The root `vercel.json` contains the static export build and single-page-app rewrite. Add `app.contracktor.app` to this project before moving the apex domain.
+Automatic Git deployments are disabled for this project so production app
+releases remain an explicit, gated action. Deploy the app with `vercel --prod`
+after the release checks pass.
 
 ## Marketing Vercel Project
 
@@ -60,6 +63,8 @@ Output Directory: .
 ```
 
 The marketing project includes its own `vercel.json`, policy pages, `robots.txt`, sitemap, and social preview image. Add `contracktor.app` and optionally `www.contracktor.app` to this project only after the app works at `app.contracktor.app`.
+Its Vercel configuration temporarily redirects legacy app bookmarks such as
+`/jobs`, `/activity`, `/start-work`, and `/hours/new` to the app subdomain.
 
 Provision `support@contracktor.app` before publishing the Privacy Policy and Terms links.
 

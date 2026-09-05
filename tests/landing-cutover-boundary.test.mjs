@@ -61,7 +61,22 @@ test('Free pricing is scannable and stays inside the documented truth layer', ()
 });
 
 test('the app export is excluded from search indexing and analytics URLs are redacted', () => {
-  assert.match(read('app/+html.tsx'), /noindex, nofollow/);
+  const appHtml = read('app/+html.tsx');
+  const manifest = read('public/manifest.webmanifest');
+  const appVercelConfig = read('vercel.json');
+  const marketingVercelConfig = read('marketing/vercel.json');
+
+  assert.match(appHtml, /noindex, nofollow/);
+  assert.match(appHtml, /manifest\.webmanifest/);
+  assert.match(appHtml, /apple-mobile-web-app-capable/);
+  assert.match(manifest, /"display": "standalone"/);
+  assert.match(manifest, /icon-192\.png/);
+  assert.match(manifest, /icon-512\.png/);
+  assert.match(appVercelConfig, /"deploymentEnabled": false/);
+  assert.match(marketingVercelConfig, /"buildCommand": null/);
+  assert.match(marketingVercelConfig, /"outputDirectory": "\."/);
+  assert.match(marketingVercelConfig, /https:\/\/app\.contracktor\.app\/jobs/);
+  assert.match(marketingVercelConfig, /https:\/\/app\.contracktor\.app\/activity/);
 
   const analytics = read('src/components/VercelAnalytics.web.tsx');
   assert.match(analytics, /\/jobs\/\[jobId\]/);

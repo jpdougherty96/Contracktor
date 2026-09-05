@@ -64,7 +64,7 @@ Run this immediately after every production deployment.
 
 | # | Action | Expected result |
 | ---: | --- | --- |
-| 1 | Open `https://www.contracktor.app/` in a private/incognito window. | The app loads with no blank screen or error page. |
+| 1 | Open `https://app.contracktor.app/` in a private/incognito window. | The app loads with no blank screen or error page. |
 | 2 | Sign in. | Home opens and the session is for the correct account. |
 | 3 | Check Home. | Capture Receipt, Tell conTRACKtor, and Start Work are visible and usable. |
 | 4 | Open Jobs, then open one existing job. | The job and Job Snapshot load without an error. |
