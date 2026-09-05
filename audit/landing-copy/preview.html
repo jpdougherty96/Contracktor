@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>conTRACKtor copy preview</title>
+  <style>
+    html,body,iframe{width:100%;height:100%;margin:0;border:0;display:block;background:#f7f4ed}
+  </style>
+</head>
+<body>
+  <iframe id="page" src="../../marketing/index.html" title="conTRACKtor landing-page copy preview"></iframe>
+  <script>
+    const frame = document.getElementById('page');
+
+    frame.addEventListener('load', () => {
+      const d = frame.contentDocument;
+      const html = (root, selector, value) => {
+        const node = root.querySelector(selector);
+        if (node) node.innerHTML = value;
+      };
+
+      const hero = d.querySelector('header.hero');
+      html(hero, '.eyebrow', 'Job records for small contractors');
+      html(hero, 'h1', 'You do the work.<br>conTRACKtor keeps the record.');
+      html(hero, '.lede', 'Snap the receipt. Say what happened. Start the timer. conTRACKtor organizes the hours, materials, notes and costs by job — so they’re there when you invoice.');
+
+      const problem = d.querySelector('.villain');
+      html(problem, 'h2', 'A lot of good work never makes it into the record.');
+      const problemParagraphs = problem.querySelectorAll(':scope > p');
+      problemParagraphs[1].innerHTML = 'The receipt gets shoved in the truck. The extra hour never gets written down. The customer asks for one more thing in the driveway. By the time you sit down to invoice, you’re rebuilding the job from memory.';
+      html(problem, '.turn', 'If it never gets captured, tied to the job, and carried into the invoice, you may never get paid for it.');
+      const pieces = [
+        'An hour that never got logged',
+        'A receipt still sitting in the truck',
+        'Materials that never got tied to the job',
+        'Extra work that never reached the invoice',
+        'A finished job you can’t learn from later'
+      ];
+      problem.querySelectorAll('.pieces li').forEach((li, i) => li.textContent = pieces[i]);
+      html(problem, '.knows p', 'conTRACKtor is built for <b>fixed bids</b>, <b>time and materials</b>, <b>marked-up materials</b>, last-minute changes, forgotten timers, and receipts that show up wherever the work happens.<br><br><b>Capture the job as it happens. Stop rebuilding it later.</b>');
+
+      const plan = d.querySelector('.plan').closest('section');
+      html(plan, 'h2', 'Three steps. That’s the whole system.');
+      html(plan, '.sub', 'Start with the job in front of you.');
+      const planCopy = [
+        '<b>Snap a receipt</b>, tell conTRACKtor what happened, or start the timer — whatever is fastest where you’re standing.',
+        'Review what conTRACKtor prepared, correct anything that is wrong, and approve what matters.',
+        'As you capture the work, the job record and Job Snapshot stay current.'
+      ];
+      plan.querySelectorAll('.pstep p').forEach((p, i) => p.innerHTML = planCopy[i]);
+      const promises = [
+        '<b>AI proposals stay under your control</b>Review, correct or approve what conTRACKtor prepares.',
+        '<b>Your history stays yours</b>Downgrading does not hide records you already created.',
+        '<b>Easy to correct</b>Fix an accepted Tell entry without losing the history.'
+      ];
+      plan.querySelectorAll('.promise > div').forEach((node, i) => node.innerHTML = promises[i]);
+
+      const tell = d.querySelector('#how');
+      html(tell, ':scope > .wrap > .sub', 'One sentence becomes proposed hours, a job note and a shopping item — ready for you to review.');
+      html(tell, '.tell h3', 'AI understands the update.<br>Code handles the numbers.');
+      html(tell, '.tell > div:last-child > .sub', 'conTRACKtor uses AI to prepare records from your words. Rates, totals, tax and permissions follow fixed rules.');
+      const triadCopy = [
+        ['AI prepares', 'Words, receipts and photos', 'Your raw update comes back organized as the records it appears to describe.'],
+        ['You control', 'What becomes part of the job', 'Review Tell proposals, correct anything wrong, and approve what matters.'],
+        ['Code calculates', 'Rates, totals and permissions', 'The numbers follow fixed rules instead of being guessed by AI.']
+      ];
+      tell.querySelectorAll('.triad > div').forEach((card, i) => {
+        html(card, 'b', triadCopy[i][0]);
+        html(card, 'h4', triadCopy[i][1]);
+        html(card, 'p', triadCopy[i][2]);
+      });
+
+      const snapshot = d.querySelector('.stands').closest('section');
+      html(snapshot, 'h2', 'See where the job stands before invoice day.');
+      html(snapshot, ':scope > .wrap > .sub', 'Open a job to see what has been recorded, what needs attention, what it has cost, and what the current numbers say.');
+      const snapshotCopy = [
+        ['What happened?', 'Hours, notes, photos and materials in the order they happened.'],
+        ['What needs attention?', 'Open tasks and shopping needs on a list instead of in your head.'],
+        ['Where did the money go?', 'Recorded labor and materials against the job.'],
+        ['How does the job look?', 'See recorded costs against the bid while there is still time to act.']
+      ];
+      snapshot.querySelectorAll('.qs > div').forEach((card, i) => {
+        html(card, 'b', snapshotCopy[i][0]);
+        html(card, 'p', snapshotCopy[i][1]);
+      });
+      html(snapshot, '.named', 'Every job keeps a running <b>Job Snapshot</b> based on what you have recorded.');
+
+      const receipt = d.querySelector('.flow').closest('section');
+      html(receipt, ':scope > .wrap > .sub', 'Capture first. Assign it when you have a minute. The photo is secured immediately; conTRACKtor extracts the details and helps tie the receipt to the right job.');
+
+      const invoice = d.querySelector('.inv').closest('section');
+      html(invoice, 'h2', 'By invoice time, the job is already written down.');
+      html(invoice, ':scope > .wrap > .sub', 'Build the invoice from the hours, materials, markup and payments already recorded on the job — not from a blank page and a week of memory.');
+      html(invoice, '.inv-note', 'conTRACKtor builds a draft and gives you a PDF to save or share. You still decide when and how to send it.');
+
+      const calculator = d.querySelector('.calc').closest('section');
+      html(calculator, 'h2', 'What is slipping through?');
+      const calcIntro = calculator.querySelectorAll('.calc > div:first-child > .sub');
+      calcIntro[0].textContent = 'Miss one billable hour a week and the number gets real fast. Add the materials that never reached a job or invoice.';
+      calcIntro[1].remove();
+      const calcLines = calculator.querySelectorAll('.line span');
+      calcLines[0].textContent = 'Unbilled labor';
+      calcLines[1].textContent = 'Unbilled materials';
+      html(calculator, '.disclaim', 'An estimate based on the numbers you entered — not a promise of savings.');
+
+      const pricing = d.querySelector('#pricing');
+      html(pricing, 'h2', 'The core job record is free.');
+      html(pricing, ':scope > .wrap > .sub', 'Free is not a trial, and downgrading does not hide the records you already created.');
+      html(pricing, '.inc', 'The core tools for keeping a usable job record:');
+      html(pricing, '.dataline', 'We don’t sell your job records or use them to train models. Receipt and Tell submissions may be processed by OpenAI to provide those features. <a href="/privacy">Privacy</a> &middot; <a href="/terms">Terms</a>');
+      html(pricing, '.roadmap', '<b>Pro</b> and <b>Business</b> are planned for more automation and crew workflows. The core Free record stays available.');
+
+      const faqSection = d.querySelector('.faq').closest('section');
+      html(faqSection, 'h2', 'Straight answers before you start.');
+      const faqCopy = [
+        ['Who is conTRACKtor for?', 'Owner-operators and small contracting businesses where the person running the business is still close to the work — on site, running jobs, holding receipts and keeping everything moving.'],
+        ['Does the AI change my records on its own?', 'Tell conTRACKtor shows you proposed entries before they become part of the job. Receipt photos are secured immediately and extraction can run in the background. Anything consequential requires your review or confirmation.'],
+        ['What if it gets something wrong?', 'Correct a suggestion before approval, or undo an accepted Tell entry. AI prepares the record; rates and totals are calculated by code.'],
+        ['Is it really free?', 'Yes. Free is not a trial that expires. Paid plans are for conTRACKtor doing more of the work, not for getting your existing records back.'],
+        ['Do I have to change how I work?', 'No. Start with the next thing that happens: photograph the receipt, say what changed, or start the timer.'],
+        ['Can I use it from my phone?', 'Yes. Open conTRACKtor in your phone browser and add it to your Home Screen. It launches like an app and opens straight into conTRACKtor. The same account works in a desktop browser.'],
+        ['Is this accounting software?', 'No. conTRACKtor records what happened on the job and what it cost. Your accountant still does the accounting — with better records to work from.'],
+        ['What happens if I downgrade?', 'Your existing records remain visible. Downgrading does not hide work you already recorded.']
+      ];
+      faqSection.querySelectorAll('.faq details').forEach((detail, i) => {
+        detail.removeAttribute('open');
+        detail.querySelector('summary').textContent = faqCopy[i][0];
+        detail.querySelector('.a').textContent = faqCopy[i][1];
+      });
+
+      const success = d.querySelector('.success');
+      html(success, 'h2', 'The job closes with fewer loose ends.');
+      html(success, '.sub', 'A cleaner record changes how the job ends.');
+      const wins = [
+        ['Miss less billable work', 'Hours, materials and changes reach the job record while they are still fresh.'],
+        ['See problems sooner', 'Recorded costs show when a job may be drifting before invoice day.'],
+        ['Spend less time rebuilding the week', 'The invoice starts from work you captured as it happened.']
+      ];
+      success.querySelectorAll('.wins > div').forEach((card, i) => {
+        html(card, 'b', wins[i][0]);
+        html(card, 'p', wins[i][1]);
+      });
+
+      const final = d.querySelector('.final');
+      html(final, 'h2', 'Start with the next job.');
+      html(final, ':scope > .wrap > p:not(.reassure)', 'Capture the first receipt, hour or change as it happens.');
+
+      d.querySelectorAll('a[href="/privacy"]').forEach(link => link.setAttribute('href', './privacy/'));
+      d.querySelectorAll('a[href="/terms"]').forEach(link => link.setAttribute('href', './terms/'));
+      d.title = 'conTRACKtor — revised copy preview';
+    });
+  </script>
+</body>
+</html>

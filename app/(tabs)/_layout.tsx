@@ -7,6 +7,7 @@ export default function AppLayout() {
       <Stack.Screen name="activity" />
       <Stack.Screen name="jobs" />
       <Stack.Screen name="jobs/[jobId]" />
+      <Stack.Screen name="signup" />
       <Stack.Screen name="start-work" />
       <Stack.Screen name="hours/new" />
     </Stack>

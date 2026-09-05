@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Platform,
   Pressable,
   ScrollView,
@@ -18,7 +19,26 @@ import {
   type JobLaborCostEntry,
   type JobMaterialCostEntry,
 } from '@/src/lib/jobFinancials';
-import { createAndSharePdf, sanitizePdfFileName } from '@/src/lib/pdfExport';
+import {
+  buildFixedBidInvoiceLines,
+  buildInvoiceDocumentHtml,
+  buildInvoiceDocumentText,
+  buildTimeAndMaterialsInvoiceLines,
+  formatCurrency,
+  formatInvoiceDate,
+  getInvoiceDueDate,
+  type InvoiceDraftPresentationLine,
+} from '@/src/lib/invoiceDocument';
+import {
+  createInvoiceDraft,
+  fetchAvailableInvoicePaymentCredit,
+  fetchJobInvoiceDraft,
+  saveInvoiceDraft,
+  type InvoiceBundle,
+  type InvoiceDraftLineInput,
+} from '@/src/lib/invoices';
+import { getLocalDateString } from '@/src/lib/localDate';
+import { createAndSharePdf } from '@/src/lib/pdfExport';
 import { fetchAccountProfile, type AccountProfile } from '@/src/lib/profiles';
 import { getUserFacingError } from '@/src/lib/userFacingError';
 import { buttonStyles, colors, radii } from '@/src/styles/theme';
@@ -30,11 +50,7 @@ type InvoiceDraftScreenProps = {
   onEditBusinessProfile: () => void;
 };
 
-type InvoiceLine = {
-  label: string;
-  meta?: string;
-  value: number;
-};
+type InvoiceLine = InvoiceDraftPresentationLine;
 
 const defaultNote = 'Thank you for your business.';
 const materialMarkupPresets = [0, 10, 15, 20];
@@ -44,17 +60,27 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
   const [laborEntries, setLaborEntries] = useState<JobLaborCostEntry[]>([]);
   const [materialEntries, setMaterialEntries] = useState<JobMaterialCostEntry[]>([]);
   const [profile, setProfile] = useState<AccountProfile | null>(null);
+  const [invoiceDraft, setInvoiceDraft] = useState<InvoiceBundle | null>(null);
+  const [availablePaymentCredit, setAvailablePaymentCredit] = useState(0);
+  const [savedDraftFingerprint, setSavedDraftFingerprint] = useState<string | null>(null);
   const [materialMarkupPercent, setMaterialMarkupPercent] = useState('0');
   const [note, setNote] = useState(defaultNote);
   const [message, setMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const parsedMaterialMarkupPercent = parseMarkupPercent(materialMarkupPercent);
   const materialMarkupError =
     parsedMaterialMarkupPercent === undefined ? 'Enter a valid materials markup percent.' : null;
   const isTimeAndMaterialsJob = job.jobType === 'time_and_materials';
   const missingInvoiceFields = getMissingInvoiceProfileFields(profile);
-  const canExportInvoice = missingInvoiceFields.length === 0 && !materialMarkupError;
+  const invoiceIssueDate = invoiceDraft?.invoice.issue_date ?? getLocalDateString();
+  const invoiceTerms = invoiceDraft?.invoice.terms ?? profile?.defaultInvoiceTerms ?? null;
+  const invoiceDueDate = getInvoiceDueDate(
+    invoiceIssueDate,
+    invoiceDraft?.invoice.due_date ?? null,
+    invoiceTerms
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -64,19 +90,35 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
       setErrorMessage(null);
 
       try {
-        const [nextSnapshot, nextLaborEntries, nextMaterialEntries, nextProfile] = await Promise.all([
-          fetchJobFinancialSnapshot(job.id),
-          fetchJobLaborCostEntries(job.id),
-          fetchJobMaterialCostEntries(job.id),
-          fetchAccountProfile(),
-        ]);
+        const [
+          nextSnapshot,
+          nextLaborEntries,
+          nextMaterialEntries,
+          nextProfile,
+          nextDraft,
+          nextPaymentCredit,
+        ] =
+          await Promise.all([
+            fetchJobFinancialSnapshot(job.id),
+            fetchJobLaborCostEntries(job.id),
+            fetchJobMaterialCostEntries(job.id),
+            fetchAccountProfile(),
+            fetchJobInvoiceDraft(job.id),
+            fetchAvailableInvoicePaymentCredit(job.id),
+          ]);
 
         if (isMounted) {
           setSnapshot(nextSnapshot);
           setLaborEntries(nextLaborEntries);
           setMaterialEntries(nextMaterialEntries);
           setProfile(nextProfile);
-          setNote(nextProfile.defaultInvoiceNote ?? defaultNote);
+          setInvoiceDraft(nextDraft);
+          setAvailablePaymentCredit(nextPaymentCredit);
+          setSavedDraftFingerprint(nextDraft ? getBundleDraftFingerprint(nextDraft) : null);
+          setMaterialMarkupPercent(
+            nextDraft ? String(nextDraft.invoice.material_markup_percent) : '0'
+          );
+          setNote(nextDraft?.invoice.note ?? nextProfile.defaultInvoiceNote ?? defaultNote);
         }
       } catch (error) {
         if (isMounted) {
@@ -105,10 +147,119 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
         materialEntries,
         parsedMaterialMarkupPercent ?? 0,
         note,
-        profile
+        profile,
+        availablePaymentCredit,
+        invoiceDraft?.invoice.invoice_number ?? 'Draft',
+        invoiceIssueDate,
+        invoiceDueDate,
+        invoiceTerms
       ),
-    [job, laborEntries, materialEntries, note, parsedMaterialMarkupPercent, profile, snapshot]
+    [
+      availablePaymentCredit,
+      invoiceDraft?.invoice.invoice_number,
+      invoiceDueDate,
+      invoiceIssueDate,
+      invoiceTerms,
+      job,
+      laborEntries,
+      materialEntries,
+      note,
+      parsedMaterialMarkupPercent,
+      profile,
+      snapshot,
+    ]
   );
+  const currentDraftFingerprint = useMemo(
+    () =>
+      getDraftFingerprint(
+        toLedgerDraftLines(invoice.lines),
+        parsedMaterialMarkupPercent ?? 0,
+        note,
+        invoice.issueDate,
+        invoice.dueDate,
+        invoice.terms
+      ),
+    [invoice.dueDate, invoice.issueDate, invoice.lines, invoice.terms, note, parsedMaterialMarkupPercent]
+  );
+  const hasUnsavedInvoiceChanges =
+    invoiceDraft !== null && savedDraftFingerprint !== currentDraftFingerprint;
+  const canSaveInvoiceDraft =
+    !isLoading &&
+    !isSavingDraft &&
+    missingInvoiceFields.length === 0 &&
+    !materialMarkupError &&
+    invoice.lines.length > 0 &&
+    (invoiceDraft === null || hasUnsavedInvoiceChanges);
+  const canExportInvoice =
+    !isLoading &&
+    !isSavingDraft &&
+    invoiceDraft !== null &&
+    !hasUnsavedInvoiceChanges &&
+    missingInvoiceFields.length === 0 &&
+    !materialMarkupError &&
+    invoice.lines.length > 0;
+
+  const handleSaveDraft = async () => {
+    setMessage(null);
+
+    if (!canSaveInvoiceDraft) {
+      if (missingInvoiceFields.length > 0) {
+        setMessage('Complete your business profile before saving this draft.');
+      } else if (invoice.lines.length === 0) {
+        setMessage('There is no unbilled work to add to this invoice.');
+      }
+      return;
+    }
+
+    setIsSavingDraft(true);
+
+    try {
+      const draft =
+        invoiceDraft ??
+        (await createInvoiceDraft({
+          dueDate: invoiceDueDate,
+          issueDate: invoiceIssueDate,
+          jobId: job.id,
+          paymentRequestType: isTimeAndMaterialsJob ? 'standard' : 'progress',
+        }));
+      const savedDraft = await saveInvoiceDraft({
+        billingPeriodEnd: draft.invoice.billing_period_end,
+        billingPeriodStart: draft.invoice.billing_period_start,
+        dueDate: getInvoiceDueDate(
+          draft.invoice.issue_date,
+          draft.invoice.due_date,
+          draft.invoice.terms ?? invoiceTerms
+        ),
+        expectedVersion: draft.invoice.version,
+        invoiceId: draft.invoice.id,
+        issueDate: draft.invoice.issue_date,
+        lines: toLedgerDraftLines(invoice.lines),
+        materialMarkupPercent: parsedMaterialMarkupPercent ?? 0,
+        note,
+        retainageAmount: draft.invoice.retainage_amount,
+        terms: draft.invoice.terms ?? invoiceTerms,
+      });
+
+      let nextPaymentCredit = Math.max(availablePaymentCredit, savedDraft.invoice.amount_paid);
+
+      try {
+        nextPaymentCredit = await fetchAvailableInvoicePaymentCredit(job.id);
+      } catch {
+        // The saved ledger amount is still safe to display if the availability refresh fails.
+      }
+
+      setInvoiceDraft(savedDraft);
+      setAvailablePaymentCredit(nextPaymentCredit);
+      setSavedDraftFingerprint(getBundleDraftFingerprint(savedDraft));
+      setMaterialMarkupPercent(String(savedDraft.invoice.material_markup_percent));
+      setNote(savedDraft.invoice.note ?? '');
+      setMessage(`${savedDraft.invoice.invoice_number} saved as a draft.`);
+    } catch (error) {
+      setMessage(getUserFacingError(error, 'Unable to save this invoice draft. Try again.'));
+    } finally {
+      setIsSavingDraft(false);
+    }
+  };
 
   const handleSavePdf = async () => {
     setMessage(null);
@@ -125,7 +276,7 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
 
     try {
       const fileBaseName = `${job.name} Invoice`;
-      const html = buildPrintableInvoiceHtml(invoice.html, fileBaseName);
+      const html = invoice.html;
 
       if (Platform.OS === 'web') {
         setMessage('Use Print and choose Save as PDF in your browser.');
@@ -158,7 +309,7 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
 
     try {
       const fileBaseName = `${job.name} Invoice`;
-      const html = buildPrintableInvoiceHtml(invoice.html, fileBaseName);
+      const html = invoice.html;
 
       if (Platform.OS === 'web') {
         printHtmlFromIframe(html);
@@ -203,7 +354,7 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
 
         <View style={styles.header}>
           <Text style={styles.title}>Invoice preview</Text>
-          <Text style={styles.subtitle}>Review the invoice before saving or printing.</Text>
+          <Text style={styles.subtitle}>Save the current draft before printing or exporting.</Text>
         </View>
 
         {isLoading ? <Text style={styles.messageText}>Building invoice...</Text> : null}
@@ -225,7 +376,17 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
         ) : null}
 
         <View style={styles.settingsPanel}>
-          <Text style={styles.settingsTitle}>Invoice options</Text>
+          <View style={styles.draftHeader}>
+            <View style={styles.draftHeaderText}>
+              <Text style={styles.settingsTitle}>Invoice options</Text>
+              <Text style={styles.draftStatusText}>
+                {invoiceDraft ? invoiceDraft.invoice.invoice_number : 'Not saved yet'}
+              </Text>
+            </View>
+            <View style={styles.draftBadge}>
+              <Text style={styles.draftBadgeText}>{invoiceDraft ? 'Draft' : 'Unsaved'}</Text>
+            </View>
+          </View>
           {isTimeAndMaterialsJob ? (
             <View style={styles.markupPanel}>
               <View style={styles.markupHeader}>
@@ -284,6 +445,31 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
               value={note}
             />
           </View>
+
+          <Pressable
+            disabled={!canSaveInvoiceDraft}
+            onPress={handleSaveDraft}
+            style={[styles.saveDraftButton, !canSaveInvoiceDraft && styles.disabledButton]}>
+            {isSavingDraft ? (
+              <View style={styles.saveDraftContent}>
+                <ActivityIndicator color={colors.warmWhite} size="small" />
+                <Text style={styles.saveDraftButtonText}>Saving draft...</Text>
+              </View>
+            ) : (
+              <Text style={styles.saveDraftButtonText}>
+                {invoiceDraft
+                  ? hasUnsavedInvoiceChanges
+                    ? 'Update draft'
+                    : 'Draft saved'
+                  : 'Save draft'}
+              </Text>
+            )}
+          </Pressable>
+          {!invoiceDraft ? (
+            <Text style={styles.exportHint}>Save the draft to assign an invoice number.</Text>
+          ) : hasUnsavedInvoiceChanges ? (
+            <Text style={styles.exportHint}>Save your changes before exporting.</Text>
+          ) : null}
         </View>
 
         <View style={styles.previewWrap}>
@@ -291,7 +477,13 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
           <View style={styles.invoiceHeader}>
             <View>
               <Text style={styles.invoiceTitle}>Invoice</Text>
-              <Text style={styles.invoiceMeta}>{formatDate(new Date())}</Text>
+              <Text style={styles.invoiceNumber}>{invoice.invoiceNumber}</Text>
+              <Text style={styles.invoiceMeta}>{formatInvoiceDate(invoice.issueDate)}</Text>
+              {invoice.dueDate ? (
+                <Text style={styles.invoiceDueDate}>
+                  Due {formatInvoiceDate(invoice.dueDate)}
+                </Text>
+              ) : null}
             </View>
             <Text style={styles.invoiceType}>
               {job.jobType === 'time_and_materials' ? 'Time & materials' : 'Fixed bid'}
@@ -326,7 +518,9 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
 
           <View style={styles.totals}>
             <TotalRow label="Subtotal" value={invoice.subtotal} />
-            <TotalRow isCredit label="Payments received" value={invoice.paymentsReceived} />
+            {invoice.paymentsReceived > 0 ? (
+              <TotalRow isCredit label="Payments received" value={invoice.paymentsReceived} />
+            ) : null}
             <View style={styles.totalDivider} />
             <TotalRow isStrong label="Balance due" value={invoice.balanceDue} />
           </View>
@@ -335,10 +529,10 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
             <Text style={styles.sectionLabel}>Note</Text>
             <Text style={styles.invoiceText}>{note}</Text>
           </View>
-          {profile?.defaultInvoiceTerms ? (
+          {invoice.terms ? (
             <View style={styles.noteBlock}>
               <Text style={styles.sectionLabel}>Terms</Text>
-              <Text style={styles.invoiceText}>{profile.defaultInvoiceTerms}</Text>
+              <Text style={styles.invoiceText}>{invoice.terms}</Text>
             </View>
           ) : null}
           </View>
@@ -419,87 +613,118 @@ function buildInvoiceDraft(
   materialEntries: JobMaterialCostEntry[],
   materialMarkupPercent: number,
   note: string,
-  profile: AccountProfile | null
+  profile: AccountProfile | null,
+  invoiceAmountPaid: number,
+  invoiceNumber: string,
+  issueDate: string,
+  dueDate: string | null,
+  terms: string | null
 ) {
-  const paymentsReceived = snapshot?.payments_received ?? 0;
   const lines =
     job.jobType === 'time_and_materials'
-      ? buildTimeAndMaterialsLines(
-          job,
-          snapshot,
+      ? buildTimeAndMaterialsInvoiceLines({
+          expenseEntries: materialEntries,
           laborEntries,
-          materialEntries,
-          materialMarkupPercent
-        )
-      : buildFixedBidLines(job, snapshot);
+          materialMarkupPercent,
+        })
+      : buildFixedBidInvoiceLines(snapshot?.quote_amount ?? job.quoteAmount);
   const subtotal = lines.reduce((sum, line) => sum + line.value, 0);
-  const balanceDue = subtotal - paymentsReceived;
+  const paymentsReceived = Math.min(Math.max(invoiceAmountPaid, 0), subtotal);
+  const balanceDue = Math.max(subtotal - paymentsReceived, 0);
+  const documentInput = {
+    balanceDue,
+    billToLines: [job.clientName, job.name, job.location ?? ''].filter(hasText),
+    dueDate,
+    fileName: `${job.name} Invoice`,
+    fromLines: formatInvoiceProfileLines(profile),
+    invoiceNumber,
+    invoiceType: job.jobType === 'time_and_materials' ? 'Time & materials' : 'Fixed bid',
+    issueDate,
+    lines,
+    note,
+    paymentsReceived,
+    subtotal,
+    terms,
+  };
 
   return {
     balanceDue,
+    dueDate,
+    html: buildInvoiceDocumentHtml(documentInput),
+    invoiceNumber,
+    issueDate,
     lines,
     paymentsReceived,
     subtotal,
-    text: formatInvoiceText(job, lines, subtotal, paymentsReceived, balanceDue, note, profile),
-    html: formatInvoiceHtml(job, lines, subtotal, paymentsReceived, balanceDue, note, profile),
+    terms,
+    text: buildInvoiceDocumentText(documentInput),
   };
 }
 
-function buildFixedBidLines(job: Job, snapshot: JobFinancialSnapshotRow | null): InvoiceLine[] {
-  return [
-    {
-      label: 'Contract amount',
-      value: snapshot?.quote_amount ?? job.quoteAmount,
-    },
-  ];
+function toLedgerDraftLines(lines: InvoiceLine[]): InvoiceDraftLineInput[] {
+  return lines.map((line, position) => ({
+    amount: line.value,
+    description: line.label,
+    detail: line.meta ?? null,
+    expenseIds: line.expenseIds ?? [],
+    lineType: line.lineType,
+    position,
+    quantity: line.quantity,
+    timeEntryIds: line.timeEntryIds ?? [],
+    unit: line.unit,
+    unitRate: line.unitRate,
+  }));
 }
 
-function buildTimeAndMaterialsLines(
-  job: Job,
-  snapshot: JobFinancialSnapshotRow | null,
-  laborEntries: JobLaborCostEntry[],
-  materialEntries: JobMaterialCostEntry[],
-  materialMarkupPercent: number
-): InvoiceLine[] {
-  const totalHours =
-    snapshot?.total_hours ??
-    laborEntries.reduce((sum, entry) => sum + entry.duration_minutes / 60, 0);
-  const laborRate = job.hourlyRate ?? averageLaborRate(laborEntries);
-  const laborTotal = totalHours * laborRate;
-  const materialTotal =
-    snapshot?.receipt_cost ?? materialEntries.reduce((sum, entry) => sum + entry.total_amount, 0);
-  const markedUpMaterialTotal = roundMoney(materialTotal * (1 + materialMarkupPercent / 100));
-
-  return [
-    {
-      label: 'Labor',
-      meta: `${formatNumber(totalHours)} hrs x ${formatCurrency(laborRate)}/hr`,
-      value: laborTotal,
-    },
-    {
-      label: 'Materials',
-      meta:
-        materialMarkupPercent > 0
-          ? `${formatCurrency(materialTotal)} materials + ${formatNumber(materialMarkupPercent)}% markup`
-          : 'Materials logged',
-      value: markedUpMaterialTotal,
-    },
-  ];
-}
-
-function averageLaborRate(laborEntries: JobLaborCostEntry[]): number {
-  const hours = laborEntries.reduce((sum, entry) => sum + entry.duration_minutes / 60, 0);
-
-  if (hours <= 0) {
-    return 0;
-  }
-
-  const total = laborEntries.reduce(
-    (sum, entry) => sum + (entry.duration_minutes / 60) * entry.hourly_rate,
-    0
+function getBundleDraftFingerprint(bundle: InvoiceBundle): string {
+  return getDraftFingerprint(
+    bundle.lines.map((line) => ({
+      amount: line.amount,
+      description: line.description,
+      detail: line.detail,
+      expenseIds: line.expenseIds,
+      lineType: line.line_type,
+      position: line.position,
+      quantity: line.quantity,
+      timeEntryIds: line.timeEntryIds,
+      unit: line.unit,
+      unitRate: line.unit_rate,
+    })),
+    bundle.invoice.material_markup_percent,
+    bundle.invoice.note,
+    bundle.invoice.issue_date,
+    bundle.invoice.due_date,
+    bundle.invoice.terms
   );
+}
 
-  return total / hours;
+function getDraftFingerprint(
+  lines: InvoiceDraftLineInput[],
+  materialMarkupPercent: number,
+  note: string | null,
+  issueDate: string,
+  dueDate: string | null,
+  terms: string | null
+): string {
+  return JSON.stringify({
+    lines: lines.map((line) => ({
+      amount: roundMoney(line.amount ?? line.quantity * line.unitRate),
+      description: line.description.trim(),
+      detail: line.detail?.trim() || null,
+      expenseIds: [...(line.expenseIds ?? [])].sort(),
+      lineType: line.lineType,
+      position: line.position,
+      quantity: line.quantity,
+      timeEntryIds: [...(line.timeEntryIds ?? [])].sort(),
+      unit: line.unit,
+      unitRate: line.unitRate,
+    })),
+    materialMarkupPercent: roundMoney(materialMarkupPercent),
+    note: note?.trim() || null,
+    issueDate,
+    dueDate,
+    terms: terms?.trim() || null,
+  });
 }
 
 function parseMarkupPercent(value: string): number | undefined {
@@ -520,107 +745,6 @@ function parseMarkupPercent(value: string): number | undefined {
 
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
-}
-
-function formatInvoiceText(
-  job: Job,
-  lines: InvoiceLine[],
-  subtotal: number,
-  paymentsReceived: number,
-  balanceDue: number,
-  note: string,
-  profile: AccountProfile | null
-): string {
-  const fromLines = formatInvoiceProfileLines(profile);
-
-  return [
-    'Invoice',
-    '',
-    'From',
-    ...fromLines,
-    '',
-    'Bill to',
-    job.clientName,
-    job.name,
-    job.location ?? '',
-    '',
-    ...lines.flatMap((line) => [
-      line.label,
-      line.meta ? `${line.meta}: ${formatCurrency(line.value)}` : formatCurrency(line.value),
-      '',
-    ]),
-    `Subtotal: ${formatCurrency(subtotal)}`,
-    `Payments received: -${formatCurrency(paymentsReceived)}`,
-    `Balance due: ${formatCurrency(balanceDue)}`,
-    '',
-    note,
-    profile?.defaultInvoiceTerms ? `Terms: ${profile.defaultInvoiceTerms}` : '',
-  ]
-    .filter((line, index, allLines) => line || allLines[index - 1])
-    .join('\n');
-}
-
-function formatInvoiceHtml(
-  job: Job,
-  lines: InvoiceLine[],
-  subtotal: number,
-  paymentsReceived: number,
-  balanceDue: number,
-  note: string,
-  profile: AccountProfile | null
-): string {
-  const lineRows = lines
-    .map(
-      (line) => `
-        <tr>
-          <td>
-            <strong>${escapeHtml(line.label)}</strong>
-            ${line.meta ? `<span>${escapeHtml(line.meta)}</span>` : ''}
-          </td>
-          <td>${escapeHtml(formatCurrency(line.value))}</td>
-        </tr>
-      `
-    )
-    .join('');
-
-  return `
-    <main class="invoice">
-      <header>
-        <div>
-          <h1>Invoice</h1>
-          <p>${escapeHtml(formatDate(new Date()))}</p>
-        </div>
-        <p class="type">${job.jobType === 'time_and_materials' ? 'Time & materials' : 'Fixed bid'}</p>
-      </header>
-
-      <section>
-        <h2>From</h2>
-        ${formatInvoiceProfileLines(profile)
-          .map((line) => `<p>${escapeHtml(line)}</p>`)
-          .join('')}
-      </section>
-
-      <section>
-        <h2>Bill to</h2>
-        <p>${escapeHtml(job.clientName)}</p>
-        <p>${escapeHtml(job.name)}</p>
-        ${job.location ? `<p>${escapeHtml(job.location)}</p>` : ''}
-      </section>
-
-      <table>
-        <tbody>${lineRows}</tbody>
-      </table>
-
-      <section class="totals">
-        <p><span>Subtotal</span><strong>${escapeHtml(formatCurrency(subtotal))}</strong></p>
-        <p><span>Payments received</span><strong>-${escapeHtml(formatCurrency(paymentsReceived))}</strong></p>
-        <p class="balance"><span>Balance due</span><strong>${escapeHtml(formatCurrency(balanceDue))}</strong></p>
-      </section>
-
-      ${note ? `<section><h2>Note</h2><p>${escapeHtml(note)}</p></section>` : ''}
-      ${profile?.defaultInvoiceTerms ? `<section><h2>Terms</h2><p>${escapeHtml(profile.defaultInvoiceTerms)}</p></section>` : ''}
-    </main>
-  `;
 }
 
 function getMissingInvoiceProfileFields(profile: AccountProfile | null): string[] {
@@ -680,163 +804,6 @@ function formatInvoiceProfileLines(profile: AccountProfile | null): string[] {
 
 function hasText(value: string | null | undefined): value is string {
   return Boolean(value?.trim());
-}
-
-function buildPrintableInvoiceHtml(invoiceHtml: string, fileBaseName: string): string {
-  return `
-    <!doctype html>
-    <html>
-      <head>
-        <title>${escapeHtml(sanitizePdfFileName(fileBaseName))}</title>
-        <style>
-          body {
-            background: #f6f3ec;
-            color: #202629;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            margin: 0;
-            padding: 32px;
-          }
-
-          .invoice {
-            background: #fffdf8;
-            border: 1px solid #d8d2c6;
-            border-radius: 14px;
-            margin: 0 auto;
-            max-width: 720px;
-            padding: 32px;
-          }
-
-          header {
-            align-items: flex-start;
-            display: flex;
-            justify-content: space-between;
-            gap: 24px;
-            margin-bottom: 32px;
-          }
-
-          h1 {
-            font-size: 36px;
-            margin: 0;
-          }
-
-          h2 {
-            color: #667382;
-            font-size: 12px;
-            letter-spacing: 0;
-            margin: 0 0 8px;
-            text-transform: uppercase;
-          }
-
-          p {
-            font-size: 16px;
-            line-height: 1.45;
-            margin: 0;
-          }
-
-          .type {
-            color: #294b38;
-            font-weight: 800;
-            text-align: right;
-          }
-
-          section {
-            margin-bottom: 28px;
-          }
-
-          table {
-            border-collapse: collapse;
-            margin-bottom: 28px;
-            width: 100%;
-          }
-
-          td {
-            border-bottom: 1px solid #ece6da;
-            font-size: 16px;
-            padding: 16px 0;
-            vertical-align: top;
-          }
-
-          td:last-child {
-            font-weight: 800;
-            text-align: right;
-            white-space: nowrap;
-          }
-
-          td span {
-            color: #667382;
-            display: block;
-            font-size: 13px;
-            font-weight: 700;
-            margin-top: 4px;
-          }
-
-          .totals {
-            margin-left: auto;
-            max-width: 360px;
-          }
-
-          .totals p {
-            display: flex;
-            justify-content: space-between;
-            padding: 6px 0;
-          }
-
-          .balance {
-            border-top: 1px solid #ece6da;
-            font-size: 20px;
-            margin-top: 8px;
-            padding-top: 14px !important;
-          }
-
-          @media print {
-            body {
-              background: #ffffff;
-              padding: 0;
-            }
-
-            .invoice {
-              border: 0;
-              border-radius: 0;
-              max-width: none;
-            }
-          }
-        </style>
-      </head>
-      <body>${invoiceHtml}</body>
-    </html>
-  `;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function formatCurrency(value: number | null | undefined): string {
-  return new Intl.NumberFormat('en-US', {
-    currency: 'USD',
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 2,
-    style: 'currency',
-  }).format(value ?? 0);
-}
-
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat('en-US', {
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat('en-US', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  }).format(date);
 }
 
 const styles = StyleSheet.create({
@@ -965,6 +932,55 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '900',
   },
+  draftHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  draftHeaderText: {
+    flex: 1,
+    gap: 4,
+  },
+  draftStatusText: {
+    color: colors.mutedText,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  draftBadge: {
+    backgroundColor: '#EEF2F6',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  draftBadgeText: {
+    color: colors.mutedText,
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  saveDraftButton: {
+    ...buttonStyles.primary.container,
+    borderRadius: radii.button,
+    minHeight: 48,
+  },
+  saveDraftButtonText: {
+    ...buttonStyles.primary.text,
+    fontSize: 15,
+  },
+  saveDraftContent: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  exportHint: {
+    color: colors.mutedText,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+    textAlign: 'center',
+  },
   noteEditor: {
     gap: 8,
   },
@@ -994,11 +1010,23 @@ const styles = StyleSheet.create({
     fontSize: 36,
     fontWeight: '900',
   },
+  invoiceNumber: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
+    marginTop: 6,
+  },
   invoiceMeta: {
     color: colors.mutedText,
     fontSize: 16,
     fontWeight: '700',
     marginTop: 6,
+  },
+  invoiceDueDate: {
+    color: colors.primaryGreen,
+    fontSize: 14,
+    fontWeight: '900',
+    marginTop: 4,
   },
   invoiceType: {
     color: colors.primaryGreen,

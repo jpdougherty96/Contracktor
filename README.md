@@ -26,7 +26,7 @@ The active app covers:
 - Open jobs dashboard with triage-style job cards.
 - Job detail dashboard with financial summary, labor drill-down, materials drill-down, recent activity, invoices, reports, and editing.
 - Receipt capture from mobile camera, mobile library, web upload, and web camera.
-- AI receipt parsing through the Supabase Edge Function `extract-receipt`.
+- AI receipt parsing through the authenticated `process-receipt-queue` worker.
 - Receipt duplicate detection.
 - Receipt line-item review and assignment.
 - Multi-job receipt assignment.
@@ -213,7 +213,7 @@ supabase migration list
 Regenerate database types after schema changes:
 
 ```sh
-supabase gen types typescript --project-id spdhsfkiejdrctclbudv --schema public > src/types/database.ts
+supabase gen types typescript --project-id TARGET_PROJECT_REF --schema public > src/types/database.ts
 ```
 
 The app uses two private storage buckets:
@@ -233,12 +233,12 @@ The app is configured for static Expo web deployment through Vercel:
 
 Custom-domain deployment notes for `contracktor.app` are in [docs/deploy-web.md](docs/deploy-web.md).
 
-## Receipt Parser Edge Function
+## Receipt Parser Queue Worker
 
 Receipt parsing runs through:
 
 ```txt
-supabase/functions/extract-receipt/index.ts
+supabase/functions/process-receipt-queue/index.ts
 ```
 
 Set the OpenAI secret:
@@ -256,7 +256,7 @@ supabase secrets set OPENAI_RECEIPT_MODEL=gpt-5.4-mini
 Deploy after any parser change:
 
 ```sh
-supabase functions deploy extract-receipt --project-ref spdhsfkiejdrctclbudv
+supabase functions deploy process-receipt-queue --project-ref TARGET_PROJECT_REF
 ```
 
 Verify deployment:
@@ -380,6 +380,6 @@ npm test
 npm run build:web
 supabase db push
 supabase migration list
-supabase functions deploy extract-receipt --project-ref spdhsfkiejdrctclbudv
+supabase functions deploy process-receipt-queue --project-ref TARGET_PROJECT_REF
 supabase functions list
 ```

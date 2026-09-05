@@ -1,4 +1,4 @@
-import { Redirect } from 'expo-router';
+import { Redirect, useLocalSearchParams, usePathname } from 'expo-router';
 import type { ReactNode } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -7,6 +7,8 @@ import { colors } from '@/src/styles/theme';
 
 export function AuthenticatedRoute({ children }: { children: ReactNode }) {
   const { authError, isAuthLoading, refreshAuth, session } = useEntitlements();
+  const pathname = usePathname();
+  const params = useLocalSearchParams<Record<string, string | string[]>>();
 
   if (isAuthLoading) {
     return (
@@ -39,10 +41,29 @@ export function AuthenticatedRoute({ children }: { children: ReactNode }) {
   }
 
   if (!session) {
-    return <Redirect href="/" />;
+    return <Redirect href={{ pathname: '/', params: { returnTo: buildReturnTo(pathname, params) } }} />;
   }
 
   return children;
+}
+
+function buildReturnTo(
+  pathname: string,
+  params: Record<string, string | string[] | undefined>
+): string {
+  const query = Object.entries(params).flatMap(([key, rawValue]) => {
+    if (key === 'jobId' && pathname.startsWith('/jobs/')) {
+      return [];
+    }
+
+    const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+
+    return values
+      .filter((value): value is string => typeof value === 'string')
+      .map((value) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+  });
+
+  return query.length > 0 ? `${pathname}?${query.join('&')}` : pathname;
 }
 
 const styles = StyleSheet.create({

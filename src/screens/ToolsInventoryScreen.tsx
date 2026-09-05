@@ -6,6 +6,7 @@ import {
   fetchToolsInventoryExpenses,
   type ToolsInventoryExpense,
 } from '@/src/lib/toolsInventoryExpenses';
+import { parseDateForDisplay } from '@/src/lib/localDate';
 import { getUserFacingError } from '@/src/lib/userFacingError';
 import { colors, radii } from '@/src/styles/theme';
 
@@ -137,7 +138,7 @@ function formatDate(value: string | null | undefined): string {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
-  }).format(new Date(value));
+  }).format(parseDateForDisplay(value));
 }
 
 function formatType(value: string | null | undefined): string {

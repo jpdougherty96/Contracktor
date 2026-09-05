@@ -1,3 +1,4 @@
+import { getLocalDateString } from '@/src/lib/localDate';
 import { supabase } from '@/src/lib/supabase';
 import type { Json, Tables } from '@/src/types/database';
 
@@ -159,7 +160,7 @@ export async function submitTellContracktorText({
   const response = await fetch(`${supabaseUrl}/functions/v1/tell-contracktor`, {
     body: JSON.stringify({
       job_id: jobId ?? null,
-      local_date: new Date().toISOString().slice(0, 10),
+      local_date: getLocalDateString(),
       photos: photos.map((photo) => ({
         base64: photo.base64,
         mime_type: photo.mimeType ?? 'image/jpeg',

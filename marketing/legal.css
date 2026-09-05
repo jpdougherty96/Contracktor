@@ -1,0 +1,40 @@
+:root{
+  --paper:#F6F3EC;
+  --warm:#FFFDF8;
+  --forest:#294B38;
+  --ink:#202629;
+  --muted:#5F6B79;
+  --rule:#D8D2C6;
+  --live:#5FA477;
+  --mono:'DM Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --ui:'Archivo','Helvetica Neue',Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--ui);font-size:16px;line-height:1.7}
+a{color:var(--forest);font-weight:700;text-underline-offset:3px}
+a:hover{text-decoration-thickness:2px}
+:focus-visible{outline:2px solid var(--forest);outline-offset:3px;border-radius:5px}
+.site-header{border-bottom:1px solid var(--rule);background:rgba(246,243,236,.94)}
+.site-header-inner,.legal,.site-footer-inner{width:min(100% - 40px,900px);margin:0 auto}
+.site-header-inner{min-height:68px;display:flex;align-items:center;justify-content:space-between;gap:20px}
+.logo{font-size:19px;font-weight:800;letter-spacing:-.03em;text-decoration:none}.logo b{font-weight:900}
+.back{font-size:14px;text-decoration:none}
+.legal{padding:64px 0 88px}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin:0 0 16px}
+h1,h2{color:var(--forest);letter-spacing:-.03em;line-height:1.15}
+h1{font-size:clamp(36px,7vw,58px);margin:0 0 16px}
+h2{font-size:24px;margin:44px 0 12px}
+h3{font-size:17px;margin:26px 0 6px}
+p{margin:0 0 16px}
+.lede{font-size:19px;color:#46535B;max-width:68ch}
+.updated{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:20px}
+.notice{border-left:3px solid var(--live);background:var(--warm);padding:18px 20px;margin:34px 0;border-radius:0 10px 10px 0}
+.notice p{margin:0}
+ul{padding-left:22px;margin:10px 0 18px}li{margin:7px 0}
+.toc{margin:36px 0;padding:24px;background:var(--warm);border:1px solid var(--rule);border-radius:14px}
+.toc strong{display:block;color:var(--forest);margin-bottom:8px}.toc ol{columns:2;column-gap:40px;margin:0;padding-left:20px}.toc li{break-inside:avoid;margin:5px 0}.toc a{font-weight:600}
+.site-footer{border-top:1px solid var(--rule);background:var(--warm)}
+.site-footer-inner{padding:26px 0;display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.site-footer a{font-weight:600}
+@media(max-width:620px){.legal{padding-top:44px}.toc ol{columns:1}.site-header-inner,.legal,.site-footer-inner{width:min(100% - 32px,900px)}}

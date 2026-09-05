@@ -23,10 +23,16 @@ import { colors } from '@/src/styles/theme';
 type JobTasksPanelProps = {
   jobId: string;
   onChanged?: () => void;
+  onLoadingChange?: (isLoading: boolean) => void;
   refreshKey?: number;
 };
 
-export function JobTasksPanel({ jobId, onChanged, refreshKey = 0 }: JobTasksPanelProps) {
+export function JobTasksPanel({
+  jobId,
+  onChanged,
+  onLoadingChange,
+  refreshKey = 0,
+}: JobTasksPanelProps) {
   const [tasks, setTasks] = useState<JobTask[]>([]);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -48,6 +54,7 @@ export function JobTasksPanel({ jobId, onChanged, refreshKey = 0 }: JobTasksPane
 
   const load = useCallback(async () => {
     setIsLoading(true);
+    onLoadingChange?.(true);
     setError(null);
 
     try {
@@ -56,8 +63,9 @@ export function JobTasksPanel({ jobId, onChanged, refreshKey = 0 }: JobTasksPane
       setError(getUserFacingError(loadError, 'Unable to load job tasks. Try again.'));
     } finally {
       setIsLoading(false);
+      onLoadingChange?.(false);
     }
-  }, [jobId]);
+  }, [jobId, onLoadingChange]);
 
   useEffect(() => {
     void load();

@@ -11,6 +11,7 @@ import {
   type JobReportNote,
   type JobReportPayment,
 } from '@/src/lib/jobReport';
+import { parseDateForDisplay } from '@/src/lib/localDate';
 import { createAndSharePdf, sanitizePdfFileName } from '@/src/lib/pdfExport';
 import { getUserFacingError } from '@/src/lib/userFacingError';
 import { buttonStyles, colors, radii } from '@/src/styles/theme';
@@ -1303,7 +1304,7 @@ function formatDate(date: string | Date | null | undefined): string {
     return '—';
   }
 
-  const parsedDate = typeof date === 'string' ? new Date(date) : date;
+  const parsedDate = typeof date === 'string' ? parseDateForDisplay(date) : date;
 
   if (Number.isNaN(parsedDate.getTime())) {
     return '—';

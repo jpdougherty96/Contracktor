@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { Feather } from '@expo/vector-icons';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -43,9 +44,10 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
   const [invoiceEmail, setInvoiceEmail] = useState('');
   const [defaultHourlyRate, setDefaultHourlyRate] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
+  const savedStateTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentFormSignature = getAccountFormSignature({
     addressLine1,
     addressLine2,
@@ -80,6 +82,8 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
       })
     : currentFormSignature;
   const hasUnsavedChanges = !isLoading && currentFormSignature !== loadedProfileSignature;
+  const showSavedConfirmation = isSaved && !hasUnsavedChanges;
+  const isSaveDisabled = isSaving || !hasUnsavedChanges;
   const handleBack = useGuardedBack({
     hasUnsavedChanges,
     isBusy: isSaving,
@@ -138,9 +142,24 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
     };
   }, []);
 
+  useEffect(() => {
+    if (hasUnsavedChanges) {
+      setIsSaved(false);
+    }
+  }, [hasUnsavedChanges]);
+
+  useEffect(
+    () => () => {
+      if (savedStateTimeout.current) {
+        clearTimeout(savedStateTimeout.current);
+      }
+    },
+    []
+  );
+
   const handleSave = async () => {
     setError(null);
-    setMessage(null);
+    setIsSaved(false);
 
     const parsedRate = parseOptionalCurrency(defaultHourlyRate);
 
@@ -170,7 +189,12 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
 
       setProfile(nextProfile);
       applyProfileToForm(nextProfile);
-      setMessage('Account settings saved.');
+      setIsSaved(true);
+
+      if (savedStateTimeout.current) {
+        clearTimeout(savedStateTimeout.current);
+      }
+      savedStateTimeout.current = setTimeout(() => setIsSaved(false), 2000);
       onSaved();
     } catch (saveError) {
       setError(getUserFacingError(saveError, 'Unable to save account settings. Try again.'));
@@ -402,14 +426,32 @@ export function AccountSettingsScreen({ onBack, onChangePassword, onSaved }: Acc
                   </View>
 
                   {error ? <Text style={styles.errorText}>{error}</Text> : null}
-                  {message ? <Text style={styles.messageText}>{message}</Text> : null}
-
                   <Pressable
-                    disabled={isSaving}
+                    accessibilityLabel={
+                      isSaving
+                        ? 'Saving account settings'
+                        : showSavedConfirmation
+                          ? 'Account settings saved'
+                          : 'Save changes'
+                    }
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: isSaveDisabled, busy: isSaving }}
+                    disabled={isSaveDisabled}
                     onPress={handleSave}
-                    style={[styles.saveButton, isSaving && styles.disabledButton]}>
+                    style={[
+                      styles.saveButton,
+                      isSaveDisabled && !showSavedConfirmation && styles.disabledButton,
+                    ]}>
                     {isSaving ? (
-                      <ActivityIndicator color={colors.warmWhite} />
+                      <View style={styles.saveButtonContent}>
+                        <ActivityIndicator color={colors.warmWhite} />
+                        <Text style={styles.saveButtonText}>Saving...</Text>
+                      </View>
+                    ) : showSavedConfirmation ? (
+                      <View style={styles.saveButtonContent}>
+                        <Feather color={colors.warmWhite} name="check" size={22} />
+                        <Text style={styles.saveButtonText}>Saved</Text>
+                      </View>
                     ) : (
                       <Text style={styles.saveButtonText}>Save changes</Text>
                     )}
@@ -513,6 +555,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   inlineFieldRow: {
+    alignItems: 'flex-end',
     flexDirection: 'row',
     gap: 10,
   },
@@ -608,17 +651,16 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '900',
   },
+  saveButtonContent: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
   disabledButton: {
     opacity: 0.7,
   },
   errorText: {
     color: colors.danger,
-    fontSize: 14,
-    fontWeight: '800',
-    lineHeight: 20,
-  },
-  messageText: {
-    color: colors.primaryGreen,
     fontSize: 14,
     fontWeight: '800',
     lineHeight: 20,

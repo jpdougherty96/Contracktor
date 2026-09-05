@@ -20,7 +20,14 @@ verification run: `tsc --noEmit` clean, `npm test` 90/90 pass.
 > | N9 | **closed** — `pgmq.q_receipt_processing` internal access removed; `finalize_receipt_capture` rewritten in `20260904015000` |
 > | N10 | **closed** — visibility timeout 300 s → 900 s, aligned with the lease window |
 > | N11 | **closed** — `receipts_storage_path_idx` added |
-> | N4, steps 4–6 | **not verifiable from here** — see "Still unverified" below |
+> | N4 | **disproven 2026-09-05** — a BEFORE INSERT trigger fills `business_id` from `owner_id`; the finding was wrong |
+> | U1 (uncommitted) | **resolved 2026-09-05** — two clean, independently revertible commits |
+> | U2 (trigger grandfathering) | **closed 2026-09-05** — measured blast radius is zero |
+> | Steps 4–6 | reported complete; README/testing-regime updated to assert `extract-receipt` absent |
+>
+> **Remaining open, all previously classed minor and outside the executed
+> sequence:** N6 (`toMoney` rejects >2-decimal quantities — `0.333` → null),
+> N7 ($0.00 lines dropped), N8 (`recover_stale_receipt_processing` under-counts).
 >
 > Suite now 94/94, `tsc` clean. Two new concerns raised: **U1** (uncommitted) and
 > **U2** (the new trigger vs. pre-existing receipts).
@@ -187,7 +194,39 @@ threading a permanently-false value through disabled states and labels.
 references. If it was meant to be gated until the number is trustworthy — which
 it now is — restore it behind the discrepancy check.
 
-### N4. Probable pre-existing production bug, surfaced during this review.
+### N4. Probable pre-existing production bug — **DISPROVEN 2026-09-05. This finding was wrong.**
+
+Production queries: 21 line items across 2 receipts, latest insert
+2026-09-04 03:22:12 UTC (i.e. under the **old** code path, well after the June 8
+NOT NULL migration), 0 processing failures since June 8. Service-role line-item
+insertion has been working the whole time. This was a hardening deployment, not a
+data-recovery event.
+
+**Why the reasoning failed.** `20260608095000_business_team_foundation.sql:473`
+installs `set_receipt_line_items_business_owner_columns`, a BEFORE INSERT trigger
+running `set_business_owner_columns()`:
+
+```sql
+if new.business_id is null then
+  new.business_id := public.default_business_for_user(new.owner_id);  -- owner_id, not auth.uid()
+end if;
+```
+
+It derives `business_id` from the **row's `owner_id`**, which the old
+`replaceDraftLineItems` did supply. So the column default
+(`default_business_for_user(auth.uid())`) being useless under service_role — which
+was correct — never mattered: the trigger fills the null before the NOT NULL check.
+
+I read the column default and the NOT NULL constraint and inferred the rest,
+without enumerating what else fires on that table. Earlier in the same audit I
+*had* enumerated triggers on `receipts` and `expenses`; I simply never asked the
+question about `receipt_line_items`. Same class of error as the rev-1 RLS mistake:
+reading one schema layer and extrapolating. **Rule for next time: before claiming
+a column can't be populated, list every default, trigger, and rule on that table.**
+
+Original (incorrect) reasoning preserved below for the record.
+
+
 
 `receipt_line_items.business_id` has been **NOT NULL** since
 `20260608095000_business_team_foundation.sql:392`, with column default
@@ -286,6 +325,13 @@ expectation that it is handled, and it isn't.
 - **Steps 5–6** — migration/worker/client deploy order, and deletion of the remote
   `extract-receipt` function. Not observable from the repo.
 
+### U1. The entire change is still uncommitted — **RESOLVED 2026-09-05**
+
+Landed as two clean commits: `959e7bb fix(receipts): harden extraction pipeline`
+(30 files, the whole receipt change self-contained) and `12f7b58 chore(db): record
+deployed September migrations` (the five pre-existing September migrations, kept
+separate). Independently revertible. Original finding preserved below.
+
 ### U1. The entire change is still uncommitted
 
 `git log` head is unchanged at `4b27a65`. The receipt work is 6 modified files,
@@ -296,6 +342,28 @@ correlate live DB state with a revision, and one bad `checkout` loses it.
 
 Commit the receipt work as its own commit before deploying, separate from the
 invoice/marketing changes, so it can be reverted independently.
+
+### U2. The new reconciliation trigger is not grandfathered — **CLOSED 2026-09-05, not applicable**
+
+Blast radius measured in production: 1 accepted line-mode receipt checked,
+**0 legacy reconciliation mismatches**. Nothing to grandfather; leaving
+`20260904015000` unchanged was the right call.
+
+Original concern preserved below.
+
+### U2 (original). The new reconciliation trigger is not grandfathered
+
+`20260904015000` is byte-identical; no backfill, no scoping, no new migration.
+
+**This may be correct, and it hinges entirely on N4.** If worker line-item
+insertion really has been failing since June 8, then no production receipt has
+populated line items under `cost_basis in ('line_items','gross_items')`, the
+trigger's blast radius is zero by construction, and there is nothing to
+grandfather. If line items *have* been inserting, the hazard below is live and
+every affected receipt becomes uneditable in line mode.
+
+One query settles it — it is the same one at the end of this section. Until it is
+run and the answer written down, this stays open.
 
 ### U2. The new reconciliation trigger is not grandfathered against existing receipts
 

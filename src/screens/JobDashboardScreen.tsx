@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { JobTasksPanel } from '@/src/components/JobTasksPanel';
 import { ScreenLayout } from '@/src/components/ScreenLayout';
@@ -16,6 +16,7 @@ import {
   type JobMaterialCostEntry,
 } from '@/src/lib/jobFinancials';
 import { getUserFacingError } from '@/src/lib/userFacingError';
+import { colors } from '@/src/styles/theme';
 import type { Job } from '@/src/types/job';
 
 type JobDashboardScreenProps = {
@@ -68,6 +69,8 @@ export function JobDashboardScreen({
   const [activity, setActivity] = useState<JobActivityItem[]>([]);
   const [isActivityLoading, setIsActivityLoading] = useState(true);
   const [activityError, setActivityError] = useState<string | null>(null);
+  const [isTasksLoading, setIsTasksLoading] = useState(true);
+  const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
   useEffect(() => {
     let isMounted = true;
 
@@ -212,6 +215,22 @@ export function JobDashboardScreen({
     };
   }, [job.id, refreshKey]);
 
+  const isInitialPageDataLoading =
+    isSnapshotLoading || isTruthLoading || isActivityLoading || isTasksLoading;
+
+  useEffect(() => {
+    if (!isInitialPageDataLoading) {
+      setHasCompletedInitialLoad(true);
+    }
+  }, [isInitialPageDataLoading]);
+
+  useEffect(() => {
+    setHasCompletedInitialLoad(false);
+    setIsTasksLoading(true);
+  }, [job.id]);
+
+  const isInitialPageLoading = !hasCompletedInitialLoad;
+
   return (
     <ScreenLayout
       backLabel={backLabel}
@@ -223,7 +242,17 @@ export function JobDashboardScreen({
       }
       subtitle={job.clientName}
       title={job.name}>
-      <ScrollView contentContainerStyle={styles.container}>
+      {isInitialPageLoading ? (
+        <View accessibilityLiveRegion="polite" style={styles.initialLoadingState}>
+          <ActivityIndicator color={colors.primaryGreen} size="large" />
+          <Text style={styles.initialLoadingText}>Loading job details...</Text>
+        </View>
+      ) : null}
+      <ScrollView
+        accessibilityElementsHidden={isInitialPageLoading}
+        contentContainerStyle={styles.container}
+        importantForAccessibility={isInitialPageLoading ? 'no-hide-descendants' : 'auto'}
+        style={isInitialPageLoading ? styles.hiddenInitialContent : undefined}>
         <View style={styles.jobMeta}>
           {job.location ? <Text style={styles.detailText}>{job.location}</Text> : null}
           <Text style={styles.detailText}>
@@ -322,6 +351,7 @@ export function JobDashboardScreen({
         <JobTasksPanel
           jobId={job.id}
           onChanged={onTasksChanged}
+          onLoadingChange={setIsTasksLoading}
           refreshKey={refreshKey}
         />
 
@@ -647,6 +677,21 @@ const styles = StyleSheet.create({
   container: {
     padding: 20,
     paddingBottom: 36,
+  },
+  hiddenInitialContent: {
+    display: 'none',
+  },
+  initialLoadingState: {
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
+    justifyContent: 'center',
+    padding: 24,
+  },
+  initialLoadingText: {
+    color: colors.mutedText,
+    fontSize: 16,
+    fontWeight: '800',
   },
   jobMeta: {
     marginBottom: 16,

@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useGuardedBack } from '@/src/hooks/useGuardedBack';
+import { getLocalDateString } from '@/src/lib/localDate';
 import {
   commitTellContracktorEntry,
   dismissTellContracktorProposal,
@@ -950,7 +951,7 @@ function buildEditableProposals(stored: TellContracktorCommitProposal[]): Propos
       };
     }
     return {
-      date: proposal.date ?? getTodayDate(),
+      date: proposal.date ?? getLocalDateString(),
       hours: proposal.hours === null ? '' : String(proposal.hours),
       id: proposal.id,
       jobId: proposal.job_id ?? null,
@@ -1028,7 +1029,7 @@ function buildCommitProposals(
     }
 
     commitProposals.push({
-      date: proposal.date || getTodayDate(),
+      date: proposal.date || getLocalDateString(),
       hours,
       id: proposal.id,
       job_id: jobId,
@@ -1127,10 +1128,6 @@ function parseOptionalNumber(value: string): number | null {
   const parsed = Number(trimmed);
 
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function getTodayDate(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 const styles = StyleSheet.create({

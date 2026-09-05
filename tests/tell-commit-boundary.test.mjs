@@ -120,12 +120,13 @@ test('legacy note-photo uploads remain idempotent', async () => {
 });
 
 test('Tell Undo reverses only unchanged records and preserves an audit trail', async () => {
-  const [migration, photoProtection, activityJob, activityBackfill, screen, tellApi] =
+  const [migration, photoProtection, activityJob, activityBackfill, restoredWrapper, screen, tellApi] =
     await Promise.all([
     readRepoFile('supabase/migrations/20260820093000_tell_undo.sql'),
     readRepoFile('supabase/migrations/20260820094000_protect_tell_note_additions.sql'),
     readRepoFile('supabase/migrations/20260822010000_tell_undo_activity_job.sql'),
     readRepoFile('supabase/migrations/20260822011000_backfill_tell_undo_activity_jobs.sql'),
+    readRepoFile('supabase/migrations/20260901041000_restore_tell_undo_activity_jobs.sql'),
     readRepoFile('src/screens/TellContracktorScreen.tsx'),
     readRepoFile('src/lib/tellContracktor.ts'),
   ]);
@@ -143,6 +144,12 @@ test('Tell Undo reverses only unchanged records and preserves an audit trail', a
   assert.match(activityJob, /count\(distinct record ->> 'job_id'\)/);
   assert.match(activityJob, /set job_id = v_activity_job_id/);
   assert.match(activityBackfill, /event\.source_id = single_job_commits\.entry_id/);
+  assert.match(restoredWrapper, /v_activity_job_id uuid/);
+  assert.match(restoredWrapper, /count\(\*\) = count\(nullif\(records\.record ->> 'job_id', ''\)\)/);
+  assert.match(restoredWrapper, /set job_id = v_activity_job_id/);
+  assert.match(restoredWrapper, /public\.tell_contracktor_attachments source/);
+  assert.match(restoredWrapper, /attachment_storage_paths/);
+  assert.match(restoredWrapper, /event\.source_id = single_job_commits\.entry_id/);
   assert.match(migration, /'tell_contracktor_undone'/);
   assert.match(migration, /status = 'undone'/);
   assert.match(tellApi, /rpc\('undo_tell_contracktor_entry'/);
