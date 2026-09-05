@@ -20,13 +20,14 @@ import { getUserFacingError } from '@/src/lib/userFacingError';
 
 type AuthScreenProps = {
   configError?: string | null;
+  initialMode?: AuthMode;
 };
 
-type AuthMode = 'login' | 'reset' | 'signup';
+export type AuthMode = 'login' | 'reset' | 'signup';
 type MessageTone = 'error' | 'success';
 
-export function AuthScreen({ configError }: AuthScreenProps) {
-  const [mode, setMode] = useState<AuthMode>('login');
+export function AuthScreen({ configError, initialMode }: AuthScreenProps) {
+  const [mode, setMode] = useState<AuthMode>(initialMode ?? 'login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');

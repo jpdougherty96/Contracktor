@@ -17,6 +17,11 @@ import {
   type KnownSubscriptionFeatureKey,
 } from '@/src/lib/entitlements';
 import { getCurrentAuthState } from '@/src/lib/auth';
+import {
+  clearSessionCookie,
+  markKnownUser,
+  markSessionActive,
+} from '@/src/lib/audienceCookies';
 import { supabase } from '@/src/lib/supabase';
 
 const freeBaselineFeatures = new Set<KnownSubscriptionFeatureKey>([
@@ -154,6 +159,16 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void loadEntitlements(session);
   }, [loadEntitlements, session]);
+
+  useEffect(() => {
+    if (session) {
+      markKnownUser();
+      markSessionActive();
+      return;
+    }
+
+    clearSessionCookie();
+  }, [session]);
 
   const value = useMemo<EntitlementsContextValue>(
     () => ({

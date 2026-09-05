@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ImagePickerAsset } from 'expo-image-picker';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { type Href, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -109,6 +109,7 @@ export default function HomeScreen() {
     recordId?: string;
     returnContext?: string;
     returnPath?: string;
+    returnTo?: string;
   }>();
   const { width: viewportWidth } = useWindowDimensions();
   const { authError, authEvent, hasFeature, isAuthLoading, session } = useEntitlements();
@@ -140,6 +141,7 @@ export default function HomeScreen() {
     Boolean(legacyParams.legacyScreen)
   );
   const legacyRequestRef = useRef<string | null>(null);
+  const handledReturnToRef = useRef<string | null>(null);
   const isPasswordRecoveryFlowRef = useRef(
     isPasswordRecoveryUrl() || hasPendingPasswordRecoveryRequest()
   );
@@ -300,6 +302,29 @@ export default function HomeScreen() {
       setScreen('home');
     }
   }, [authEvent, session]);
+
+  useEffect(() => {
+    const requestedReturnTo = getSafeReturnTo(legacyParams.returnTo);
+
+    if (
+      !session ||
+      screen !== 'home' ||
+      isPasswordRecoveryFlowRef.current ||
+      !legacyParams.returnTo ||
+      handledReturnToRef.current === legacyParams.returnTo
+    ) {
+      return;
+    }
+
+    handledReturnToRef.current = legacyParams.returnTo;
+
+    if (!requestedReturnTo) {
+      router.replace('/');
+      return;
+    }
+
+    router.replace(requestedReturnTo as Href);
+  }, [legacyParams.returnTo, router, screen, session]);
 
   useEffect(() => {
     if (screen === 'activity' && !canUseActivity) {
@@ -627,7 +652,10 @@ export default function HomeScreen() {
           setUpdatePasswordBackScreen('accountSettings');
           setScreen('updatePassword');
         }}
-        onSaved={() => setDashboardRefreshKey((key) => key + 1)}
+        onSaved={() => {
+          setDashboardRefreshKey((key) => key + 1);
+          showNotice('Account settings saved.');
+        }}
       />
     );
   }
@@ -1508,6 +1536,21 @@ function isPasswordRecoveryUrl(): boolean {
     hashParams.get('type') === 'recovery' ||
     window.location.href.includes('type=recovery')
   );
+}
+
+function getSafeReturnTo(value: string | undefined): string | null {
+  if (
+    !value ||
+    !value.startsWith('/') ||
+    value.startsWith('//') ||
+    value.includes(':') ||
+    value.includes('\\') ||
+    /[\u0000-\u001F\u007F]/.test(value)
+  ) {
+    return null;
+  }
+
+  return value;
 }
 
 function LoadingScreen() {

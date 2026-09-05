@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>conTRACKtor Landing Directions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=DM+Mono:wght@400;500&family=Caveat:wght@500;600&display=swap">
+<style>
+/* ============================================================ TOKENS */
+:root{
+  /* conTRACKtor product tokens (src/styles/theme.ts) */
+  --paper:#F6F3EC; --warm:#FFFDF8; --forest:#294B38; --pressed:#203B2C;
+  --live:#5FA477; --amber:#B7791F; --rust:#A33A2F;
+  --ink:#202629; --muted:#667382; --rule:#D8D2C6; --rule-strong:#C7BFAF;
+  /* deck chrome — committed dark, painted explicitly */
+  --deck:#14181A; --deck-2:#1C2225; --deck-line:#2C3438; --deck-text:#E9E5DB;
+  --deck-muted:#8C9A9B;
+  /* direction A world */
+  --nightA:#0E1512; --nightA2:#16211C; --nightA-line:#24332B;
+  /* direction C world */
+  --nightC:#121316; --nightC2:#1B1D22; --nightC-line:#2A2D34;
+
+  --f-ui:'Archivo','Helvetica Neue',Helvetica,Arial,sans-serif;
+  --f-mono:'DM Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --f-hand:'Caveat','Bradley Hand','Segoe Print','Segoe Script','Comic Sans MS',cursive;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--deck); color:var(--deck-text);
+  font-family:var(--f-ui); font-size:16px; line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+img{max-width:100%}
+:focus-visible{outline:2px solid var(--live); outline-offset:3px; border-radius:6px}
+
+/* ============================================================ DECK CHROME */
+.deck-head{max-width:1080px;margin:0 auto;padding:56px 24px 34px}
+.kicker{font-family:var(--f-mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--deck-muted);margin:0 0 16px}
+.deck-head h1{font-size:clamp(26px,4vw,40px);font-weight:900;letter-spacing:-.03em;line-height:1.1;
+  margin:0 0 14px;text-wrap:balance}
+.deck-head p{margin:0 0 12px;max-width:64ch;color:var(--deck-muted);font-size:15.5px}
+.deck-head strong{color:var(--deck-text);font-weight:600}
+
+.constraints{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1px;
+  background:var(--deck-line);border:1px solid var(--deck-line);border-radius:12px;
+  overflow:hidden;margin-top:26px}
+.constraints div{background:var(--deck-2);padding:16px 18px}
+.constraints dt{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--live);margin:0 0 6px}
+.constraints dd{margin:0;font-size:14px;line-height:1.5;color:var(--deck-muted)}
+
+/* direction label bar */
+.label{max-width:1080px;margin:0 auto;padding:44px 24px 18px;display:flex;gap:18px;align-items:flex-start}
+.label .no{font-family:var(--f-mono);font-size:13px;color:var(--live);padding-top:7px;
+  font-variant-numeric:tabular-nums}
+.label h2{margin:0;font-size:clamp(21px,3vw,28px);font-weight:800;letter-spacing:-.02em}
+.label .bet{margin:4px 0 0;color:var(--deck-muted);font-size:14.5px;max-width:60ch}
+.label .risk{margin:8px 0 0;font-size:13.5px;color:#C98B7E}
+.label .risk b{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+  font-weight:400;color:#C98B7E;margin-right:8px}
+
+/* the framed canvas each direction lives in */
+.canvas{max-width:1080px;margin:0 auto 8px;padding:0 24px}
+.frame{border-radius:16px;overflow:hidden;border:1px solid var(--deck-line)}
+
+/* ============================================================ SHARED PAGE BITS */
+.cta{display:inline-flex;align-items:center;justify-content:center;gap:9px;
+  min-height:52px;padding:0 26px;border-radius:12px;font-size:16.5px;font-weight:800;
+  text-decoration:none;border:1px solid transparent;cursor:pointer;font-family:var(--f-ui)}
+.cta-note{font-family:var(--f-mono);font-size:11.5px;letter-spacing:.05em}
+.eyebrow{font-family:var(--f-mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;margin:0 0 18px}
+.h1{font-size:clamp(34px,6.4vw,64px);font-weight:900;letter-spacing:-.035em;line-height:1.02;
+  margin:0 0 20px;text-wrap:balance}
+.lede{font-size:clamp(16px,2vw,19px);line-height:1.55;margin:0 0 30px;max-width:46ch}
+.ctas{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+
+/* nav */
+.nav{display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:18px 30px;border-bottom:1px solid}
+.brand{font-weight:800;letter-spacing:-.02em;font-size:17px}
+.brand span{font-weight:400;opacity:.55}
+.nav .cta{min-height:42px;padding:0 18px;font-size:14.5px;border-radius:10px}
+
+/* ============================================================ A — TELL MACHINE */
+.A{background:var(--nightA);color:#E6EDE7}
+.A .nav{border-color:var(--nightA-line)}
+.A .brand{color:var(--paper)}
+.A .nav .cta{background:var(--live);color:#0B120E}
+.A-hero{display:grid;grid-template-columns:1fr;gap:38px;padding:56px 30px 64px}
+@media(min-width:900px){.A-hero{grid-template-columns:1.02fr .98fr;gap:44px;padding:74px 44px 82px;align-items:center}}
+.A .eyebrow{color:var(--live)}
+.A .h1{color:var(--warm)}
+.A .h1 em{font-style:normal;color:var(--live)}
+.A .lede{color:#A9BCAF}
+.A .cta-primary{background:var(--live);color:#0B120E}
+.A .cta-ghost{background:transparent;color:#CFDCD3;border-color:var(--nightA-line)}
+.A .cta-note{color:#7E9187;margin-top:14px;display:block}
+
+/* the phone-ish demo */
+.demo{background:var(--paper);border-radius:20px;padding:16px;border:1px solid #2E3F35;
+  box-shadow:0 30px 70px rgba(0,0,0,.45)}
+.demo-bar{display:flex;align-items:center;gap:8px;padding:2px 4px 12px}
+.demo-bar b{font-size:13.5px;color:var(--forest);font-weight:800}
+.demo-bar i{margin-left:auto;font-family:var(--f-mono);font-size:10.5px;font-style:normal;color:var(--muted)}
+.tell-input{background:var(--warm);border:1px solid var(--rule);border-radius:12px;padding:13px 14px;
+  color:var(--ink);font-size:15px;line-height:1.45;min-height:78px}
+.tell-input .ph{color:var(--muted)}
+.word{opacity:0}
+.chip{display:inline-flex;align-items:center;gap:8px;margin-top:12px;padding:8px 13px;border-radius:99px;
+  background:#EFE9DA;border:1px solid var(--rule);font-size:13px;color:var(--forest);font-weight:600;opacity:0}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--amber)}
+.prop-head{display:flex;align-items:center;gap:9px;margin:16px 0 9px;opacity:0}
+.prop-head b{font-size:13px;font-weight:800;color:var(--forest)}
+.prop-head hr{flex:1;border:0;border-top:1px solid var(--rule);margin:0}
+.prop{display:flex;gap:11px;align-items:flex-start;background:var(--warm);border:1px solid var(--rule);
+  border-radius:12px;padding:11px 13px;margin-bottom:8px;opacity:0}
+.prop .tag{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  padding:4px 7px;border-radius:5px;background:#E7EFE9;color:var(--forest);white-space:nowrap;margin-top:1px}
+.prop .tag.sh{background:#F5EBD8;color:#8A5B12}
+.prop .tag.hr{background:#E4EFE7;color:var(--pressed)}
+.prop p{margin:0;font-size:14px;color:var(--ink);line-height:1.4}
+.prop p span{display:block;font-size:12px;color:var(--muted);margin-top:2px}
+/* button and confirmation share one cell so the swap causes no layout shift */
+.act{display:grid;margin-top:4px}
+.act > *{grid-area:1/1}
+.approve{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:46px;
+  border-radius:11px;background:var(--forest);color:var(--warm);font-weight:800;font-size:15px;
+  border:0;opacity:0;font-family:var(--f-ui)}
+.saved{display:flex;align-items:center;gap:9px;justify-content:center;min-height:46px;
+  font-size:13.5px;font-weight:700;color:var(--forest);opacity:0}
+.saved .tick{width:19px;height:19px;border-radius:50%;background:var(--live);color:#fff;
+  display:grid;place-items:center;font-size:11px;font-weight:900}
+
+/* A timeline — plays once on load and settles in the finished state, so the card is
+   never sitting empty and a visitor arriving late still sees the whole story. */
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes press{0%{opacity:0;transform:translateY(6px)}
+  30%{opacity:1;transform:none}62%{transform:scale(.975)}72%,100%{opacity:1;transform:none}}
+@keyframes pressOut{0%,72%{opacity:1}100%{opacity:0}}
+.demo.run .word,.demo.run .chip,.demo.run .prop-head,.demo.run .prop{
+  animation:fadeUp .5s ease-out both}
+.demo.run .chip{animation-delay:1.35s}
+.demo.run .prop-head{animation-delay:2.05s}
+.demo.run .approve{animation:press 1.9s ease-out 3.3s both,pressOut 1.9s linear 3.3s both}
+.demo.run .saved{animation:fadeUp .45s ease-out 4.95s both}
+
+/* A second fold */
+.A-fold{border-top:1px solid var(--nightA-line);padding:56px 30px;background:var(--nightA2)}
+@media(min-width:900px){.A-fold{padding:66px 44px}}
+.A-fold h3{font-size:clamp(22px,3.4vw,32px);font-weight:900;letter-spacing:-.025em;margin:0 0 8px;color:var(--warm)}
+.A-fold .sub{color:#9DB0A4;margin:0 0 34px;max-width:56ch;font-size:15.5px}
+.triad{display:grid;grid-template-columns:1fr;gap:1px;background:var(--nightA-line);
+  border:1px solid var(--nightA-line);border-radius:14px;overflow:hidden}
+@media(min-width:760px){.triad{grid-template-columns:repeat(3,1fr)}}
+.triad div{background:var(--nightA);padding:24px 22px}
+.triad h4{margin:0 0 8px;font-size:16.5px;font-weight:800;color:var(--warm)}
+.triad h4 b{font-family:var(--f-mono);font-size:11px;letter-spacing:.12em;color:var(--live);
+  display:block;font-weight:400;margin-bottom:9px;text-transform:uppercase}
+.triad p{margin:0;font-size:14.5px;color:#93A79A;line-height:1.55}
+
+/* ============================================================ B — NOTEBOOK */
+.B{background:var(--paper);color:var(--ink)}
+.B .nav{border-color:var(--rule)}
+.B .brand{color:var(--forest)}
+.B .nav .cta{background:var(--forest);color:var(--warm)}
+.B-hero{padding:52px 30px 60px}
+@media(min-width:940px){.B-hero{padding:70px 44px 76px}}
+.B-copy{max-width:640px;margin:0 0 42px}
+.B .h1{font-size:clamp(32px,5.4vw,54px)}
+.B .eyebrow{color:var(--muted)}
+.B .h1{color:var(--forest)}
+.B .lede{color:#4A5560}
+.B .cta-primary{background:var(--forest);color:var(--warm)}
+.B .cta-ghost{background:transparent;color:var(--forest);border-color:var(--rule-strong)}
+.B .cta-note{color:var(--muted);margin-top:14px;display:block}
+
+.swap{display:grid;grid-template-columns:1fr;gap:16px;align-items:center}
+@media(min-width:560px){.swap{grid-template-columns:1fr auto 1fr;gap:14px}}
+.pad{position:relative;background:#FBF8F0;border:1px solid var(--rule-strong);border-radius:8px;
+  padding:22px 20px 26px;box-shadow:0 12px 30px rgba(60,50,30,.10);overflow:hidden}
+.pad::before{content:"";position:absolute;inset:0;
+  background:repeating-linear-gradient(to bottom,transparent 0 27px,#D9E2EC 27px 28px);opacity:.7}
+.pad::after{content:"";position:absolute;left:44px;top:0;bottom:0;width:1px;background:#E5B7B0;opacity:.65}
+.ring{position:absolute;right:-26px;bottom:-26px;width:96px;height:96px;border-radius:50%;
+  border:9px solid rgba(140,102,48,.16)}
+.hand{position:relative;font-family:var(--f-hand);font-size:23px;line-height:28px;color:#2B3A55;
+  padding-left:14px;margin:0}
+.hand b{display:block;font-weight:600}
+.hand .fade{color:#7A88A0}
+.arrow{display:grid;place-items:center;color:var(--rule-strong);font-size:26px;transform:rotate(90deg)}
+@media(min-width:560px){.arrow{transform:none}}
+.recs{background:var(--warm);border:1px solid var(--rule);border-radius:12px;padding:14px;
+  box-shadow:0 12px 30px rgba(60,50,30,.08)}
+.recs .rh{display:flex;align-items:center;gap:8px;padding:0 2px 11px;border-bottom:1px solid var(--rule)}
+.recs .rh b{font-size:13.5px;color:var(--forest);font-weight:800}
+.recs .rh i{margin-left:auto;font-style:normal;font-family:var(--f-mono);font-size:10px;
+  letter-spacing:.08em;color:var(--live);text-transform:uppercase}
+.rec{display:flex;gap:10px;align-items:flex-start;padding:11px 2px;border-bottom:1px solid #EDE7DA}
+.rec:last-child{border-bottom:0;padding-bottom:2px}
+.rec .tag{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  padding:4px 7px;border-radius:5px;background:#E7EFE9;color:var(--forest);white-space:nowrap;margin-top:1px}
+.rec .tag.sh{background:#F5EBD8;color:#8A5B12}
+.rec .tag.rc{background:#EDE7F5;color:#4B3A72}
+.rec p{margin:0;font-size:14px;line-height:1.4}
+.rec p span{display:block;font-size:12px;color:var(--muted);margin-top:2px}
+
+.B-fold{border-top:1px solid var(--rule);background:var(--warm);padding:54px 30px}
+@media(min-width:900px){.B-fold{padding:66px 44px}}
+.B-fold h3{font-size:clamp(22px,3.4vw,34px);font-weight:900;letter-spacing:-.025em;
+  margin:0 0 10px;color:var(--forest);text-wrap:balance;max-width:22ch}
+.B-fold .sub{margin:0 0 32px;color:var(--muted);max-width:56ch;font-size:15.5px}
+.qs{display:grid;grid-template-columns:1fr;gap:1px;background:var(--rule);
+  border:1px solid var(--rule);border-radius:14px;overflow:hidden}
+@media(min-width:700px){.qs{grid-template-columns:repeat(2,1fr)}}
+@media(min-width:1000px){.qs{grid-template-columns:repeat(4,1fr)}}
+.qs div{background:var(--warm);padding:22px 20px}
+.qs b{display:block;font-size:16.5px;font-weight:800;color:var(--forest);margin-bottom:7px}
+.qs p{margin:0;font-size:14px;color:var(--muted);line-height:1.5}
+
+/* ============================================================ C — WHAT YOU DIDN'T BILL */
+.C{background:var(--nightC);color:#E4E6EA}
+.C .nav{border-color:var(--nightC-line)}
+.C .brand{color:var(--paper)}
+.C .nav .cta{background:var(--paper);color:#15171B}
+.C-hero{display:grid;grid-template-columns:1fr;gap:36px;padding:54px 30px 62px}
+@media(min-width:940px){.C-hero{grid-template-columns:1.06fr .94fr;gap:46px;padding:74px 44px 80px;align-items:center}}
+.C .eyebrow{color:#C98B7E}
+.C .h1{color:var(--paper)}
+.C .h1 em{font-style:normal;color:#D9897A}
+.C .lede{color:#9BA1AC}
+.C .cta-primary{background:var(--paper);color:#15171B}
+.C .cta-ghost{background:transparent;color:#C6CBD3;border-color:var(--nightC-line)}
+.C .cta-note{color:#767D89;margin-top:14px;display:block}
+.leaks{list-style:none;margin:0 0 30px;padding:0;display:grid;gap:9px;max-width:44ch}
+.leaks li{display:flex;gap:11px;align-items:baseline;font-size:15px;color:#AEB4BE}
+.leaks li::before{content:"";width:6px;height:6px;border-radius:1px;background:#8E4437;flex:none;
+  transform:translateY(-2px)}
+
+/* receipt-tape calculator */
+.tape{background:var(--warm);color:var(--ink);border-radius:6px;padding:26px 24px 30px;position:relative;
+  box-shadow:0 26px 60px rgba(0,0,0,.5);max-width:420px;margin:0 auto}
+.tape::after{content:"";position:absolute;left:0;right:0;bottom:-9px;height:10px;
+  background:repeating-linear-gradient(135deg,var(--warm) 0 9px,transparent 9px 18px)}
+.tape h4{margin:0 0 3px;font-family:var(--f-mono);font-size:10.5px;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--muted);text-align:center;font-weight:400}
+.tape .co{margin:0 0 18px;text-align:center;font-size:17px;font-weight:900;color:var(--forest);
+  letter-spacing:-.01em}
+.tape hr{border:0;border-top:1px dashed var(--rule-strong);margin:16px 0}
+.field{display:flex;align-items:center;gap:10px;justify-content:space-between}
+.field label{font-size:14px;font-weight:600;color:var(--ink)}
+.field .box{display:flex;align-items:center;gap:2px;background:var(--paper);border:1px solid var(--rule-strong);
+  border-radius:8px;padding:8px 11px}
+.field .box span{font-family:var(--f-mono);font-size:14px;color:var(--muted)}
+.field input{width:62px;border:0;background:transparent;font-family:var(--f-mono);font-size:17px;
+  font-weight:500;color:var(--ink);text-align:right;padding:0;-moz-appearance:textfield}
+.field input::-webkit-outer-spin-button,.field input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.line{display:flex;justify-content:space-between;align-items:baseline;font-family:var(--f-mono);
+  font-size:13px;color:var(--muted);padding:5px 0}
+.line b{font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums}
+.total{display:flex;justify-content:space-between;align-items:baseline;margin-top:4px}
+.total span{font-size:13.5px;font-weight:700;color:var(--ink);max-width:11ch;line-height:1.3}
+.total b{font-family:var(--f-mono);font-size:clamp(26px,5vw,34px);font-weight:500;color:var(--rust);
+  font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.disclaim{margin:14px 0 0;font-size:11.5px;line-height:1.5;color:var(--muted);text-align:center}
+
+.C-fold{border-top:1px solid var(--nightC-line);background:var(--nightC2);padding:54px 30px}
+@media(min-width:900px){.C-fold{padding:66px 44px}}
+.C-fold h3{font-size:clamp(22px,3.4vw,32px);font-weight:900;letter-spacing:-.025em;margin:0 0 10px;color:var(--paper)}
+.C-fold .sub{margin:0 0 32px;color:#9199A4;max-width:56ch;font-size:15.5px}
+.caps{display:grid;grid-template-columns:1fr;gap:1px;background:var(--nightC-line);
+  border:1px solid var(--nightC-line);border-radius:14px;overflow:hidden}
+@media(min-width:800px){.caps{grid-template-columns:repeat(3,1fr)}}
+.caps div{background:var(--nightC);padding:24px 22px}
+.caps b{display:block;font-family:var(--f-mono);font-size:10.5px;letter-spacing:.16em;
+  text-transform:uppercase;color:#C98B7E;margin-bottom:10px;font-weight:400}
+.caps h4{margin:0 0 7px;font-size:17px;font-weight:800;color:var(--paper)}
+.caps p{margin:0;font-size:14.5px;color:#8F98A3;line-height:1.55}
+
+/* closing CTA band shared by C */
+.band{padding:46px 30px;text-align:center;border-top:1px solid var(--nightC-line)}
+.band h3{margin:0 0 8px;font-size:clamp(20px,3vw,28px);font-weight:900;letter-spacing:-.02em;color:var(--paper)}
+.band p{margin:0 0 20px;color:#8F98A3;font-size:15px}
+.band .ctas{justify-content:center}
+
+/* ============================================================ FOOT */
+.foot{max-width:1080px;margin:0 auto;padding:52px 24px 80px}
+.foot h3{font-size:19px;font-weight:800;margin:0 0 12px;letter-spacing:-.01em}
+.foot p{margin:0 0 12px;color:var(--deck-muted);font-size:14.5px;max-width:66ch}
+.foot code{font-family:var(--f-mono);font-size:12.5px;background:var(--deck-2);padding:2px 6px;
+  border-radius:5px;color:#B9C6BC}
+
+@media (prefers-reduced-motion:reduce){
+  .demo.run .word,.demo.run .chip,.demo.run .prop-head,.demo.run .prop,
+  .demo.run .approve,.demo.run .saved{animation:none!important;opacity:1!important;transform:none!important}
+  .demo.run .chip{display:none}
+  *{transition:none!important}
+}
+</style>
+</head>
+<body>
+
+<header class="deck-head">
+  <p class="kicker">conTRACKtor &middot; landing directions &middot; three bets</p>
+  <h1>Three ways to open the front door</h1>
+  <p>Right now <strong>contracktor.app</strong> serves the Expo web export, so a first-time visitor lands on a
+  password field. Each direction below is a hero plus first proof fold, built in the app's own palette, with real
+  product copy pulled from <code style="font-family:var(--f-mono);font-size:13px">TellContracktorScreen</code>.</p>
+  <p>They differ in <strong>what they argue first</strong> — not in how they're skinned.</p>
+
+  <dl class="constraints">
+    <div><dt>No borrowed trust</dt><dd>You're in beta with no public numbers, so there are no testimonials, logos or user counts anywhere. Trust is earned by showing the product work.</dd></div>
+    <div><dt>No measured claims</dt><dd>The ~20% and ~10% internal targets are unproven and appear nowhere. Direction C solves this with the visitor's own arithmetic.</dd></div>
+    <div><dt>Only what ships</dt><dd>Tell is shown supervised — proposals, then Approve all. No autonomous commits, because that's roadmap, not product.</dd></div>
+  </dl>
+</header>
+
+<!-- ================================================== DIRECTION A -->
+<div class="label">
+  <span class="no">01</span>
+  <div>
+    <h2>The Tell Machine</h2>
+    <p class="bet">Bet: the transformation <em>is</em> the pitch. Lead with the moment a spoken sentence becomes three records, and let curiosity do the selling.</p>
+    <p class="risk"><b>Risk</b>Opens on novelty. A contractor who distrusts AI has nothing to hold onto before the demo.</p>
+  </div>
+</div>
+<div class="canvas"><div class="frame">
+<section class="A">
+  <nav class="nav">
+    <div class="brand">con<strong>TRACK</strong>tor<span></span></div>
+    <a class="cta" href="#">Start free</a>
+  </nav>
+
+  <div class="A-hero">
+    <div>
+      <p class="eyebrow">Tell conTRACKtor</p>
+      <h1 class="h1">Say it once.<br>It becomes <em>records.</em></h1>
+      <p class="lede">Tell conTRACKtor what happened on the way back to the truck. It writes up the
+      hours, the note and the material — then waits for your OK before anything is saved.</p>
+      <div class="ctas">
+        <a class="cta cta-primary" href="#">Start free</a>
+        <a class="cta cta-ghost" href="#">See how it works</a>
+      </div>
+      <span class="cta-note">Free tier. No card. Your records stay yours.</span>
+    </div>
+
+    <div class="demo run">
+      <div class="demo-bar"><b>Tell conTRACKtor</b><i>9:41</i></div>
+      <div class="tell-input">
+        <span class="word" style="animation-delay:0s">I worked</span>
+        <span class="word" style="animation-delay:.13s">7 hours</span>
+        <span class="word" style="animation-delay:.26s">on Johnson,</span>
+        <span class="word" style="animation-delay:.42s">moved</span>
+        <span class="word" style="animation-delay:.54s">the outlet</span>
+        <span class="word" style="animation-delay:.68s">in the back</span>
+        <span class="word" style="animation-delay:.82s">bedroom,</span>
+        <span class="word" style="animation-delay:.96s">and we need</span>
+        <span class="word" style="animation-delay:1.1s">four sheets</span>
+        <span class="word" style="animation-delay:1.24s">of drywall</span>
+        <span class="word" style="animation-delay:1.38s">tomorrow.</span>
+      </div>
+      <div class="chip"><span class="dot"></span>Got it. conTRACKtor is working on it.</div>
+
+      <div class="prop-head"><b>Suggestions ready to review</b><hr></div>
+
+      <div class="prop" style="animation-delay:0s">
+        <span class="tag hr">Hours</span>
+        <p>7.0 hrs &middot; Johnson Remodel<span>Today &middot; billed at the job's rate</span></p>
+      </div>
+      <div class="prop" style="animation-delay:.22s">
+        <span class="tag">Job update</span>
+        <p>Moved the outlet in the back bedroom<span>Possible scope or budget impact mentioned.</span></p>
+      </div>
+      <div class="prop" style="animation-delay:.44s">
+        <span class="tag sh">Shopping</span>
+        <p>4 &times; sheet of drywall<span>Johnson Remodel &middot; needed tomorrow</span></p>
+      </div>
+
+      <div class="act">
+        <button class="approve" type="button">Approve all</button>
+        <div class="saved"><span class="tick">&check;</span>Approved entries were added to conTRACKtor.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="A-fold">
+    <h3>AI interprets. You approve. Code commits.</h3>
+    <p class="sub">Three separate jobs, on purpose. The part that guesses never gets to write, and the
+    part that writes never guesses.</p>
+    <div class="triad">
+      <div><h4><b>Interprets</b>It reads what you said</h4><p>Photos and plain speech become a proposed
+      set of records. Nothing is saved at this stage, and nothing is calculated.</p></div>
+      <div><h4><b>Approves</b>You see it before it counts</h4><p>Every suggestion is shown as a plain
+      line you can edit, drop or approve. Nothing enters your books without you.</p></div>
+      <div><h4><b>Commits</b>Arithmetic you can trust</h4><p>Totals, rates and tax are computed by
+      ordinary code, not a model — so the numbers are the same every time.</p></div>
+    </div>
+  </div>
+</section>
+</div></div>
+
+<!-- ================================================== DIRECTION B -->
+<div class="label">
+  <span class="no">02</span>
+  <div>
+    <h2>The Notebook</h2>
+    <p class="bet">Bet: your real competitor is the notebook, not Jobber. Show the notebook winning at what it's good at, then show what it never did — add anything up.</p>
+    <p class="risk"><b>Risk</b>Reads warm and low-tech. The AI has to arrive immediately below or the page undersells itself.</p>
+  </div>
+</div>
+<div class="canvas"><div class="frame">
+<section class="B">
+  <nav class="nav">
+    <div class="brand">con<strong>TRACK</strong>tor<span></span></div>
+    <a class="cta" href="#">Start free</a>
+  </nav>
+
+  <div class="B-hero">
+    <div class="B-copy">
+      <p class="eyebrow">Job tracking for people in the field</p>
+      <h1 class="h1">You do the work.<br>conTRACKtor does<br>the paperwork.</h1>
+      <p class="lede">Snap receipts. Say what happened. Track your time. conTRACKtor turns it into
+      organized job records, so fewer hours and materials slip through the cracks.</p>
+      <div class="ctas">
+        <a class="cta cta-primary" href="#">Start free</a>
+        <a class="cta cta-ghost" href="#">See how it works</a>
+      </div>
+      <span class="cta-note">Free tier keeps your full history. No card to start.</span>
+    </div>
+
+    <div class="swap">
+      <div class="pad">
+        <div class="ring"></div>
+        <p class="hand">
+          <b>Johnson &mdash; Tues</b>
+          <b>7 hrs</b>
+          <b>moved outlet, back bdrm</b>
+          <b>need 4 sht drywall</b>
+          <b class="fade">HD receipt &mdash; in truck</b>
+        </p>
+      </div>
+      <div class="arrow">&#8594;</div>
+      <div class="recs">
+        <div class="rh"><b>Johnson Remodel</b><i>Saved</i></div>
+        <div class="rec"><span class="tag rc">Hours</span><p>7.0 hrs &middot; Tuesday<span>Billed at the job's rate</span></p></div>
+        <div class="rec"><span class="tag">Note</span><p>Moved outlet, back bedroom<span>Flagged as possible scope change</span></p></div>
+        <div class="rec"><span class="tag sh">Shopping</span><p>4 &times; sheet of drywall<span>On the list for tomorrow</span></p></div>
+        <div class="rec"><span class="tag rc">Receipt</span><p>Home Depot &middot; materials<span>Photographed and filed to this job</span></p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="B-fold">
+    <h3>The notebook never lost a job. It just never added anything up.</h3>
+    <p class="sub">Same habit, same thirty seconds at the end of the day. conTRACKtor is what happens
+    to the page afterwards.</p>
+    <div class="qs">
+      <div><b>What happened?</b><p>Every job keeps its own record of hours, notes, photos and material — in the order it actually happened.</p></div>
+      <div><b>What needs to happen?</b><p>Anything you mention as needed lands on a list instead of staying in your head.</p></div>
+      <div><b>Where did the money go?</b><p>Receipts photographed on site are filed to the job they belong to, not to a shoebox.</p></div>
+      <div><b>Am I making money?</b><p>Labour and materials sit against the job, so the answer is there before the invoice is.</p></div>
+    </div>
+  </div>
+</section>
+</div></div>
+
+<!-- ================================================== DIRECTION C -->
+<div class="label">
+  <span class="no">03</span>
+  <div>
+    <h2>What You Didn't Bill</h2>
+    <p class="bet">Bet: open on the money. The calculator runs on the visitor's own rate, which sidesteps having no proof of our own — the number is their arithmetic, not our claim.</p>
+    <p class="risk"><b>Risk</b>Loss-framing reads like an insurance ad if the tone slips even slightly.</p>
+  </div>
+</div>
+<div class="canvas"><div class="frame">
+<section class="C">
+  <nav class="nav">
+    <div class="brand">con<strong>TRACK</strong>tor<span></span></div>
+    <a class="cta" href="#">Start free</a>
+  </nav>
+
+  <div class="C-hero">
+    <div>
+      <p class="eyebrow">Job tracking for small contractors</p>
+      <h1 class="h1">The hour you forgot<br>to <em>write down.</em></h1>
+      <p class="lede">Nobody loses a whole job. You lose it in pieces, and always the same pieces:</p>
+      <ul class="leaks">
+        <li>The extra hour on a Friday nobody logged</li>
+        <li>The material picked up on the way and never filed</li>
+        <li>The change the customer asked for in the driveway</li>
+        <li>The invoice that went out three weeks late</li>
+        <li>The estimate built on a job you half remember</li>
+      </ul>
+      <div class="ctas">
+        <a class="cta cta-primary" href="#">Start free</a>
+        <a class="cta cta-ghost" href="#">See how it works</a>
+      </div>
+      <span class="cta-note">Free tier. No card. Takes about a minute.</span>
+    </div>
+
+    <div class="tape">
+      <h4>Back of the envelope</h4>
+      <p class="co">What one forgotten hour costs</p>
+      <div class="field">
+        <label for="rate">Your hourly rate</label>
+        <div class="box"><span>$</span><input id="rate" type="number" min="0" max="999" step="5" value="85" inputmode="decimal"></div>
+      </div>
+      <hr>
+      <div class="line"><span>One forgotten hour</span><b id="l1">$85</b></div>
+      <div class="line"><span>Once a week</span><b id="l2">&times; 50 weeks</b></div>
+      <div class="line"><span>Unbilled material, say 1 run</span><b id="l3">$60</b></div>
+      <hr>
+      <div class="total"><span>Off the books, a year</span><b id="tot">$7,250</b></div>
+      <p class="disclaim">That's your rate times your own guess &mdash; not a claim about conTRACKtor.
+      We don't know your number. The point is that you probably don't either.</p>
+    </div>
+  </div>
+
+  <div class="C-fold">
+    <h3>The fix is capture, not discipline</h3>
+    <p class="sub">You already know you should write it down. The problem was never willpower — it was
+    that writing it down cost more attention than it was worth.</p>
+    <div class="caps">
+      <div><b>Capture receipt</b><h4>Photograph it in the aisle</h4><p>The photo is secured the moment
+      you take it. Reading it, matching it and filing it to a job happens afterwards, without you.</p></div>
+      <div><b>Tell conTRACKtor</b><h4>Say it on the drive home</h4><p>One sentence becomes proposed
+      hours, notes and material. You glance at the list and approve it.</p></div>
+      <div><b>Start work</b><h4>Or just hit the timer</h4><p>A timer on every active job, with manual
+      entry when you forgot to start it — because you will.</p></div>
+    </div>
+  </div>
+
+  <div class="band">
+    <h3>Find out what your last job actually cost you</h3>
+    <p>Free tier, full history, no card.</p>
+    <div class="ctas"><a class="cta cta-primary" href="#">Start free</a></div>
+  </div>
+</section>
+</div></div>
+
+<footer class="foot">
+  <h3>What I'd need from you next</h3>
+  <p>Every <b>Start free</b> points at <code>#</code> — you haven't decided whether the landing page takes
+  the apex domain with the app at <code>/app</code>, or the app moves to a subdomain. That decision changes
+  the CTA target and nothing else on this page.</p>
+  <p>The product surfaces here are rebuilt from <code>theme.ts</code> and the real strings in the Tell screen,
+  not screenshots. They depict the supervised flow that actually ships. If you'd rather show real captures in
+  the proof sections, send them and I'll swap them in.</p>
+  <p>Type is Archivo, DM Mono and Caveat via Google Fonts. I couldn't load webfonts in my sandbox to check
+  them, so the faces are unverified on my end — everything has a real fallback stack, but give the type a
+  look on your machine.</p>
+</footer>
+
+<script>
+(function(){
+  var rate = document.getElementById('rate');
+  var fmt = function(n){ return '$' + Math.round(n).toLocaleString('en-US'); };
+  function calc(){
+    var r = parseFloat(rate.value);
+    if (!isFinite(r) || r < 0) { r = 0; }
+    if (r > 999) { r = 999; rate.value = 999; }
+    var material = 60;
+    document.getElementById('l1').textContent = fmt(r);
+    document.getElementById('l3').textContent = fmt(material);
+    document.getElementById('tot').textContent = fmt((r + material) * 50);
+  }
+  rate.addEventListener('input', calc);
+  calc();
+})();
+</script>
+</body>
+</html>

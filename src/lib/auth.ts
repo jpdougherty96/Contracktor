@@ -1,5 +1,7 @@
 import type { Session, User } from '@supabase/supabase-js';
 
+import { clearSessionCookie } from '@/src/lib/audienceCookies';
+
 export type AuthState = {
   session: Session | null;
   user: User | null;
@@ -45,6 +47,7 @@ export async function getCurrentAuthState(): Promise<AuthState> {
 }
 
 export async function signOut(): Promise<void> {
+  clearSessionCookie();
   const { supabase } = await import('@/src/lib/supabase');
   const { error } = await supabase.auth.signOut();
 

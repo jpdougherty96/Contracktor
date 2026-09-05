@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://contracktor.app/sitemap.xml

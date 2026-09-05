@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">conTRACKtor</title>
+  <desc id="desc">You do the work. conTRACKtor keeps the record.</desc>
+  <rect width="1200" height="630" fill="#F6F3EC"/>
+  <path d="M0 0h1200v20H0z" fill="#294B38"/>
+  <path d="M0 610h1200v20H0z" fill="#294B38"/>
+  <g fill="none" stroke="#D8D2C6" stroke-width="2" opacity=".8">
+    <path d="M760 92h330v420H760z"/>
+    <path d="M795 134h260M795 177h260M795 220h260M795 263h260"/>
+    <path d="M795 330h115M940 330h115M795 373h115M940 373h115M795 416h115M940 416h115"/>
+  </g>
+  <g transform="translate(795 134)">
+    <rect width="22" height="22" rx="4" fill="#5FA477"/>
+    <path d="m6 11 3 3 7-8" fill="none" stroke="#FFFDF8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g transform="translate(795 177)">
+    <rect width="22" height="22" rx="4" fill="#5FA477"/>
+    <path d="m6 11 3 3 7-8" fill="none" stroke="#FFFDF8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g transform="translate(795 220)">
+    <rect width="22" height="22" rx="4" fill="#5FA477"/>
+    <path d="m6 11 3 3 7-8" fill="none" stroke="#FFFDF8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="92" y="122" fill="#294B38" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="700" letter-spacing="-1.5">con<tspan font-weight="900">TRACK</tspan>tor</text>
+  <text x="92" y="258" fill="#202629" font-family="Arial, Helvetica, sans-serif" font-size="76" font-weight="900" letter-spacing="-3">
+    <tspan x="92" dy="0">You do the work.</tspan>
+    <tspan x="92" dy="86" fill="#294B38">We keep the record.</tspan>
+  </text>
+  <text x="96" y="450" fill="#5F6B79" font-family="Arial, Helvetica, sans-serif" font-size="29" font-weight="500">Receipts · hours · job updates · invoices</text>
+  <g transform="translate(96 507)">
+    <rect width="270" height="58" rx="12" fill="#294B38"/>
+    <text x="135" y="38" text-anchor="middle" fill="#FFFDF8" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700">Start free</text>
+  </g>
+  <path d="M1138 88v454" stroke="#5FA477" stroke-width="8" stroke-linecap="round"/>
+</svg>
