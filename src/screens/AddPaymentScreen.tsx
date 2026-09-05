@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useGuardedBack } from '@/src/hooks/useGuardedBack';
+import { getLocalDateString } from '@/src/lib/localDate';
 import { createPayment } from '@/src/lib/payments';
 import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Job } from '@/src/types/job';
@@ -30,13 +31,13 @@ export function AddPaymentScreen({
   onCreated,
 }: AddPaymentScreenProps) {
   const [amount, setAmount] = useState('');
-  const [paymentDate, setPaymentDate] = useState(getTodayDate());
+  const [paymentDate, setPaymentDate] = useState(getLocalDateString());
   const [note, setNote] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const handleBack = useGuardedBack({
     hasUnsavedChanges:
-      amount.trim().length > 0 || note.trim().length > 0 || paymentDate !== getTodayDate(),
+      amount.trim().length > 0 || note.trim().length > 0 || paymentDate !== getLocalDateString(),
     isBusy: isSaving,
     message: 'This unsaved payment will be lost.',
     onBack,
@@ -152,10 +153,6 @@ function parseMoney(value: string): number | null {
   const parsed = Number(value.replace(/[$,]/g, '').trim());
 
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function getTodayDate(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function isIsoDate(value: string): boolean {

@@ -14,6 +14,7 @@ import { ScreenLayout } from '@/src/components/ScreenLayout';
 import { useGuardedBack } from '@/src/hooks/useGuardedBack';
 import { fetchJobCrewMembers } from '@/src/lib/jobCrew';
 import { createJobHours } from '@/src/lib/jobHours';
+import { getLocalDateString } from '@/src/lib/localDate';
 import { fetchCurrentProfile } from '@/src/lib/profiles';
 import { getUserFacingError } from '@/src/lib/userFacingError';
 import type { Job } from '@/src/types/job';
@@ -46,7 +47,7 @@ export function AddHoursScreen({
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [breakMinutes, setBreakMinutes] = useState('');
-  const [workDate, setWorkDate] = useState(getTodayDate());
+  const [workDate, setWorkDate] = useState(getLocalDateString());
   const [workerName, setWorkerName] = useState('');
   const [hourlyRate, setHourlyRate] = useState(formatEditableNumber(job.hourlyRate));
   const [crewOptions, setCrewOptions] = useState<CrewOption[]>([]);
@@ -68,7 +69,7 @@ export function AddHoursScreen({
         endTime.trim().length > 0 ||
         breakMinutes.trim().length > 0 ||
         note.trim().length > 0 ||
-        workDate !== getTodayDate()),
+        workDate !== getLocalDateString()),
     isBusy: isSaving,
     message: 'These unsaved hours will be lost.',
     onBack,
@@ -463,10 +464,6 @@ function formatCurrency(value: number): string {
     minimumFractionDigits: 2,
     style: 'currency',
   }).format(value);
-}
-
-function getTodayDate(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function isIsoDate(value: string): boolean {

@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useGuardedBack } from '@/src/hooks/useGuardedBack';
+import { getLocalDateString } from '@/src/lib/localDate';
 import {
   createManualExpense,
   expenseTypes,
@@ -41,7 +42,7 @@ export function AddManualExpenseScreen({
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [expenseType, setExpenseType] = useState<ExpenseType>(defaultExpenseType);
-  const [expenseDate, setExpenseDate] = useState(getTodayDate());
+  const [expenseDate, setExpenseDate] = useState(getLocalDateString());
   const [billable, setBillable] = useState(defaultBillable);
   const [notes, setNotes] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -51,7 +52,7 @@ export function AddManualExpenseScreen({
       description.trim().length > 0 ||
       amount.trim().length > 0 ||
       notes.trim().length > 0 ||
-      expenseDate !== getTodayDate() ||
+      expenseDate !== getLocalDateString() ||
       expenseType !== defaultExpenseType ||
       billable !== defaultBillable,
     isBusy: isSaving,
@@ -250,10 +251,6 @@ function parseMoney(value: string): number | null {
 
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
-}
-
-function getTodayDate(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function isIsoDate(value: string): boolean {
