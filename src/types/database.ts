@@ -2976,6 +2976,7 @@ export type Database = {
         Args: {
           p_hourly_rate: number
           p_job_id: string
+          p_work_date?: string
           p_worker_name?: string
         }
         Returns: {

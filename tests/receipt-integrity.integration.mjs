@@ -76,20 +76,23 @@ test(
       const newTimer = await requiredRpc(clientA, 'start_job_timer_atomic', {
         p_hourly_rate: 90,
         p_job_id: jobA2,
+        p_work_date: '2026-08-31',
         p_worker_name: 'Timer Tester',
       });
       assert.equal(newTimer.job_id, jobA2);
       assert.equal(newTimer.status, 'active');
+      assert.equal(newTimer.work_date, '2026-08-31');
 
       const stoppedRows = await requiredQuery(
         clientA
           .from('time_entries')
-          .select('duration_minutes, status, stopped_at')
+          .select('duration_minutes, status, stopped_at, work_date')
           .eq('id', originalTimerId)
       );
       assert.equal(stoppedRows[0].status, 'reviewed');
       assert.ok(stoppedRows[0].duration_minutes >= 9);
       assert.ok(stoppedRows[0].stopped_at);
+      assert.equal(stoppedRows[0].work_date, '2026-08-31');
 
       const timerEvents = await requiredQuery(
         clientA

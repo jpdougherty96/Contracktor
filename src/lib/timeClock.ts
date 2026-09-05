@@ -1,4 +1,5 @@
 import { recordActivityEvent } from '@/src/lib/activityEvents';
+import { getLocalDateString } from '@/src/lib/localDate';
 import { fetchCurrentProfile } from '@/src/lib/profiles';
 import { supabase } from '@/src/lib/supabase';
 import type { Tables } from '@/src/types/database';
@@ -19,7 +20,7 @@ export type TimeClockDefaults = {
 type TimerJob = Pick<Job, 'hourlyRate' | 'id'>;
 
 const timeEntryFields =
-  'id, job_id, owner_id, business_id, created_by_user_id, started_at, stopped_at, work_date, duration_minutes, hourly_rate, worker_name, description, billable, source, status, created_at, updated_at';
+  'id, job_id, owner_id, business_id, created_by_user_id, started_at, stopped_at, work_date, duration_minutes, hourly_rate, worker_name, description, billable, source, status, invoice_id, invoiced_at, created_at, updated_at';
 
 export async function fetchActiveTimeEntries(): Promise<ActiveTimeEntry[]> {
   const { data: userData, error: userError } = await supabase.auth.getUser();
@@ -114,6 +115,7 @@ export async function startJobTimer(
   const { data, error } = await supabase.rpc('start_job_timer_atomic', {
     p_hourly_rate: timerDefaults.hourlyRate,
     p_job_id: job.id,
+    p_work_date: getLocalDateString(),
     p_worker_name: timerDefaults.workerName ?? undefined,
   });
 
@@ -169,7 +171,7 @@ async function stopActiveTimer(entry: ActiveTimeEntry): Promise<void> {
       stopped_at: stoppedAt.toISOString(),
       status: 'reviewed',
       updated_at: stoppedAt.toISOString(),
-      work_date: stoppedAt.toISOString().slice(0, 10),
+      work_date: getLocalDateString(stoppedAt),
     })
     .eq('id', entry.id)
     .eq('owner_id', entry.owner_id)
