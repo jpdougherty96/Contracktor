@@ -65,7 +65,7 @@ export async function createManualExpense({
       total_amount: amount,
     })
     .select(
-      'id, job_id, owner_id, business_id, created_by_user_id, receipt_id, receipt_line_item_id, description, expense_date, expense_type, source_type, pre_tax_amount, tax_amount, total_amount, billable, status, notes, created_at, updated_at'
+      'id, job_id, owner_id, business_id, created_by_user_id, receipt_id, receipt_line_item_id, description, expense_date, expense_type, source_type, pre_tax_amount, tax_amount, total_amount, billable, status, invoice_id, invoiced_at, notes, created_at, updated_at'
     )
     .single();
 

@@ -667,6 +667,8 @@ export type Database = {
           expense_date: string
           expense_type: string
           id: string
+          invoice_id: string | null
+          invoiced_at: string | null
           job_id: string | null
           notes: string | null
           owner_id: string
@@ -688,6 +690,8 @@ export type Database = {
           expense_date?: string
           expense_type?: string
           id?: string
+          invoice_id?: string | null
+          invoiced_at?: string | null
           job_id?: string | null
           notes?: string | null
           owner_id: string
@@ -709,6 +713,8 @@ export type Database = {
           expense_date?: string
           expense_type?: string
           id?: string
+          invoice_id?: string | null
+          invoiced_at?: string | null
           job_id?: string | null
           notes?: string | null
           owner_id?: string
@@ -2573,6 +2579,8 @@ export type Database = {
           duration_minutes: number
           hourly_rate: number
           id: string
+          invoice_id: string | null
+          invoiced_at: string | null
           job_id: string | null
           owner_id: string
           source: string
@@ -2592,6 +2600,8 @@ export type Database = {
           duration_minutes?: number
           hourly_rate?: number
           id?: string
+          invoice_id?: string | null
+          invoiced_at?: string | null
           job_id?: string | null
           owner_id: string
           source?: string
@@ -2611,6 +2621,8 @@ export type Database = {
           duration_minutes?: number
           hourly_rate?: number
           id?: string
+          invoice_id?: string | null
+          invoiced_at?: string | null
           job_id?: string | null
           owner_id?: string
           source?: string
@@ -2801,6 +2813,18 @@ export type Database = {
         }
         Returns: Database["public"]["Tables"]["job_tasks"]["Row"]
       }
+      create_invoice_draft: {
+        Args: {
+          p_billing_period_end: string | null
+          p_billing_period_start: string | null
+          p_due_date: string | null
+          p_idempotency_key: string
+          p_issue_date: string
+          p_job_id: string
+          p_payment_request_type: string
+        }
+        Returns: Json
+      }
       default_business_for_user: {
         Args: { p_user_id: string }
         Returns: string
@@ -2862,6 +2886,26 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      finalize_invoice: {
+        Args: {
+          p_expected_version: number
+          p_idempotency_key: string
+          p_invoice_id: string
+        }
+        Returns: Json
+      }
+      get_invoice_bundle: {
+        Args: { p_invoice_id: string }
+        Returns: Json
+      }
+      get_job_invoice_draft: {
+        Args: { p_job_id: string }
+        Returns: Json
+      }
+      get_job_invoice_payment_credit: {
+        Args: { p_job_id: string }
+        Returns: number
       }
       mark_tell_processing: {
         Args: { p_entry_id: string }
@@ -2964,6 +3008,23 @@ export type Database = {
         Args: { p_receipt_id: string }
         Returns: number
       }
+      save_invoice_draft: {
+        Args: {
+          p_billing_period_end: string | null
+          p_billing_period_start: string | null
+          p_due_date: string | null
+          p_expected_version: number
+          p_idempotency_key: string
+          p_invoice_id: string
+          p_issue_date: string
+          p_lines: Json
+          p_material_markup_percent: number
+          p_note: string | null
+          p_retainage_amount: number
+          p_terms: string | null
+        }
+        Returns: Json
+      }
       require_receipt_line_review: {
         Args: { p_receipt_id: string }
         Returns: Json
@@ -2988,6 +3049,8 @@ export type Database = {
           duration_minutes: number
           hourly_rate: number
           id: string
+          invoice_id: string | null
+          invoiced_at: string | null
           job_id: string | null
           owner_id: string
           source: string

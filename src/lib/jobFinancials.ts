@@ -4,7 +4,14 @@ import type { Tables } from '@/src/types/database';
 export type JobFinancialSnapshotRow = Tables<'job_financial_snapshots'>;
 export type JobLaborCostEntry = Pick<
   Tables<'time_entries'>,
-  'id' | 'work_date' | 'worker_name' | 'duration_minutes' | 'hourly_rate' | 'description'
+  | 'id'
+  | 'work_date'
+  | 'worker_name'
+  | 'duration_minutes'
+  | 'hourly_rate'
+  | 'description'
+  | 'billable'
+  | 'invoice_id'
 >;
 export type JobMaterialCostEntry = Pick<
   Tables<'expenses'>,
@@ -17,6 +24,9 @@ export type JobMaterialCostEntry = Pick<
   | 'total_amount'
   | 'receipt_id'
   | 'receipt_line_item_id'
+  | 'billable'
+  | 'invoice_id'
+  | 'status'
 >;
 
 export type BasicJobTruthSummary = {
@@ -133,7 +143,9 @@ export async function fetchJobLaborCostEntries(jobId: string): Promise<JobLaborC
 
   const { data, error } = await supabase
     .from('time_entries')
-    .select('id, work_date, worker_name, duration_minutes, hourly_rate, description')
+    .select(
+      'id, work_date, worker_name, duration_minutes, hourly_rate, description, billable, invoice_id'
+    )
     .eq('job_id', jobId)
     .eq('owner_id', userData.user.id)
     .eq('status', 'reviewed')
@@ -160,7 +172,7 @@ export async function fetchJobMaterialCostEntries(jobId: string): Promise<JobMat
   const { data, error } = await supabase
     .from('expenses')
     .select(
-      'id, description, expense_date, expense_type, pre_tax_amount, tax_amount, total_amount, receipt_id, receipt_line_item_id'
+      'id, description, expense_date, expense_type, pre_tax_amount, tax_amount, total_amount, receipt_id, receipt_line_item_id, billable, invoice_id, status'
     )
     .eq('job_id', jobId)
     .eq('owner_id', userData.user.id)

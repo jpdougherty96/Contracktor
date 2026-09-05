@@ -21,7 +21,7 @@ export type UpdateJobHoursInput = {
 };
 
 const timeEntryFields =
-  'id, job_id, owner_id, business_id, created_by_user_id, started_at, stopped_at, work_date, duration_minutes, hourly_rate, worker_name, description, billable, source, status, created_at, updated_at';
+  'id, job_id, owner_id, business_id, created_by_user_id, started_at, stopped_at, work_date, duration_minutes, hourly_rate, worker_name, description, billable, source, status, invoice_id, invoiced_at, created_at, updated_at';
 
 export async function createJobHours(
   jobId: string,
