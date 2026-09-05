@@ -63,6 +63,39 @@ What is only partially complete:
 - The MVP has not yet passed the one-real-job end-to-end acceptance run.
 - Step 12 voice input has not been implemented as a first-class pipeline.
 
+### How automation behaves today
+
+No part of conTRACKtor commits a record without a human approving it. Tell
+conTRACKtor proposes: "Here is what I got" -> Approve All -> Saved -> Undo, and the
+commit runs through one atomic idempotent server RPC. The receipt worker extracts and
+proposes; review is a human step.
+
+The three-level automation model in rulebook §9, and the "Saved · Undo" and
+"high-confidence work completes without approval" language in steps 5, 8, and 10 of
+this file, describe **target states for those steps**. None of it is shipped. Do not
+write code that assumes an existing auto-commit path, and do not describe the product
+as acting on its own.
+
+Accurate framing for today: **AI interprets. Humans approve. Code commits.**
+
+### Build order
+
+Section numbers are stable identifiers, not sequence. The queue is:
+
+```txt
+1. One-real-job end-to-end acceptance run          (see Current sequence below)
+2. 13.0 shared server entitlement helpers
+3. 13.1 AI usage metering, shadow mode first        <- gates widening the Free cohort
+4. 13.2 Free deterministic detectors
+5. 13.3 Free remedy at the point of the finding
+6. Free release
+7. 13.4 Pro Watch, disabled by default
+8. 12   Tell conTRACKtor voice
+```
+
+Metering blocks a wider Free cohort because Free AI usage is uncapped today. Voice is
+post-Free-release work; it is numbered 12 only because it was specified earlier.
+
 Current sequence:
 
 ```txt
@@ -618,6 +651,245 @@ Done when:
 - Speech is transcribed into the same text pipeline.
 - Voice does not bypass text-pipeline authorization, validation, consequence, or audit rules.
 - Failed transcription does not lose the user's intent without a recovery path.
+
+## 13. Tier Implementation — Metering, Free Detectors, and the Pro Watch
+
+Governing documents: [subscription-tiers.md](subscription-tiers.md) and rulebook §2A.
+Read both before starting. This section is the build sequence for that doctrine.
+
+**Position in this file is not position in the queue.** See **Build order** in the
+Current Implementation Checkpoint: 13.0-13.3 are Free-release work and come directly
+after the acceptance run, ahead of section 12; 13.4 follows the Free release.
+
+**The architectural rule for the whole section: one SQL function, two callers.**
+A detector is written once as deterministic SQL. Free calls it from the client, on
+demand, and persists nothing. Pro calls the same function from a scheduled worker,
+persists findings as `attention_items`, and attaches the remedy. *Proof* is a
+property of the function; *initiative* is a property of the caller. Nothing else
+encodes the tier boundary.
+
+### 13.0 Shared server entitlement helpers — do this first
+
+Two blockers exist today:
+
+- `snapshotHasFeature` is defined inline at `supabase/functions/tell-contracktor/index.ts:780`
+  and is unreachable from the other Edge Functions.
+- `public.get_my_entitlements` resolves the business through `auth.uid()` and raises
+  through `user_is_business_member` when there is no JWT. **A service-role worker
+  therefore cannot call `get_my_entitlements` or `business_has_feature`.** Any watch
+  worker that tries will fail at runtime.
+
+Work:
+
+1. Create `supabase/functions/_shared/entitlements.ts` exporting `readEntitlementBusinessId`,
+   `snapshotHasFeature`, and a new `snapshotFeatureLimit(snapshot, key): number | null`.
+   Move the existing implementations out of `tell-contracktor/index.ts` and import them
+   there. No behavior change.
+2. New migration `<timestamp>_service_entitlements.sql`:
+   - `public.business_entitlement_snapshot(p_business_id uuid) returns jsonb` — the body of
+     `get_my_entitlements` **without** the membership check, `security definer`,
+     `set search_path = public`.
+   - `public.service_business_has_feature(p_business_id uuid, p_feature_key text) returns boolean`
+     built on it.
+   - `revoke execute` from `public`, `anon`, and `authenticated`; `grant execute` to
+     `service_role` only.
+   - Do **not** modify `get_my_entitlements` or `business_has_feature`. They are deployed
+     contracts; this is expand-first.
+
+Done when: tsc, lint, `npm test`, and the web build pass; Tell behavior is unchanged; and
+an integration assertion proves the two new functions are not executable by the
+`authenticated` role.
+
+### 13.1 Usage metering — Free release gate
+
+There are exactly three model call sites: `tell-contracktor/index.ts:705`, and
+`_shared/receipt-processing.ts:210` and `:409`. **Reserve before the call, never after.**
+
+New migration `<timestamp>_usage_metering.sql`:
+
+- Table `public.subscription_usage_events (business_id, metric_key, idempotency_key,
+  quantity, created_at, primary key (business_id, metric_key, idempotency_key))`.
+  This is what makes retries safe; the queues do retry.
+- Function:
+
+```sql
+public.consume_subscription_usage(
+  p_business_id uuid,
+  p_metric_key text,
+  p_period_start date,
+  p_period_end date,
+  p_quantity bigint,
+  p_idempotency_key text
+) returns jsonb
+```
+
+  `security definer`, `service_role` only. Insert the event row `on conflict do nothing`;
+  only when a row was actually inserted, upsert `subscription_usage.quantity` for the
+  period. Return `{"quantity": n, "limit": n or null, "allowed": bool, "counted": bool}`,
+  reading the limit from `business_entitlement_snapshot` → `features` → key → `limit`.
+
+Metric keys: `ai.receipt_extraction`, `ai.tell_submission`. Period is the calendar month.
+Idempotency key is the receipt id for extraction and the Tell entry id for Tell.
+
+Enforcement mode is an Edge Function env var `AI_USAGE_ENFORCEMENT` with values
+`shadow` (default) and `enforce`. **Run shadow for at least seven days before enforcing.**
+Setting the cap number is a decision made from that data, not before it.
+
+When enforcing and over limit:
+
+- Receipt: skip extraction, leave the receipt capturable, raise an attention item with
+  `item_type = 'receipt.manual_entry_required'`. **Never fail the capture.**
+- Tell: return success with a plain message. Never block a record-creation path.
+- The server returns a neutral reason code. Upgrade copy lives in the client only
+  (rulebook §2A, tiebreaker 1: secondary, non-modal, off the critical path).
+
+Also wire up `getFeatureLimit` in `src/lib/entitlements.ts:74`, which is currently dead code.
+
+### 13.2 Free deterministic detectors
+
+One migration, `<timestamp>_job_findings.sql`. Every function: `stable`,
+`security definer`, `set search_path = public`, `grant execute to authenticated`, and an
+explicit membership guard in the shape used by `get_job_invoice_draft`
+(`invoice_ledger.sql:337`). **No entitlement check — these are Free for every business.**
+
+Exact predicates, verified against the ledger's own validation:
+
+- **Unbilled labor**: `time_entries` where `job_id = p_job_id and status = 'reviewed' and
+  invoice_id is null and duration_minutes > 0 and hourly_rate > 0`.
+  **Do not filter on `time_entries.billable`.** It defaults to false and nothing in the
+  codebase sets it true; the ledger requires only `status = 'reviewed'` and a null
+  `invoice_id` (`invoice_ledger.sql:755-760`). Filtering on `billable` produces a detector
+  that never fires.
+- **Unbilled materials**: `expenses` where `job_id = p_job_id and billable = true and
+  status in ('reviewed','billable') and invoice_id is null` (`invoice_ledger.sql:808`).
+- Labor amount: `round((duration_minutes::numeric / 60) * hourly_rate, 2)` — identical
+  rounding to `invoice_ledger.sql:780`. Material amount: `total_amount`.
+
+Functions:
+
+1. `job_unbilled_work(p_job_id uuid) returns jsonb`
+2. `job_budget_variance(p_job_id uuid) returns jsonb` — actual material/sub/misc cost against
+   `jobs.estimated_material_cost`, `estimated_sub_cost`, `estimated_misc_cost`. A null
+   estimate yields no finding.
+3. `job_estimate_variance(p_job_id uuid) returns jsonb` — recorded hours against
+   `jobs.estimated_labor_hours`.
+4. `job_unassigned_records(p_business_id uuid) returns jsonb` — receipts and expenses with
+   `job_id is null`.
+5. `get_job_findings(p_job_id uuid) returns jsonb` — calls 1–3 and returns one array.
+   **The client calls only this one.** Do not add five round trips to job open.
+
+Before writing a receipt integrity check, read
+`20260904010000_receipt_financial_hardening.sql` — line-item versus total reconciliation may
+already exist. Reuse it rather than adding a second implementation.
+
+Client work: `src/lib/jobFindings.ts` with a typed `fetchJobFindings(jobId)`; render findings
+in `JobDashboardScreen` (variances), `InvoiceDraftScreen` (unbilled work — this is the
+canonical case), and `ReceiptReviewScreen` (integrity). Placement is part of the entitlement:
+a finding must appear wherever the fact is relevant.
+
+Register these keys in `subscription_features` and grant them to Free in `plan_entitlements`
+so they are movable later, even though the functions do not check them:
+`job.snapshot.view`, `job.budget_variance.view`, `job.estimate_variance.view`,
+`job.unbilled_work.detect`, `receipt.integrity_check`.
+
+**Adding Free keys changes the asserted Free allowlist.** Update the `freeBaseline` array in
+`tests/tier-boundary.test.mjs` and the `freeBaselineFeatures` set in
+`src/contexts/EntitlementsContext.tsx:27` in the same commit, or CI fails.
+
+### 13.3 Free remedy at the point of the finding
+
+Migration `<timestamp>_add_unbilled_to_draft.sql`:
+
+```sql
+public.add_unbilled_work_to_draft(
+  p_invoice_id uuid,
+  p_expected_version integer,
+  p_source_kind text,          -- 'labor' | 'material'
+  p_source_ids uuid[],
+  p_idempotency_key text
+) returns jsonb
+```
+
+It must route through the existing ledger validation. Do not write `invoice_time_entries` or
+`invoice_expenses` directly and do not bypass `guard_invoice_source_attribution`. Extract the
+shared validation body out of `save_invoice_draft` into an internal function and call it from
+both, rather than duplicating the checks.
+
+This is **Free** — no entitlement check. It is one deterministic write against a finding the
+contractor is already looking at (rulebook §2A, tiebreaker 3). Add the control to the unbilled
+finding in `InvoiceDraftScreen`.
+
+### 13.4 Pro watch — the first Pro-only deploy
+
+New Edge Function `supabase/functions/process-watch-queue/` (`index.ts` plus `config.toml`
+with `verify_jwt = true`), modeled directly on `process-tell-queue/index.ts`:
+
+- Authorize with `x-worker-secret` against `WATCH_WORKER_SECRET ?? RECEIPT_WORKER_SECRET`
+  (same shape as `process-tell-queue/index.ts:10-13`).
+- Service-role client with `autoRefreshToken: false, persistSession: false`.
+- For each business with an active subscription, call `service_business_has_feature(
+  business_id, 'job.watch.missed_billing')` from 13.0. `business_has_feature` will raise here.
+- For each job with `status = 'active'`, call `job_unbilled_work`.
+- Upsert `attention_items` with `item_type = 'watch.missed_billing'`, `source_table = 'jobs'`,
+  `source_id = job_id`, plus `business_id`, `owner_id` (from `jobs.owner_id`), `job_id`,
+  `severity = 'warning'`, and the amount in `metadata`. The existing
+  `attention_items_source_unique` constraint makes re-runs idempotent.
+- Auto-resolve: when a finding clears, set `status = 'resolved'` and `resolved_at = now()`.
+- **This worker must never call OpenAI.** v1 contains no inference.
+
+Migration `<timestamp>_watch_worker.sql`:
+
+- `cron.schedule('contracktor-process-watch-queue', '*/15 * * * *', ...)` copying the
+  `net.http_post` block from `20260827090000_async_grouped_tell_submissions.sql:531` verbatim
+  and changing only the function path, including the unschedule-first `do` block.
+- RLS: an authenticated client must not be able to forge a `watch.%` attention item. Add a
+  policy restricting those writes to `service_role`, following the policy shape in
+  `20260608107000_pro_tier_boundary.sql`.
+- Register `job.watch.missed_billing`, `job.watch.budget_risk`, `job.watch.invoice_ready` and
+  grant them to Pro only. Do not rename `job.proactive_insights` or `automation.proactive` —
+  expand first, deprecate later.
+- **Kill switch**: the worker reads a single global enable flag once per invocation,
+  independent of per-business entitlement resolution, so the watch can be stopped even when
+  entitlement resolution is what is broken.
+
+Ship with no plan granting the key. Enable it for one internal account through a
+`business_entitlement_overrides` row before any cohort sees it.
+
+### 13.5 Behavioral tests
+
+Add `tests/tier-boundary.integration.mjs` and a `test:tiers:integration` script, wired into the
+`database-integration` job in `.github/workflows/quality.yml` as a fourth step using the same
+env block as the existing three. Assert behaviorally against the ephemeral stack:
+
+1. Free business: `get_job_findings` returns the unbilled finding.
+2. Pro business: the same finding is returned — Free detectors are not gated.
+3. Free business: a direct authenticated insert into `attention_items` with
+   `item_type = 'watch.missed_billing'` is rejected.
+4. `service_business_has_feature('job.watch.missed_billing')` is false for Free and true for Pro.
+5. `business_entitlement_snapshot` and `service_business_has_feature` are not executable by the
+   `authenticated` role.
+6. `consume_subscription_usage` called twice with the same idempotency key increments the
+   period quantity exactly once.
+7. A time entry already attributed to a finalized invoice does not appear in `job_unbilled_work`.
+
+Do not add further source-pattern tests for this work.
+
+### Order, and what ships when
+
+`13.0 → 13.1 (shadow) → 13.2 → 13.3 → 13.4`, with `13.5` growing alongside each step.
+
+13.0 through 13.3 are Free work and belong in the Free release. 13.4 is the first Pro-only
+deployment and is disabled by default.
+
+Prerequisite hygiene, before or alongside:
+
+- `supabase/functions/extract-receipt/` is an intentionally empty directory. The function is
+  retired and has been deleted from the live project; receipt extraction now runs through
+  `process-receipt-queue` and `_shared/receipt-processing.ts`. Git does not track empty
+  directories, so the folder will disappear on the next commit. That is expected.
+- [tier-development.md](tier-development.md) still describes one shared Supabase project for
+  both development and the deployed app. That is no longer true and the Free/Pro test-account
+  instructions in it point at the wrong database.
 
 ## Deferred From This Roadmap
 

@@ -47,3 +47,7 @@ app-example
 /ios
 /android
 .vercel
+
+# Audit screenshots are review artifacts; keep the written reports in Git.
+audit/**/*.png
+audit/**/*.jpg

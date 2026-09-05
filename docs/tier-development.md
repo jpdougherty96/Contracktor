@@ -1,29 +1,38 @@
 # Developing Free and Pro Safely
 
-conTRACKtor uses one codebase, one deployable app, and the existing
-`contracktor-dev` Supabase project (`spdhsfkiejdrctclbudv`). Free and Pro are
-selected at runtime from each business's effective feature entitlements. Do
-not maintain separate long-lived Free and Pro branches.
+conTRACKtor uses one codebase and one deployable app. Free and Pro are selected
+at runtime from each business's effective feature entitlements. Do not maintain
+separate long-lived Free and Pro branches.
 
-## Shared Development Backend
+## Two Backends
 
-- The deployed app and local development currently use the same Supabase
-  project.
+Since September 1, 2026 there are two Supabase projects:
+
+- **Live** holds the beta users and is what contracktor.app talks to. It is not a
+  development target. Do not run migrations, deploy functions, or edit rows there
+  outside a deliberate release.
+- **Development** is a separate project that local Expo, the Supabase CLI link, and
+  Vercel previews point at. Every instruction below that says to edit rows or flip a
+  plan means this project.
+
+Confirm which project ref you are pointed at before any database work. Local Expo
+loads `.env.local` ahead of `.env`, so `.env.local` is what actually decides.
+
 - Application work happens on a short-lived `codex/` or developer branch.
-- Local Expo reads the existing project URL and public key from `.env`.
+- Local Expo reads the development project URL and public key from `.env.local`.
 - Start Expo Go with `npm start`; start the browser version with `npm run web`.
 - Never place a service-role key or database password in an `EXPO_PUBLIC_`
   variable.
 
-Because the backend is shared, every migration and Edge Function deployment
-can affect the currently deployed client before new application code is
-released. Backend changes must therefore remain backward-compatible. Prefer
+Even with the environments split, backend changes reach the deployed client
+before new application code does whenever a migration is released ahead of a
+build. Backend changes must therefore remain backward-compatible. Prefer
 additive tables, columns, functions, feature keys, and policies. Do not remove
 or rename a contract until every deployed client has moved away from it.
 
 ## Real Free and Pro Accounts
 
-Use two real accounts in `contracktor-dev`:
+Use two real accounts in the **development** project:
 
 1. Keep one business assigned to `free` with no overrides.
 2. Assign the other business to `pro`.

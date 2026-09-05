@@ -113,28 +113,76 @@ management software. Features outside the MVP loop are deferred by default.
 
 The tier boundary follows one durable rule:
 
-> **Free preserves and explains reality.**
+> **Free records and reveals.**
 >
-> **Pro works on that reality for the contractor.**
+> **Pro watches, reasons, and acts.**
 >
-> **Business lets the whole crew contribute to it.**
+> **Business coordinates the team.**
 
-Free must be sufficient to accurately capture and understand the operational
-and financial truth of a contractor's jobs. Pro adds interpretation,
-prediction, suggestions, and clerical automation on top of those records.
-Business adds multi-person coordination, roles, permissions, crew capture,
-and owner oversight.
+Two axes classify every capability.
 
-Classify proposed capabilities with these questions:
+**Proof.** Can ordinary deterministic code prove it from records the user already
+entered, or does it require inference, prediction, language, or cross-job pattern?
 
-1. Is it necessary for the records to be true? It belongs in Free.
-2. Is conTRACKtor doing thinking or work on top of those records? It belongs in Pro.
-3. Is it about multiple humans operating together? It belongs in Business.
+**Initiative.** Does it run because the user asked, or continuously without being
+asked?
+
+```txt
+                 On demand    Continuous
+Deterministic    Free         Pro
+Inferential      Pro          Pro
+```
+
+- **Free** = deterministic truth, plus the capture AI required to record it, on demand.
+- **Pro** = continuous vigilance, inference, and delegated or ongoing administrative
+  labor — not the immediate correction of a Free finding.
+- **Business** = multi-person participation and coordination.
+
+Classify a proposed capability with these questions, first yes wins:
+
+1. Does it require a second authenticated person to participate? It belongs in Business.
+2. Can deterministic code prove it from records the user already entered, and will
+   it be shown where that fact belongs, when the user is there? It belongs in Free.
+3. Otherwise it belongs in Pro: it infers, predicts, or interprets; it runs on a
+   schedule rather than a user action; or it performs the administrative work a
+   finding creates.
 
 Correctness always wins the classification. Extraction and reconciliation of
-discounts, rebates, store credit, tax, payment totals, corrections, and
-required attention cannot become premium merely because AI helps produce the
-accurate record.
+discounts, rebates, store credit, tax, payment totals, corrections, and required
+attention cannot become premium merely because AI helps produce the accurate
+record.
+
+> **We do not charge a contractor to see his own math.**
+
+Four tiebreakers resolve the hard cases:
+
+- **Capture AI is a deliberate Free exception.** Receipt extraction is AI and is
+  Free, because capture must beat the notebook. Free AI is metered, and an
+  exhausted allowance must never block recording the receipt: manual entry is the
+  immediate default, not something behind a dismissal. Naming Pro's additional
+  automation is permitted, but only as secondary, non-modal information off the
+  critical path. The share of Free users reaching an allowance is a health metric,
+  never a conversion metric.
+- **Event-triggered attention is Free; scheduled scanning is Pro.** An attention
+  item raised because conTRACKtor could not finish what the user started is Free.
+  Scanning jobs nobody touched, on conTRACKtor's own initiative, is Pro.
+- **A single deterministic remedy at the point of the finding is Free.** If the
+  product shows the contractor that six recorded hours are missing from the invoice
+  in front of him, adding them is Free. Pro owns the unprompted finding, the batch
+  fix, drafted language, and any remedy requiring judgment.
+- **Placement is part of the entitlement.** A Free finding must appear everywhere
+  the fact is relevant. Weakening Free by placement is the same violation as
+  weakening it by entitlement.
+
+Free's sacrifice is attention, and it is stated plainly rather than hidden:
+
+> Free is one person, it answers when asked, and it does not watch your jobs while
+> you are not looking.
+
+Entitlement keys name capabilities exactly. There are no `basic` and `advanced`
+variants; a fuzzy boundary becomes an arbitrary one. See
+[subscription-tiers.md](subscription-tiers.md) for the boundary, the canonical
+missed-billing example, and the feature key catalogue.
 
 ## 3. Rule Priority
 
