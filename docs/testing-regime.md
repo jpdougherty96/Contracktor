@@ -345,8 +345,8 @@ Required state:
 
 - TypeScript, lint, tests, and production build pass.
 - Local and remote migrations match.
-- `extract-receipt`, `process-receipt-queue`, and `tell-contracktor` are active
-  at their intended versions.
+- `process-receipt-queue` and `tell-contracktor` are active at their intended
+  versions, and the retired `extract-receipt` function is absent.
 - Receipt and attachment storage remain private.
 - Production environment secrets are present.
 - The production deployment is the intended commit.

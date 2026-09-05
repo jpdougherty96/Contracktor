@@ -262,7 +262,7 @@ test(
       assert.equal((await fetchReceiptExpenses(clientA, fixture.receipt.id)).length, 0);
     });
 
-    await t.test('credit receipt requires explicit gross choice and can return to $420 amount paid', async () => {
+    await t.test('discount is prorated across line assignments and books the $420 amount paid', async () => {
       const fixture = await createLineReceipt(clientA, {
         businessId: businessA,
         jobId: jobA1,
@@ -273,59 +273,30 @@ test(
         total: 420,
         vendor: 'Acceptance Test Hardware',
         items: [
-          { amount: 500, name: 'Merchandise' },
+          { amount: 300, name: 'Job A merchandise' },
+          { amount: 200, name: 'Job B merchandise' },
           { amount: 100, lineType: 'discount', name: 'Store credit' },
         ],
       });
       const assignments = [
         assignment(fixture.lineIds[0], 'job', jobA1),
-        assignment(fixture.lineIds[1], 'ignore'),
+        assignment(fixture.lineIds[1], 'job', jobA2),
+        assignment(fixture.lineIds[2], 'ignore'),
       ];
-      const ordinaryLineResult = await clientA.rpc('commit_receipt_review', {
-        p_expected_updated_at: fixture.receipt.updated_at,
-        p_idempotency_key: `credit-lines-rejected-${suffix}`,
-        p_receipt_id: fixture.receipt.id,
-        p_review: lineReview(fixture.receipt, assignments),
-      });
-      assert.ok(ordinaryLineResult.error);
-      assert.match(ordinaryLineResult.error.message, /exceeds the amount paid/i);
-      assert.equal((await fetchReceiptExpenses(clientA, fixture.receipt.id)).length, 0);
-
-      const grossResult = await commit(
+      const result = await commit(
         clientA,
         fixture.receipt,
-        `credit-lines-gross-${suffix}`,
-        { ...lineReview(fixture.receipt, assignments), allowGrossLineCost: true }
+        `credit-lines-net-${suffix}`,
+        lineReview(fixture.receipt, assignments)
       );
-      assert.equal(grossResult.allocatedCost, 520);
-      assert.equal(grossResult.costBasis, 'gross_items');
-
-      let expenses = await fetchReceiptExpenses(clientA, fixture.receipt.id);
-      assert.equal(expenses.length, 1);
-      assert.equal(expenses[0].total_amount, 520);
-
-      const grossReceipt = await fetchReceipt(clientA, fixture.receipt.id);
-      const amountPaidReview = {
-        category: 'materials',
-        destinationJobId: jobA1,
-        ignoreLineItems: true,
-        jobCostAmount: 420,
-        mode: 'whole',
-        receiptDate: fixture.receipt.receipt_date,
-        subtotal: 500,
-        tax: 20,
-        total: 420,
-        vendor: fixture.receipt.vendor,
-      };
-
-      const result = await commit(clientA, grossReceipt, `credit-amount-paid-${suffix}`, amountPaidReview);
       assert.equal(result.allocatedCost, 420);
-      assert.equal(result.costBasis, 'amount_paid');
+      assert.equal(result.costBasis, 'line_items');
 
-      expenses = await fetchReceiptExpenses(clientA, fixture.receipt.id);
-      assert.equal(expenses.length, 1);
-      assert.equal(expenses[0].total_amount, 420);
-      assert.equal(sum([expenses[0].pre_tax_amount, expenses[0].tax_amount]), 420);
+      const expenses = await fetchReceiptExpenses(clientA, fixture.receipt.id);
+      assert.equal(expenses.length, 2);
+      assert.equal(sum(expenses.map((expense) => expense.total_amount)), 420);
+      assert.equal(expenses.find((expense) => expense.job_id === jobA1).total_amount, 252);
+      assert.equal(expenses.find((expense) => expense.job_id === jobA2).total_amount, 168);
 
       const receipt = await fetchReceipt(clientA, fixture.receipt.id);
       assert.equal(receipt.total, 420);
@@ -342,6 +313,75 @@ test(
       const credit = lines.find((line) => line.line_type === 'discount');
       assert.equal(credit.line_total, 100);
       assert.equal(credit.review_status, 'ignored');
+    });
+
+    await t.test('explicit gross costing preserves full item prices while recording the printed amount paid', async () => {
+      const fixture = await createLineReceipt(clientA, {
+        businessId: businessA,
+        jobId: jobA1,
+        ownerId: accountA.userId,
+        receiptDate: '2026-08-22',
+        subtotal: 1000,
+        tax: 70,
+        total: 770.43,
+        vendor: 'Gross Cost Test Hardware',
+        items: [
+          { amount: 1000, name: 'Gross merchandise' },
+          { amount: 299.57, lineType: 'discount', name: 'Store rebate' },
+        ],
+      });
+      const review = lineReview(fixture.receipt, [
+        assignment(fixture.lineIds[0], 'job', jobA1),
+        assignment(fixture.lineIds[1], 'ignore'),
+      ]);
+      review.allowGrossLineCost = true;
+
+      const result = await commit(
+        clientA,
+        fixture.receipt,
+        `credit-lines-gross-${suffix}`,
+        review
+      );
+      assert.equal(result.allocatedCost, 1070);
+      assert.equal(result.costBasis, 'gross_items');
+
+      const expenses = await fetchReceiptExpenses(clientA, fixture.receipt.id);
+      assert.equal(expenses.length, 1);
+      assert.equal(expenses[0].pre_tax_amount, 1000);
+      assert.equal(expenses[0].tax_amount, 70);
+      assert.equal(expenses[0].total_amount, 1070);
+
+      const receipt = await fetchReceipt(clientA, fixture.receipt.id);
+      assert.equal(receipt.total, 770.43);
+      assert.equal(receipt.allocated_cost, 1070);
+      assert.equal(receipt.cost_basis, 'gross_items');
+    });
+
+    await t.test('line-based commits reject an OCR under-read without changing job cost', async () => {
+      const fixture = await createLineReceipt(clientA, {
+        businessId: businessA,
+        jobId: jobA1,
+        ownerId: accountA.userId,
+        receiptDate: '2026-08-22',
+        subtotal: 100,
+        tax: 0,
+        total: 100,
+        vendor: 'Under-read Test Hardware',
+        items: [{ amount: 80, name: 'Partially extracted merchandise' }],
+      });
+      const result = await clientA.rpc('commit_receipt_review', {
+        p_expected_updated_at: fixture.receipt.updated_at,
+        p_idempotency_key: `under-read-${suffix}`,
+        p_receipt_id: fixture.receipt.id,
+        p_review: lineReview(fixture.receipt, [
+          assignment(fixture.lineIds[0], 'job', jobA1),
+        ]),
+      });
+
+      assert.ok(result.error);
+      assert.match(result.error.message, /lines do not match the amount paid/i);
+      assert.equal((await fetchReceiptExpenses(clientA, fixture.receipt.id)).length, 0);
+      assert.equal((await fetchReceipt(clientA, fixture.receipt.id)).status, 'needs_review');
     });
 
     await t.test('accepted receipt removal voids cost but preserves audit and source row', async () => {

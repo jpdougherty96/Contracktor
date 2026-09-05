@@ -20,6 +20,11 @@ import { useGuardedBack } from '@/src/hooks/useGuardedBack';
 import { formatCurrency } from '@/src/lib/financials';
 import { fetchJobs } from '@/src/lib/jobs';
 import {
+  getReceiptAdjustmentDecision,
+  shouldAutoFinalizeReceipt,
+  shouldOfferReceiptAdjustmentChoice,
+} from '@/src/lib/receiptAdjustments';
+import {
   confirmReceiptLineAssignments,
   confirmReceiptLineAssignmentsUsingGrossItemCost,
   createReceiptImageSignedUrl,
@@ -27,6 +32,7 @@ import {
   fetchReceipt,
   fetchReceiptLineItems,
   fetchPotentialDuplicateReceipts,
+  finalizeReceiptCapture,
   receiptCategories,
   requireReceiptLineItems,
   updateReceipt,
@@ -95,30 +101,37 @@ export function ReceiptReviewScreen({
   >({});
   const [jobs, setJobs] = useState<Job[]>([]);
   const [potentialDuplicates, setPotentialDuplicates] = useState<PotentialDuplicateReceipt[]>([]);
+  const [hasCompletedDuplicateCheck, setHasCompletedDuplicateCheck] = useState(false);
   const [isDeletingReceiptId, setIsDeletingReceiptId] = useState<string | null>(null);
   const [isEditingLineAssignments, setIsEditingLineAssignments] = useState(false);
   const [isReviewingSingleJobLines, setIsReviewingSingleJobLines] = useState(false);
   const [receiptPollKey, setReceiptPollKey] = useState(0);
+  const [receiptPollingTimedOut, setReceiptPollingTimedOut] = useState(false);
+  const [isRetryingProcessing, setIsRetryingProcessing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isAutoFinalizing, setIsAutoFinalizing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const hasLoadedReceiptRef = useRef(false);
   const loadedImageStoragePathRef = useRef<string | null>(null);
+  const pollingStartedAtRef = useRef<number | null>(null);
   const autoFinalizedReceiptIdsRef = useRef<Set<string>>(new Set());
   const baselineDraftSignatureRef = useRef<string | null>(null);
   const shouldUseInlineImageZoom = viewportWidth < 768;
-  const needsManualReceiptReview = receipt?.status === 'error' || receipt?.review_status === 'error';
+  const needsManualReceiptReview =
+    receipt?.status === 'error' ||
+    receipt?.review_status === 'error' ||
+    receipt?.processing_status === 'failed' ||
+    Boolean(receipt?.error_message);
   const hasLineItems = lineItems.length > 0;
   const hasReceiptAdjustments = lineItems.some((lineItem) => lineItem.line_type === 'discount');
   const isReceiptStillProcessing = isReceiptProcessingStatus(receipt?.processing_status);
   const selectedReceiptJobs =
     contextJobs && contextJobs.length > 0 ? contextJobs : job && !inventoryMode ? [job] : [];
-  const receiptAdjustment = receipt ? getReceiptAdjustmentDecision(lineItems, receipt) : null;
   const lineItemsTotal = receipt ? getLineItemsTotal(lineItems, receipt.tax) : 0;
-  const lineItemsExceedReceiptTotal =
+  const lineItemsDoNotMatchReceiptTotal =
     hasLineItems &&
     typeof receipt?.total === 'number' &&
-    lineItemsTotal > receipt.total + 0.05;
+    Math.abs(lineItemsTotal - receipt.total) > 0.05;
   const assignedLineItemsTotal = receipt
     ? getAssignedLineItemsTotal(lineItems, lineAssignments, receipt.tax)
     : 0;
@@ -126,14 +139,15 @@ export function ReceiptReviewScreen({
     hasLineItems &&
     typeof receipt?.total === 'number' &&
     assignedLineItemsTotal > receipt.total + 0.05;
+  const receiptAdjustment = receipt ? getReceiptAdjustmentDecision(lineItems, receipt) : null;
   const isSingleJobLineReceipt = selectedReceiptJobs.length === 1 && hasLineItems;
-  const requiresReceiptAdjustmentChoice =
-    Boolean(receiptAdjustment) &&
-    lineItemsExceedReceiptTotal &&
-    selectedReceiptJobs.length === 1 &&
-    !inventoryMode &&
-    !includeInventoryDestination;
-  const hasUntrustedLineItems = lineItemsExceedReceiptTotal && !requiresReceiptAdjustmentChoice;
+  const requiresReceiptAdjustmentChoice = shouldOfferReceiptAdjustmentChoice(
+    receiptAdjustment,
+    selectedReceiptJobs.length,
+    inventoryMode,
+    includeInventoryDestination
+  );
+  const hasUntrustedLineItems = lineItemsDoNotMatchReceiptTotal;
   const requiresLineItems =
     (selectedReceiptJobs.length > 1 ||
       (includeInventoryDestination && selectedReceiptJobs.length > 0)) &&
@@ -170,19 +184,30 @@ export function ReceiptReviewScreen({
     (!isSavedReceipt || isEditingLineAssignments || isSingleJobLineReceipt);
   const canAutoFinalizeSingleJobReceipt =
     Boolean(receipt) &&
-    !isLoading &&
-    !isSaving &&
-    !isAutoFinalizing &&
-    !isReceiptStillProcessing &&
-    !isSavedReceipt &&
-    !inventoryMode &&
-    !includeInventoryDestination &&
-    selectedReceiptJobs.length === 1 &&
-    hasLineItems &&
-    !hasReceiptAdjustments &&
-    !requiresReceiptAdjustmentChoice &&
-    !hasUntrustedLineItems &&
-    receipt?.processing_status === 'complete';
+    shouldAutoFinalizeReceipt({
+      assignedDestinationCount: assignedDestinationKeys.length,
+      duplicateCheckComplete: hasCompletedDuplicateCheck,
+      duplicateCount: potentialDuplicates.length,
+      hasLineItems,
+      hasReceiptAdjustments,
+      hasTrustedLineConfidence: lineItems.every(
+        (lineItem) => typeof lineItem.confidence === 'number' && lineItem.confidence >= 0.6
+      ),
+      hasUntrustedLineItems,
+      includeInventoryDestination,
+      inventoryMode,
+      isAutoFinalizing,
+      isLoading,
+      isReceiptStillProcessing,
+      isSavedReceipt,
+      isSaving,
+      lineItemsTotal,
+      needsManualReceiptReview,
+      processingStatus: receipt?.processing_status ?? null,
+      receiptTotal: receipt?.total ?? null,
+      requiresReceiptAdjustmentChoice,
+      selectedJobCount: selectedReceiptJobs.length,
+    });
   const currentDraftSignature = buildReceiptDraftSignature({
     category,
     jobCostAmount,
@@ -298,11 +323,13 @@ export function ReceiptReviewScreen({
             vendor: displayReceipt.vendor ?? '',
           });
           setPotentialDuplicates([]);
+          setHasCompletedDuplicateCheck(false);
 
           fetchPotentialDuplicateReceipts(displayReceipt)
             .then((duplicates) => {
               if (isMounted) {
                 setPotentialDuplicates(duplicates);
+                setHasCompletedDuplicateCheck(true);
               }
             })
             .catch((error) => {
@@ -388,13 +415,28 @@ export function ReceiptReviewScreen({
 
   useEffect(() => {
     if (!isReceiptStillProcessing) {
+      pollingStartedAtRef.current = null;
+
+      if (receiptPollingTimedOut) {
+        setReceiptPollingTimedOut(false);
+      }
+
       return;
     }
 
-    const pollTimer = setTimeout(() => setReceiptPollKey((key) => key + 1), 2500);
+    pollingStartedAtRef.current ??= Date.now();
+    const elapsed = Date.now() - pollingStartedAtRef.current;
+
+    if (elapsed >= 2 * 60 * 1000) {
+      setReceiptPollingTimedOut(true);
+      return;
+    }
+
+    const pollDelay = Math.min(2500 * 2 ** Math.floor(receiptPollKey / 4), 15000);
+    const pollTimer = setTimeout(() => setReceiptPollKey((key) => key + 1), pollDelay);
 
     return () => clearTimeout(pollTimer);
-  }, [isReceiptStillProcessing, receiptPollKey]);
+  }, [isReceiptStillProcessing, receiptPollKey, receiptPollingTimedOut]);
 
   useEffect(() => {
     if (!receipt || !canAutoFinalizeSingleJobReceipt) {
@@ -445,6 +487,27 @@ export function ReceiptReviewScreen({
     onSaved,
     receipt,
   ]);
+
+  const handleRetryProcessing = async () => {
+    if (!receipt || receipt.processing_status !== 'failed') {
+      return;
+    }
+
+    setIsRetryingProcessing(true);
+    setErrorMessage(null);
+
+    try {
+      const queuedReceipt = await finalizeReceiptCapture(receipt.id);
+      setReceipt(queuedReceipt);
+      pollingStartedAtRef.current = Date.now();
+      setReceiptPollingTimedOut(false);
+      setReceiptPollKey((key) => key + 1);
+    } catch (error) {
+      setErrorMessage(getUserFacingError(error, 'Unable to retry receipt processing.'));
+    } finally {
+      setIsRetryingProcessing(false);
+    }
+  };
 
   const handleSave = async () => {
     setErrorMessage(null);
@@ -581,9 +644,7 @@ export function ReceiptReviewScreen({
   const handleUseAmountPaidForAdjustment = async () => {
     setErrorMessage(null);
 
-    if (!receipt) {
-      return;
-    }
+    if (!receipt) return;
 
     if (!receipt.vendor?.trim()) {
       setErrorMessage('Vendor is required.');
@@ -835,20 +896,34 @@ export function ReceiptReviewScreen({
                     </Text>
                   </View>
                 ) : null}
-                {isReceiptStillProcessing || isAutoFinalizing ? (
+                {isReceiptStillProcessing && !receiptPollingTimedOut ? (
                   <View style={styles.processingPanel}>
                     <ActivityIndicator color="#335C43" />
                     <View style={styles.processingTextColumn}>
-                      <Text style={styles.processingTitle}>
-                        {isAutoFinalizing ? 'Saving receipt' : 'Reading receipt'}
-                      </Text>
+                      <Text style={styles.processingTitle}>Reading receipt</Text>
                       <Text style={styles.processingText}>
-                        {isAutoFinalizing
-                          ? 'conTRACKtor is assigning this receipt to the selected job.'
-                          : 'conTRACKtor is extracting the receipt details. You can leave this screen; it will continue in the background.'}
+                        conTRACKtor is extracting the receipt details. You can leave this screen; it will continue in the background.
                       </Text>
                     </View>
                   </View>
+                ) : null}
+                {isReceiptStillProcessing && receiptPollingTimedOut ? (
+                  <View style={styles.manualReviewPanel}>
+                    <Text style={styles.manualReviewTitle}>Still processing</Text>
+                    <Text style={styles.manualReviewText}>
+                      This receipt is taking longer than expected. You can leave this screen and check it again from Activity.
+                    </Text>
+                  </View>
+                ) : null}
+                {receipt.processing_status === 'failed' ? (
+                  <Pressable
+                    disabled={isRetryingProcessing}
+                    onPress={() => void handleRetryProcessing()}
+                    style={[styles.quickSaveButton, isRetryingProcessing && styles.disabledButton]}>
+                    <Text style={styles.quickSaveButtonText}>
+                      {isRetryingProcessing ? 'Retrying...' : 'Try reading receipt again'}
+                    </Text>
+                  </Pressable>
                 ) : null}
                 {requiresLineItems ? (
                   <View style={styles.retakePanel}>
@@ -985,14 +1060,14 @@ export function ReceiptReviewScreen({
                   </View>
                 ) : null}
 
-                {lineItemsExceedReceiptTotal && !requiresReceiptAdjustmentChoice && receipt?.total ? (
+                {hasUntrustedLineItems && !requiresReceiptAdjustmentChoice && receipt?.total ? (
                   <View style={styles.warningPanel}>
                     <Text style={styles.warningTitle}>Line items need review</Text>
                     <Text style={styles.warningText}>
                       Parsed lines add up to{' '}
                       {formatCurrency(lineItemsTotal, { showCents: true })}, but the receipt total is{' '}
-                      {formatCurrency(receipt.total, { showCents: true })}. conTRACKtor will not save
-                      more than the receipt total.
+                      {formatCurrency(receipt.total, { showCents: true })}. conTRACKtor will not use
+                      incomplete or excessive lines for the job cost.
                     </Text>
                   </View>
                 ) : null}
@@ -1073,8 +1148,8 @@ export function ReceiptReviewScreen({
                         <View style={styles.lineItemsPanel}>
                           <Text style={styles.sectionTitle}>Parsed lines, not saved</Text>
                           <Text style={styles.helpText}>
-                            These lines are shown as reference only because they add up to more than
-                            the receipt total.
+                            These lines are shown as reference only because they do not match the
+                            receipt total.
                           </Text>
                           {lineItems.map((lineItem) => (
                             <LineItemCard
@@ -1735,51 +1810,6 @@ function isReceiptProcessingStatus(value: string | null | undefined): boolean {
   return value === 'uploading' || value === 'queued' || value === 'processing';
 }
 
-function getReceiptAdjustmentDecision(
-  lineItems: Tables<'receipt_line_items'>[],
-  receipt: Tables<'receipts'>
-): {
-  adjustmentTotal: number;
-  amountPaid: number;
-  fullItemCostWithTax: number;
-  itemsBeforeAdjustment: number;
-  tax: number;
-} | null {
-  if (receipt.total === null || lineItems.length === 0) {
-    return null;
-  }
-
-  const itemsBeforeAdjustment = roundMoney(
-    lineItems
-      .filter((lineItem) => lineItem.line_type === 'item')
-      .reduce((sum, lineItem) => sum + lineItem.line_total, 0)
-  );
-  const adjustmentTotal = roundMoney(
-    lineItems
-      .filter((lineItem) => lineItem.line_type === 'discount')
-      .reduce((sum, lineItem) => sum + lineItem.line_total, 0)
-  );
-  const tax = roundMoney(receipt.tax ?? 0);
-
-  if (itemsBeforeAdjustment <= 0 || adjustmentTotal <= 0) {
-    return null;
-  }
-
-  const adjustedTotal = roundMoney(itemsBeforeAdjustment - adjustmentTotal + tax);
-
-  if (Math.abs(adjustedTotal - receipt.total) > 0.05) {
-    return null;
-  }
-
-  return {
-    adjustmentTotal,
-    amountPaid: receipt.total,
-    fullItemCostWithTax: roundMoney(itemsBeforeAdjustment + tax),
-    itemsBeforeAdjustment,
-    tax,
-  };
-}
-
 function getLineItemsTotal(
   lineItems: Tables<'receipt_line_items'>[],
   receiptTax: number | null
@@ -1787,8 +1817,11 @@ function getLineItemsTotal(
   const itemTotal = lineItems
     .filter((lineItem) => lineItem.line_type === 'item')
     .reduce((sum, lineItem) => sum + lineItem.line_total, 0);
+  const discountTotal = lineItems
+    .filter((lineItem) => lineItem.line_type === 'discount')
+    .reduce((sum, lineItem) => sum + lineItem.line_total, 0);
 
-  return itemTotal + (receiptTax ?? 0);
+  return roundMoney(itemTotal - discountTotal + (receiptTax ?? 0));
 }
 
 function getLineAllocatedTax(
@@ -1812,15 +1845,27 @@ function getAssignedLineItemsTotal(
   assignments: Record<string, LineAssignmentState>,
   receiptTax: number | null
 ): number {
-  return lineItems.reduce((sum, lineItem) => {
+  const itemTotal = lineItems
+    .filter((lineItem) => lineItem.line_type === 'item')
+    .reduce((sum, lineItem) => sum + lineItem.line_total, 0);
+  const discountTotal = lineItems
+    .filter((lineItem) => lineItem.line_type === 'discount')
+    .reduce((sum, lineItem) => sum + lineItem.line_total, 0);
+
+  return roundMoney(lineItems.reduce((sum, lineItem) => {
     const assignment = assignments[lineItem.id];
 
     if (assignment?.assignmentType === 'ignore' || isNonPurchaseLineItem(lineItem)) {
       return sum;
     }
 
-    return sum + lineItem.line_total + getLineAllocatedTax(lineItem, lineItems, receiptTax);
-  }, 0);
+    const allocatedDiscount = itemTotal > 0
+      ? discountTotal * (lineItem.line_total / itemTotal)
+      : 0;
+
+    return sum + lineItem.line_total - allocatedDiscount +
+      getLineAllocatedTax(lineItem, lineItems, receiptTax);
+  }, 0));
 }
 
 function roundMoney(value: number): number {

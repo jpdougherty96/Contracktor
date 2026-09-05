@@ -1,20 +1,19 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const categories = ['materials', 'tools', 'fuel', 'subcontractor', 'permit', 'other'] as const;
-const lineItemCategories = [
-  'material',
-  'tool',
-  'inventory',
-  'rental',
-  'permit',
-  'subcontractor',
-  'fuel',
-  'other',
-] as const;
-const lineTypes = ['item', 'tax', 'fee', 'discount'] as const;
-const confidenceThreshold = 0.75;
-const lineItemConfidenceThreshold = 0.6;
-const receiptMathTolerance = 0.05;
+import {
+  categories,
+  getMissingReceiptIdentityFields,
+  getReceiptErrorMessage,
+  getReceiptStatus,
+  hasReceiptTotalDiscrepancy,
+  lineItemsDoNotExceedReceiptTotal,
+  lineItemCategories,
+  lineTypes,
+  maxReceiptLineItems,
+  normalizeExtraction,
+  normalizeReceiptDate,
+  toMoney,
+} from './receipt-normalization.ts';
 
 export type ReceiptProcessingResult = {
   line_items?: unknown[];
@@ -25,12 +24,14 @@ export async function processReceiptImage(
   supabase: ReturnType<typeof createClient>,
   {
     receiptId,
+    processingLeaseId,
     expectedOwnerId,
     openAiApiKey,
     openAiModel,
     throwOnFailure = false,
   }: {
     receiptId: string;
+    processingLeaseId: string;
     expectedOwnerId?: string;
     openAiApiKey: string;
     openAiModel: string;
@@ -39,7 +40,7 @@ export async function processReceiptImage(
 ): Promise<ReceiptProcessingResult> {
   const { data: receipt, error: receiptError } = await supabase
     .from('receipts')
-    .select('id, owner_id, scan_context_job_id, storage_path, processing_status')
+    .select('id, owner_id, scan_context_job_id, storage_path, processing_status, processing_lease_id, status')
     .eq('id', receiptId)
     .single();
 
@@ -51,11 +52,20 @@ export async function processReceiptImage(
     throw new Error('Receipt does not belong to authenticated user');
   }
 
+  if (receipt.status === 'accepted' || receipt.status === 'voided') {
+    return { receipt };
+  }
+
+  if (processingLeaseId && receipt.processing_lease_id !== processingLeaseId) {
+    return { receipt };
+  }
+
   if (!receipt.storage_path) {
     const updatedReceipt = await markNeedsReview(
       supabase,
       receipt.id,
-      'Receipt does not have a storage path.'
+      'Receipt does not have a storage path.',
+      processingLeaseId
     );
     return { receipt: updatedReceipt };
   }
@@ -74,7 +84,10 @@ export async function processReceiptImage(
     const extraction = await extractWithOpenAI(openAiApiKey, openAiModel, imageBase64, contentType);
     let normalized = normalizeExtraction(extraction);
 
-    if (!lineItemsDoNotExceedReceiptTotal(normalized)) {
+    if (
+      !lineItemsDoNotExceedReceiptTotal(normalized) ||
+      hasReceiptTotalDiscrepancy(normalized)
+    ) {
       const retryExtraction = await extractWithOpenAI(
         openAiApiKey,
         openAiModel,
@@ -84,10 +97,22 @@ export async function processReceiptImage(
       );
       const retryNormalized = normalizeExtraction(retryExtraction);
 
-      if (lineItemsDoNotExceedReceiptTotal(retryNormalized) && retryNormalized.line_items.length > 0) {
+      if (
+        lineItemsDoNotExceedReceiptTotal(retryNormalized) &&
+        !hasReceiptTotalDiscrepancy(retryNormalized) &&
+        retryNormalized.line_items.length > 0
+      ) {
         normalized = retryNormalized;
       }
     }
+
+    normalized = await recoverMissingReceiptIdentity(
+      openAiApiKey,
+      openAiModel,
+      imageBase64,
+      contentType,
+      normalized
+    );
 
     const extractionStatus = getReceiptStatus(normalized);
     const status =
@@ -100,47 +125,39 @@ export async function processReceiptImage(
     });
     const errorMessage = getReceiptErrorMessage(status, normalized);
 
-    const { data: updatedReceipt, error: updateError } = await supabase
-      .from('receipts')
-      .update({
-        ai_confidence: normalized.confidence,
-        category: normalized.category,
-        error_message: errorMessage,
-        extracted_json: normalized,
-        last_processing_error: null,
-        processing_status: 'complete',
-        receipt_date: normalized.receipt_date,
-        review_status: reviewStatus,
-        status,
-        subtotal: normalized.subtotal,
-        tax: normalized.tax,
-        total: normalized.total,
-        updated_at: new Date().toISOString(),
-        vendor: normalized.vendor,
-      })
-      .eq('id', receipt.id)
-      .select()
-      .single();
+    const { data: persisted, error: persistError } = await supabase.rpc(
+      'persist_receipt_extraction',
+      {
+        p_error_message: errorMessage,
+        p_extraction: normalized,
+        p_processing_lease_id: processingLeaseId,
+        p_receipt_id: receipt.id,
+        p_review_status: reviewStatus,
+        p_status: status,
+      }
+    );
 
-    if (updateError) {
-      throw new Error(updateError.message);
+    if (persistError || !persisted || typeof persisted !== 'object') {
+      throw new Error(persistError?.message ?? 'Unable to save receipt extraction.');
     }
 
-    const lineItems = await replaceDraftLineItems(supabase, {
-      ownerId: receipt.owner_id,
-      receiptId: receipt.id,
-      scanContextJobId: receipt.scan_context_job_id,
-      status,
-      lineItems: normalized.line_items,
-    });
+    const result = persisted as { line_items?: unknown[]; receipt?: unknown };
 
-    return { receipt: updatedReceipt, line_items: lineItems };
+    if (!result.receipt) {
+      throw new Error('Receipt extraction persistence returned no receipt.');
+    }
+
+    return {
+      line_items: Array.isArray(result.line_items) ? result.line_items : [],
+      receipt: result.receipt,
+    };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Receipt extraction failed.';
     const updatedReceipt = await markNeedsReview(
       supabase,
       receipt.id,
-      errorMessage
+      errorMessage,
+      processingLeaseId
     );
 
     if (throwOnFailure) {
@@ -167,15 +184,6 @@ function getProcessedReceiptReviewStatus({
   }
 
   return legacyStatus === 'accepted' ? 'reviewed' : 'needs_review';
-}
-
-async function readReceiptId(req: Request): Promise<string | null> {
-  try {
-    const body = await req.json();
-    return typeof body.receipt_id === 'string' ? body.receipt_id : null;
-  } catch {
-    return null;
-  }
 }
 
 async function extractWithOpenAI(
@@ -231,9 +239,10 @@ async function extractWithOpenAI(
               notes: {
                 type: ['string', 'null'],
               },
-              line_items: {
-                type: 'array',
-                items: {
+                  line_items: {
+                    type: 'array',
+                    maxItems: maxReceiptLineItems,
+                    items: {
                   additionalProperties: false,
                   properties: {
                     category: {
@@ -331,413 +340,179 @@ async function extractWithOpenAI(
   return JSON.parse(outputText);
 }
 
-function normalizeExtraction(extraction: unknown) {
-  const value = extraction && typeof extraction === 'object' ? extraction as Record<string, unknown> : {};
-  const category = typeof value.category === 'string' && isCategory(value.category)
-    ? value.category
-    : null;
-  const notes = typeof value.notes === 'string' ? value.notes : null;
-  const receiptDate = typeof value.receipt_date === 'string' ? value.receipt_date : null;
-  const parsedTotal = toMoney(value.total);
-  const parsedTax = toMoney(value.tax);
-  const taxFromLines = sumRawLineTotals(value.line_items, ['tax', 'fee']);
-  const tax = parsedTax ?? taxFromLines;
-  const parsedSubtotal = toMoney(value.subtotal);
-  const lineItems = normalizeLineItems(value.line_items);
-  const itemTotal = sumNormalizedLineTotals(lineItems, 'item');
-  const discountTotal = sumNormalizedLineTotals(lineItems, 'discount');
-  const adjustedLineTotal = Math.round((itemTotal - discountTotal + (tax ?? 0)) * 100) / 100;
-  const lineItemsMatchGrossSubtotal =
-    parsedSubtotal === null || Math.abs(itemTotal - parsedSubtotal) <= receiptMathTolerance;
-  const total =
-    discountTotal > 0 &&
-    itemTotal > 0 &&
-    adjustedLineTotal > 0 &&
-    lineItemsMatchGrossSubtotal
-      ? adjustedLineTotal
-      : parsedTotal;
-  const subtotal =
-    parsedSubtotal ??
-    (typeof total === 'number' && typeof tax === 'number'
-      ? Math.round((total - tax) * 100) / 100
-      : null);
+async function recoverMissingReceiptIdentity(
+  apiKey: string,
+  model: string,
+  imageBase64: string,
+  contentType: string,
+  extraction: ReturnType<typeof normalizeExtraction>
+): Promise<ReturnType<typeof normalizeExtraction>> {
+  const missingFields = getMissingReceiptIdentityFields(extraction);
 
-  return {
-    category,
-    confidence: typeof value.confidence === 'number' ? value.confidence : 0,
-    notes,
-    receipt_date: receiptDate,
-    subtotal,
-    tax,
-    total,
-    vendor: typeof value.vendor === 'string' ? value.vendor.trim() || null : null,
-    line_items: lineItems,
-  };
-}
-
-function getReceiptStatus(extraction: ReturnType<typeof normalizeExtraction>) {
-  const hasUsableReceiptIdentity =
-    Boolean(extraction.vendor) &&
-    Boolean(extraction.receipt_date) &&
-    typeof extraction.total === 'number' &&
-    extraction.total > 0;
-
-  if (!hasUsableReceiptIdentity) {
-    return 'error';
-  }
-
-  const hasRequiredFields =
-    Boolean(extraction.vendor) &&
-    Boolean(extraction.category) &&
-    Boolean(extraction.receipt_date) &&
-    typeof extraction.total === 'number' &&
-    extraction.total > 0 &&
-    extraction.line_items.length > 0 &&
-    extraction.line_items.every(
-      (lineItem) =>
-        lineItem.confidence === null || lineItem.confidence >= lineItemConfidenceThreshold
-    ) &&
-    receiptMathReconciles(extraction) &&
-    lineItemsDoNotExceedReceiptTotal(extraction);
-
-  return hasRequiredFields && extraction.confidence >= confidenceThreshold
-    ? 'accepted'
-    : 'needs_review';
-}
-
-function getReceiptErrorMessage(
-  status: string,
-  extraction?: ReturnType<typeof normalizeExtraction>
-): string | null {
-  if (status === 'accepted') {
-    return null;
-  }
-
-  if (status === 'error') {
-    return "We couldn't read the vendor, date, and total from this receipt. Please retake a clearer photo.";
-  }
-
-  if (extraction && !lineItemsDoNotExceedReceiptTotal(extraction)) {
-    return 'Parsed line items add up to more than the receipt total. Review the receipt lines before saving.';
-  }
-
-  return 'Some receipt details need review before this can be accepted.';
-}
-
-function receiptMathReconciles(extraction: ReturnType<typeof normalizeExtraction>): boolean {
-  if (
-    typeof extraction.subtotal !== 'number' ||
-    typeof extraction.tax !== 'number' ||
-    typeof extraction.total !== 'number'
-  ) {
-    return true;
-  }
-
-  const discountTotal = sumNormalizedLineTotals(extraction.line_items, 'discount');
-  const grossSubtotalDifference = Math.abs(
-    extraction.subtotal - discountTotal + extraction.tax - extraction.total
-  );
-  const netSubtotalDifference = Math.abs(
-    extraction.subtotal + extraction.tax - extraction.total
-  );
-
-  return Math.min(grossSubtotalDifference, netSubtotalDifference) <= receiptMathTolerance;
-}
-
-function sumNormalizedLineTotals(
-  lineItems: ReturnType<typeof normalizeLineItems>,
-  lineType: 'discount' | 'item'
-): number {
-  return Math.round(
-    lineItems
-      .filter((lineItem) => lineItem.line_type === lineType)
-      .reduce((sum, lineItem) => sum + lineItem.line_total, 0) * 100
-  ) / 100;
-}
-
-function lineItemsDoNotExceedReceiptTotal(extraction: ReturnType<typeof normalizeExtraction>): boolean {
-  if (typeof extraction.total !== 'number' || extraction.line_items.length === 0) {
-    return true;
-  }
-
-  const itemTotal = extraction.line_items
-    .filter((lineItem) => lineItem.line_type === 'item')
-    .reduce((sum, lineItem) => sum + lineItem.line_total, 0);
-  const discountTotal = extraction.line_items
-    .filter((lineItem) => lineItem.line_type === 'discount')
-    .reduce((sum, lineItem) => sum + lineItem.line_total, 0);
-  const tax = typeof extraction.tax === 'number' ? extraction.tax : 0;
-
-  return itemTotal - discountTotal + tax <= extraction.total + receiptMathTolerance;
-}
-
-function isCategory(value: string): value is typeof categories[number] {
-  return categories.includes(value as typeof categories[number]);
-}
-
-function isLineItemCategory(value: string): value is typeof lineItemCategories[number] {
-  return lineItemCategories.includes(value as typeof lineItemCategories[number]);
-}
-
-function isLineType(value: string): value is typeof lineTypes[number] {
-  return lineTypes.includes(value as typeof lineTypes[number]);
-}
-
-function toMoney(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.round(value * 100) / 100;
-  }
-
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const parsed = Number(value.replace(/[$,\s]/g, ''));
-
-  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : null;
-}
-
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.min(Math.max(value, minimum), maximum);
-}
-
-function normalizeLineItems(value: unknown) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((item, index) => normalizeLineItem(item, index + 1))
-    .filter((item): item is NonNullable<ReturnType<typeof normalizeLineItem>> => item !== null);
-}
-
-function sumRawLineTotals(value: unknown, types: string[]): number | null {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-
-  const total = value.reduce((sum, item) => {
-    if (!item || typeof item !== 'object') {
-      return sum;
-    }
-
-    const rawLine = item as Record<string, unknown>;
-    const lineType = typeof rawLine.line_type === 'string' ? rawLine.line_type : null;
-    const lineTotal = toMoney(rawLine.line_total);
-
-    if (!lineType || !types.includes(lineType) || lineTotal === null) {
-      return sum;
-    }
-
-    return sum + Math.abs(lineTotal);
-  }, 0);
-
-  return total > 0 ? Math.round(total * 100) / 100 : null;
-}
-
-function normalizeLineItem(value: unknown, fallbackLineNumber: number) {
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-
-  const item = value as Record<string, unknown>;
-  const lineTotal = toMoney(item.line_total);
-  const originalText = typeof item.original_text === 'string' ? item.original_text.trim() : '';
-  const cleanedName = typeof item.cleaned_name === 'string' ? item.cleaned_name.trim() : '';
-
-  if (!cleanedName || lineTotal === null) {
-    return null;
-  }
-
-  const lineType = typeof item.line_type === 'string' && isLineType(item.line_type)
-    ? item.line_type
-    : 'item';
-
-  if (lineType !== 'item' && lineType !== 'discount') {
-    return null;
-  }
-
-  if (lineType === 'item' && (isReceiptSummaryLine(cleanedName) || isReceiptSummaryLine(originalText))) {
-    return null;
-  }
-
-  const category = typeof item.category === 'string' && isLineItemCategory(item.category)
-    ? item.category
-    : null;
-  const confidence = typeof item.confidence === 'number' && Number.isFinite(item.confidence)
-    ? clamp(item.confidence, 0, 1)
-    : null;
-  const lineNumber = typeof item.line_number === 'number' && Number.isFinite(item.line_number)
-    ? Math.max(1, Math.round(item.line_number))
-    : fallbackLineNumber;
-
-  return {
-    category,
-    cleaned_name: cleanedName,
-    confidence,
-    line_number: lineNumber,
-    line_total: Math.abs(lineTotal),
-    line_type: lineType,
-    original_text: originalText || cleanedName,
-    quantity: toMoney(item.quantity),
-    unit_price: toMoney(item.unit_price),
-  };
-}
-
-function isReceiptSummaryLine(value: string): boolean {
-  const normalized = value.toLowerCase().replace(/[^a-z]+/g, ' ').trim();
-
-  return (
-    normalized === 'subtotal' ||
-    normalized === 'total' ||
-    normalized === 'tax' ||
-    normalized === 'taxes' ||
-    normalized === 'taxes and fees' ||
-    normalized === 'taxes fees and charges' ||
-    normalized === 'fees' ||
-    normalized === 'ticket amount' ||
-    normalized === 'method of payment' ||
-    normalized.startsWith('payment method') ||
-    normalized.startsWith('payment methods') ||
-    normalized.includes('menard card') ||
-    normalized.includes('card')
-  );
-}
-
-async function replaceDraftLineItems(
-  supabase: ReturnType<typeof createClient>,
-  {
-    ownerId,
-    receiptId,
-    scanContextJobId,
-    status,
-    lineItems,
-  }: {
-    ownerId: string;
-    receiptId: string;
-    scanContextJobId: string | null;
-    status: string;
-    lineItems: ReturnType<typeof normalizeLineItems>;
-  }
-) {
-  if (status === 'error') {
-    return [];
-  }
-
-  const { data: confirmedLines, error: confirmedError } = await supabase
-    .from('receipt_line_items')
-    .select('id')
-    .eq('receipt_id', receiptId)
-    .eq('owner_id', ownerId)
-    .eq('review_status', 'confirmed')
-    .limit(1);
-
-  if (confirmedError) {
-    throw new Error(confirmedError.message);
-  }
-
-  if ((confirmedLines ?? []).length > 0) {
-    const { data, error } = await supabase
-      .from('receipt_line_items')
-      .select()
-      .eq('receipt_id', receiptId)
-      .eq('owner_id', ownerId)
-      .order('line_number', { ascending: true });
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    return data ?? [];
-  }
-
-  const { error: deleteError } = await supabase
-    .from('receipt_line_items')
-    .delete()
-    .eq('receipt_id', receiptId)
-    .eq('owner_id', ownerId);
-
-  if (deleteError) {
-    throw new Error(deleteError.message);
-  }
-
-  if (lineItems.length === 0) {
-    return [];
-  }
-
-  const rows = lineItems.map((lineItem) => ({
-    assigned_job_id: scanContextJobId,
-    assignment_type: scanContextJobId ? 'job' : 'tools_inventory',
-    category: lineItem.category,
-    cleaned_name: lineItem.cleaned_name,
-    confidence: lineItem.confidence,
-    line_number: lineItem.line_number,
-    line_total: lineItem.line_total,
-    line_type: lineItem.line_type,
-    original_text: lineItem.original_text,
-    owner_id: ownerId,
-    quantity: lineItem.quantity,
-    receipt_id: receiptId,
-    review_status: 'needs_review',
-    unit_price: lineItem.unit_price,
-  }));
-
-  const { data, error } = await supabase
-    .from('receipt_line_items')
-    .insert(rows)
-    .select()
-    .order('line_number', { ascending: true });
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return data ?? [];
-}
-
-export function getFirstPublishableKey(publishableKeysJson: string | undefined): string | null {
-  if (!publishableKeysJson) {
-    return null;
+  if (missingFields.length === 0) {
+    return extraction;
   }
 
   try {
-    const parsed = JSON.parse(publishableKeysJson) as unknown;
+    const recovered = await extractReceiptIdentityWithOpenAI(
+      apiKey,
+      model,
+      imageBase64,
+      contentType,
+      missingFields,
+      extraction
+    );
+    const value = recovered && typeof recovered === 'object'
+      ? recovered as Record<string, unknown>
+      : {};
+    const recoveredVendor = typeof value.vendor === 'string'
+      ? value.vendor.trim() || null
+      : null;
 
-    if (Array.isArray(parsed)) {
-      return parsed.find((value): value is string => typeof value === 'string') ?? null;
-    }
+    return normalizeExtraction({
+      ...extraction,
+      receipt_date: extraction.receipt_date ?? normalizeReceiptDate(value.receipt_date),
+      total: extraction.total ?? toMoney(value.total),
+      vendor: extraction.vendor ?? recoveredVendor,
+    });
+  } catch (error) {
+    console.warn(
+      'Targeted receipt identity recovery failed.',
+      error instanceof Error ? error.message : 'Unknown recovery error.'
+    );
+    return extraction;
+  }
+}
 
-    if (parsed && typeof parsed === 'object') {
-      return Object.values(parsed).find((value): value is string => typeof value === 'string') ?? null;
-    }
-  } catch {
-    return null;
+async function extractReceiptIdentityWithOpenAI(
+  apiKey: string,
+  model: string,
+  imageBase64: string,
+  contentType: string,
+  missingFields: string[],
+  extraction: ReturnType<typeof normalizeExtraction>
+): Promise<unknown> {
+  const instructions =
+    `Re-inspect this entire receipt image for missing required data. The first pass missed: ${missingFields.join(', ')}. ` +
+    'Look carefully at the receipt header and the bottom/footer, including small text after the cashier, authorization, or thank-you section. ' +
+    'For receipt_date, use the printed transaction, sale, issue, order, or purchase date. Ignore return-policy deadlines, rebate expiration dates, and other future dates. ' +
+    'Return null when a value truly is not printed; do not guess. Return receipt_date as YYYY-MM-DD. ' +
+    `The reliable first-pass values were vendor=${JSON.stringify(extraction.vendor)} and total=${JSON.stringify(extraction.total)}. ` +
+    'Return only valid JSON.';
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      input: [
+        {
+          content: [
+            {
+              text: instructions,
+              type: 'input_text',
+            },
+            {
+              image_url: `data:${contentType};base64,${imageBase64}`,
+              type: 'input_image',
+            },
+          ],
+          role: 'user',
+        },
+      ],
+      model,
+      text: {
+        format: {
+          name: 'receipt_identity_recovery',
+          schema: {
+            additionalProperties: false,
+            properties: {
+              date_evidence: {
+                type: ['string', 'null'],
+              },
+              receipt_date: {
+                type: ['string', 'null'],
+              },
+              total: {
+                type: ['number', 'null'],
+              },
+              vendor: {
+                type: ['string', 'null'],
+              },
+            },
+            required: ['vendor', 'receipt_date', 'total', 'date_evidence'],
+            type: 'object',
+          },
+          strict: true,
+          type: 'json_schema',
+        },
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI identity recovery failed: ${errorText}`);
   }
 
-  return null;
+  const outputText = getResponseOutputText(await response.json());
+
+  if (!outputText) {
+    throw new Error('OpenAI identity recovery returned no JSON.');
+  }
+
+  return JSON.parse(outputText);
 }
 
 async function markNeedsReview(
   supabase: ReturnType<typeof createClient>,
   receiptId: string,
-  errorMessage: string
+  errorMessage: string,
+  processingLeaseId?: string
 ) {
-  const { data, error } = await supabase
+  let updateQuery = supabase
     .from('receipts')
     .update({
       error_message: errorMessage,
       last_processing_error: errorMessage,
       processing_status: 'failed',
+      processing_lease_id: null,
+      processing_started_at: null,
       review_status: 'needs_review',
       status: 'needs_review',
       updated_at: new Date().toISOString(),
     })
     .eq('id', receiptId)
+    .not('status', 'in', '(accepted,voided)');
+
+  if (processingLeaseId) {
+    updateQuery = updateQuery.eq('processing_lease_id', processingLeaseId);
+  }
+
+  const { data, error } = await updateQuery
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  return data ?? fetchCurrentReceipt(supabase, receiptId);
+}
+
+async function fetchCurrentReceipt(
+  supabase: ReturnType<typeof createClient>,
+  receiptId: string
+) {
+  const { data, error } = await supabase
+    .from('receipts')
+    .select()
+    .eq('id', receiptId)
+    .single();
+
+  if (error || !data) {
+    throw new Error(error?.message ?? 'Receipt not found.');
   }
 
   return data;

@@ -3,10 +3,6 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const config = await readFile(new URL('../supabase/config.toml', import.meta.url), 'utf8');
-const extractReceipt = await readFile(
-  new URL('../supabase/functions/extract-receipt/index.ts', import.meta.url),
-  'utf8'
-);
 const tellContracktor = await readFile(
   new URL('../supabase/functions/tell-contracktor/index.ts', import.meta.url),
   'utf8'
@@ -32,7 +28,6 @@ function functionConfig(name) {
 
 test('every deployed Edge Function has an explicit signing-key-safe gateway mode', () => {
   for (const name of [
-    'extract-receipt',
     'tell-contracktor',
     'process-receipt-queue',
     'process-tell-queue',
@@ -42,10 +37,8 @@ test('every deployed Edge Function has an explicit signing-key-safe gateway mode
 });
 
 test('user-facing functions verify the caller after the gateway', () => {
-  for (const source of [extractReceipt, tellContracktor]) {
-    assert.match(source, /authorization\?\.startsWith\('Bearer '\)/);
-    assert.match(source, /supabase\.auth\.getUser\(jwt\)/);
-  }
+  assert.match(tellContracktor, /authorization\?\.startsWith\('Bearer '\)/);
+  assert.match(tellContracktor, /supabase\.auth\.getUser\(jwt\)/);
 });
 
 test('queue workers require a private worker secret after the gateway', () => {

@@ -21,7 +21,7 @@ supabase migration list
 After schema changes, regenerate local database types:
 
 ```sh
-supabase gen types typescript --project-id spdhsfkiejdrctclbudv --schema public > src/types/database.ts
+supabase gen types typescript --project-id TARGET_PROJECT_REF --schema public > src/types/database.ts
 ```
 
 ## Storage Buckets
@@ -87,7 +87,6 @@ supabase functions list
 
 The deployed functions are:
 
-- `extract-receipt`
 - `process-receipt-queue`
 - `tell-contracktor`
 
@@ -115,7 +114,7 @@ Then manually verify:
 
 - `receipts` bucket exists and is private.
 - `attachments` bucket exists and is private.
-- `extract-receipt` is active.
+- `process-receipt-queue` is active and `extract-receipt` is not deployed.
 - Note photo upload works.
 - Receipt upload/camera capture works.
 - A second user cannot read the first user's jobs, expenses, receipts, notes, attachments, payments, hours, or crew.

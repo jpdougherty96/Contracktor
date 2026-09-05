@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
   attachReceiptPhoto,
+  cleanupIncompleteReceiptCapture,
   createUploadingReceipt,
   finalizeReceiptCapture,
   uploadReceiptPhoto,
@@ -58,12 +59,16 @@ export function AddReceiptScreen({
   const isWeb = Platform.OS === 'web';
 
   const processReceiptAsset = useCallback(async (asset: ImagePicker.ImagePickerAsset) => {
+    let createdReceiptId: string | null = null;
+    let uploadedStoragePath: string | null = null;
+
     try {
       setStep('uploading');
       setMessage('Preparing receipt...');
 
       const contextJobId = inventoryMode ? null : job?.id;
       const receipt = await createUploadingReceipt(contextJobId ?? null);
+      createdReceiptId = receipt.id;
       const preparedAsset = await prepareReceiptAssetForUpload(asset);
       setMessage('Uploading receipt...');
       const upload = await uploadReceiptPhoto(
@@ -71,6 +76,7 @@ export function AddReceiptScreen({
         contextJobId ?? null,
         preparedAsset
       );
+      uploadedStoragePath = upload.storagePath;
       await attachReceiptPhoto(receipt.id, upload.storagePath, upload.originalFilename);
 
       setMessage('Securing receipt...');
@@ -81,6 +87,12 @@ export function AddReceiptScreen({
       return;
 
     } catch (error) {
+      if (createdReceiptId) {
+        await cleanupIncompleteReceiptCapture(createdReceiptId, uploadedStoragePath).catch(
+          () => undefined
+        );
+      }
+
       setStep('idle');
       setErrorMessage(getUserFacingError(error, 'Unable to add receipt. Try again.'));
     }
@@ -431,12 +443,14 @@ async function prepareWebReceiptImage(dataUrl: string): Promise<{
     width: dimensions.width,
   };
 
-  if (
-    typeof document === 'undefined' ||
-    !dimensions.height ||
-    !dimensions.width
-  ) {
+  if (typeof document === 'undefined') {
     return originalImage;
+  }
+
+  if (!dimensions.height || !dimensions.width) {
+    throw new Error(
+      'This image format could not be read in your browser. Choose a JPEG, PNG, or WebP receipt image.'
+    );
   }
 
   const scale = Math.min(1, receiptImageMaxDimension / Math.max(dimensions.height, dimensions.width));

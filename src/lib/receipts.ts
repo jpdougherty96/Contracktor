@@ -9,11 +9,6 @@ import {
 import { supabase } from '@/src/lib/supabase';
 import type { Json, Tables } from '@/src/types/database';
 
-export type ReceiptExtractionResult = {
-  line_items?: Tables<'receipt_line_items'>[];
-  receipt: Tables<'receipts'>;
-};
-
 export type ReceiptCategory = 'materials' | 'tools' | 'fuel' | 'subcontractor' | 'permit' | 'other';
 export type ReceiptLineAssignmentType = 'job' | 'tools_inventory' | 'ignore';
 
@@ -51,7 +46,7 @@ export const receiptCategories: ReceiptCategory[] = [
 const duplicateAmountTolerance = 0.05;
 const receiptTotalTolerance = 0.05;
 const receiptFields =
-  'id, scan_context_job_id, owner_id, business_id, created_by_user_id, storage_path, original_filename, vendor, receipt_date, subtotal, tax, total, category, ai_confidence, extracted_json, status, review_status, processing_status, processing_started_at, processing_attempts, last_processing_error, error_message, allocated_cost, cost_basis, review_version, last_review_commit_key, voided_at, voided_by_user_id, created_at, updated_at';
+  'id, scan_context_job_id, owner_id, business_id, created_by_user_id, storage_path, original_filename, vendor, receipt_date, subtotal, tax, total, category, ai_confidence, extracted_json, status, review_status, processing_status, processing_started_at, processing_attempts, processing_lease_id, last_processing_error, error_message, allocated_cost, cost_basis, review_version, last_review_commit_key, voided_at, voided_by_user_id, created_at, updated_at';
 
 export type UpdateReceiptInput = {
   category: ReceiptCategory;
@@ -238,54 +233,6 @@ export async function finalizeReceiptCapture(receiptId: string): Promise<Tables<
   return data;
 }
 
-export async function extractReceipt(receiptId: string): Promise<ReceiptExtractionResult> {
-  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-
-  if (sessionError) {
-    throw new Error(sessionError.message);
-  }
-
-  if (!sessionData.session) {
-    throw new Error('You must be logged in to extract a receipt.');
-  }
-
-  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Missing Supabase environment variables.');
-  }
-
-  const response = await fetch(`${supabaseUrl}/functions/v1/extract-receipt`, {
-    body: JSON.stringify({
-      receipt_id: receiptId,
-    }),
-    headers: {
-      Authorization: `Bearer ${sessionData.session.access_token}`,
-      'Content-Type': 'application/json',
-      apikey: supabaseAnonKey,
-    },
-    method: 'POST',
-  });
-
-  const responseBody = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    const edgeError =
-      responseBody && typeof responseBody === 'object' && 'error' in responseBody
-        ? String(responseBody.error)
-        : `Edge Function failed with status ${response.status}`;
-
-    throw new Error(edgeError);
-  }
-
-  if (!responseBody) {
-    throw new Error('Receipt extraction returned no data.');
-  }
-
-  return responseBody as ReceiptExtractionResult;
-}
-
 export async function fetchReceipt(receiptId: string): Promise<Tables<'receipts'>> {
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
@@ -301,7 +248,6 @@ export async function fetchReceipt(receiptId: string): Promise<Tables<'receipts'
     .from('receipts')
     .select(receiptFields)
     .eq('id', receiptId)
-    .eq('owner_id', userData.user.id)
     .single();
 
   if (error) {
@@ -328,7 +274,6 @@ export async function fetchReceiptLineItems(
     .from('receipt_line_items')
     .select('*')
     .eq('receipt_id', receiptId)
-    .eq('owner_id', userData.user.id)
     .order('line_number', { ascending: true });
 
   if (error) {
@@ -360,7 +305,7 @@ export async function fetchPotentialDuplicateReceipts(
     .select(
       'id, scan_context_job_id, vendor, receipt_date, total, status, review_status, storage_path, created_at'
     )
-    .eq('owner_id', userData.user.id)
+    .eq('business_id', receipt.business_id)
     .neq('id', receipt.id)
     .neq('status', 'voided')
     .gte('total', receipt.total - duplicateAmountTolerance)
@@ -374,7 +319,7 @@ export async function fetchPotentialDuplicateReceipts(
         .select(
           'id, receipt_id, description, expense_date, total_amount, status, created_at, receipts(id, vendor, receipt_date, total, status, review_status, storage_path, created_at)'
         )
-        .eq('owner_id', userData.user.id)
+        .eq('business_id', receipt.business_id)
         .eq('job_id', receipt.scan_context_job_id)
         .gte('total_amount', receipt.total - duplicateAmountTolerance)
         .lte('total_amount', receipt.total + duplicateAmountTolerance)
@@ -730,6 +675,19 @@ export async function deleteReceipt(receiptId: string): Promise<void> {
   }
 }
 
+export async function cleanupIncompleteReceiptCapture(
+  receiptId: string,
+  uploadedStoragePath?: string | null
+): Promise<void> {
+  try {
+    await deleteReceipt(receiptId);
+  } finally {
+    if (uploadedStoragePath) {
+      await supabase.storage.from('receipts').remove([uploadedStoragePath]).catch(() => undefined);
+    }
+  }
+}
+
 function getFileExtension(contentType: string): string {
   if (contentType.includes('png')) {
     return 'png';
@@ -779,6 +737,28 @@ function calculateLineAllocatedTax(
   return roundMoney(receiptTax * (lineItem.line_total / taxableSubtotal));
 }
 
+function calculateLineAllocatedDiscount(
+  lineItem: Tables<'receipt_line_items'>,
+  lineItems: Tables<'receipt_line_items'>[]
+): number {
+  if (lineItem.line_type !== 'item') {
+    return 0;
+  }
+
+  const itemTotal = lineItems
+    .filter((item) => item.line_type === 'item')
+    .reduce((sum, item) => sum + item.line_total, 0);
+  const discountTotal = lineItems
+    .filter((item) => item.line_type === 'discount')
+    .reduce((sum, item) => sum + item.line_total, 0);
+
+  if (itemTotal <= 0 || discountTotal <= 0) {
+    return 0;
+  }
+
+  return roundMoney(discountTotal * (lineItem.line_total / itemTotal));
+}
+
 function calculateAssignedReceiptTotal(
   receipt: Tables<'receipts'>,
   lineItems: Tables<'receipt_line_items'>[],
@@ -796,7 +776,10 @@ function calculateAssignedReceiptTotal(
         return sum;
       }
 
-      return sum + lineItem.line_total + calculateLineAllocatedTax(lineItem, lineItems, receipt.tax);
+      return sum +
+        lineItem.line_total -
+        calculateLineAllocatedDiscount(lineItem, lineItems) +
+        calculateLineAllocatedTax(lineItem, lineItems, receipt.tax);
     }, 0)
   );
 }

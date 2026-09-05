@@ -19,5 +19,13 @@ export function getUserFacingError(error: unknown, fallback: string): string {
     return fallback;
   }
 
+  const safeMarkerIndex = message.indexOf('CTX:');
+
+  if (safeMarkerIndex >= 0) {
+    const safeMessage = message.slice(safeMarkerIndex + 4).split('\n')[0]?.trim();
+
+    return safeMessage || fallback;
+  }
+
   return safeMessages.some((pattern) => pattern.test(message)) ? message : fallback;
 }

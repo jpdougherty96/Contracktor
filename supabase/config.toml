@@ -52,9 +52,6 @@ enabled = false
 # These functions authenticate inside their handlers instead of relying on the
 # platform's legacy JWT gateway. This keeps user calls compatible with rotated
 # asymmetric signing keys and lets cron workers use their dedicated secret.
-[functions.extract-receipt]
-verify_jwt = false
-
 [functions.tell-contracktor]
 verify_jwt = false
 

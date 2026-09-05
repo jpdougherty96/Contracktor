@@ -14,7 +14,7 @@ For the fuller ship-readiness regime, including test pass levels, manual scripts
 - `npx expo start` starts and the Expo Go mobile smoke test passes.
 - `supabase db push` is clean for the target project.
 - `supabase migration list` shows local and remote migrations aligned.
-- `supabase functions deploy extract-receipt` has been run after parser changes.
+- `supabase functions deploy process-receipt-queue` has been run after parser changes.
 - Supabase Storage buckets and policies exist for `receipts` and `attachments`.
 - Test with at least one new user or clean account before shipping.
 
@@ -365,7 +365,7 @@ Regression checks:
 Happy path:
 - Local and remote migrations match.
 - Generated database types are current.
-- `extract-receipt` function is active on the target project.
+- `process-receipt-queue` is active and the retired `extract-receipt` function is absent.
 - `OPENAI_API_KEY` is set for the Edge Function.
 - `receipts` private bucket exists.
 - `attachments` private bucket exists.

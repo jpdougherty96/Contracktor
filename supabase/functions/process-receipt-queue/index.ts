@@ -2,7 +2,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 import { processReceiptImage } from '../_shared/receipt-processing.ts';
 
-const maxJobsPerRun = 3;
+const maxJobsPerRun = 6;
+const maxConcurrentJobs = 3;
 const maxProcessingAttempts = 3;
 
 Deno.serve(async (req) => {
@@ -35,7 +36,7 @@ Deno.serve(async (req) => {
 
   const { data: jobs, error: claimError } = await supabase.rpc('claim_receipt_processing_jobs', {
     p_limit: maxJobsPerRun,
-    p_visibility_timeout: 300,
+    p_visibility_timeout: 900,
   });
 
   if (claimError) {
@@ -43,74 +44,82 @@ Deno.serve(async (req) => {
   }
 
   const results = [];
+  const claimedJobs = jobs ?? [];
 
-  for (const job of jobs ?? []) {
-    const msgId = Number(job.msg_id);
-    const receiptId = String(job.receipt_id);
-
-    try {
-      const { data: receipt, error: receiptError } = await supabase
-        .from('receipts')
-        .select('id, processing_status')
-        .eq('id', receiptId)
-        .single();
-
-      if (receiptError || !receipt) {
-        throw new Error(receiptError?.message ?? 'Receipt not found.');
-      }
-
-      if (receipt.processing_status === 'complete') {
-        await deleteQueueMessage(supabase, msgId);
-        results.push({ receipt_id: receiptId, status: 'already_complete' });
-        continue;
-      }
-
-      const { error: processingStateError } = await supabase.rpc('mark_receipt_processing', {
-        p_receipt_id: receiptId,
-      });
-
-      if (processingStateError) {
-        throw new Error(processingStateError.message);
-      }
-
-      const processingResult = await processReceiptImage(supabase, {
-        openAiApiKey,
-        openAiModel,
-        receiptId,
-        throwOnFailure: true,
-      });
-      await recordReceiptProcessedEvent(supabase, processingResult.receipt);
-      await deleteQueueMessage(supabase, msgId);
-      results.push({ receipt_id: receiptId, status: 'processed' });
-    } catch (error) {
-      const attempts = await fetchProcessingAttempts(supabase, receiptId);
-
-      if (attempts >= maxProcessingAttempts) {
-        await recordReceiptTerminalFailureEvent(
-          supabase,
-          receiptId,
-          error instanceof Error ? error.message : 'Receipt processing failed.'
-        ).catch(() => undefined);
-        await deleteQueueMessage(supabase, msgId);
-        results.push({
-          error: error instanceof Error ? error.message : 'Receipt processing failed.',
-          receipt_id: receiptId,
-          status: 'failed_terminal',
-        });
-        continue;
-      }
-
-      results.push({
-        attempts,
-        error: error instanceof Error ? error.message : 'Receipt processing failed.',
-        receipt_id: receiptId,
-        status: 'will_retry',
-      });
-    }
+  for (let index = 0; index < claimedJobs.length; index += maxConcurrentJobs) {
+    const batch = claimedJobs.slice(index, index + maxConcurrentJobs);
+    const batchResults = await Promise.all(
+      batch.map((job) => processClaimedReceiptJob(supabase, job, openAiApiKey, openAiModel))
+    );
+    results.push(...batchResults);
   }
 
   return jsonResponse({ processed: results.length, results });
 });
+
+async function processClaimedReceiptJob(
+  supabase: ReturnType<typeof createClient>,
+  job: { lease_id: string; msg_id: number; receipt_id: string },
+  openAiApiKey: string,
+  openAiModel: string
+) {
+  const msgId = Number(job.msg_id);
+  const receiptId = String(job.receipt_id);
+  const processingLeaseId = String(job.lease_id);
+
+  try {
+    const { data: receipt, error: receiptError } = await supabase
+      .from('receipts')
+      .select('id, processing_status, status')
+      .eq('id', receiptId)
+      .single();
+
+    if (receiptError || !receipt) {
+      throw new Error(receiptError?.message ?? 'Receipt not found.');
+    }
+
+    if (
+      receipt.processing_status === 'complete' ||
+      receipt.status === 'accepted' ||
+      receipt.status === 'voided'
+    ) {
+      await deleteQueueMessage(supabase, msgId);
+      return { receipt_id: receiptId, status: 'already_complete' };
+    }
+
+    const processingResult = await processReceiptImage(supabase, {
+      openAiApiKey,
+      openAiModel,
+      processingLeaseId,
+      receiptId,
+      throwOnFailure: true,
+    });
+    await recordReceiptProcessedEvent(supabase, processingResult.receipt);
+    await deleteQueueMessage(supabase, msgId);
+    return { receipt_id: receiptId, status: 'processed' };
+  } catch (error) {
+    const attempts = await fetchProcessingAttempts(supabase, receiptId);
+    const errorMessage = error instanceof Error ? error.message : 'Receipt processing failed.';
+
+    if (attempts >= maxProcessingAttempts) {
+      await recordReceiptTerminalFailureEvent(supabase, receiptId, errorMessage)
+        .catch(() => undefined);
+      await deleteQueueMessage(supabase, msgId);
+      return {
+        error: errorMessage,
+        receipt_id: receiptId,
+        status: 'failed_terminal',
+      };
+    }
+
+    return {
+      attempts,
+      error: errorMessage,
+      receipt_id: receiptId,
+      status: 'will_retry',
+    };
+  }
+}
 
 async function deleteQueueMessage(
   supabase: ReturnType<typeof createClient>,

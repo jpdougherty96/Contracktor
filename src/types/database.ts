@@ -1832,6 +1832,7 @@ export type Database = {
           original_filename: string | null
           owner_id: string
           processing_attempts: number
+          processing_lease_id: string | null
           processing_started_at: string | null
           processing_status: string
           receipt_date: string | null
@@ -1864,6 +1865,7 @@ export type Database = {
           original_filename?: string | null
           owner_id: string
           processing_attempts?: number
+          processing_lease_id?: string | null
           processing_started_at?: string | null
           processing_status?: string
           receipt_date?: string | null
@@ -1896,6 +1898,7 @@ export type Database = {
           original_filename?: string | null
           owner_id?: string
           processing_attempts?: number
+          processing_lease_id?: string | null
           processing_started_at?: string | null
           processing_status?: string
           receipt_date?: string | null
@@ -2754,6 +2757,7 @@ export type Database = {
       claim_receipt_processing_jobs: {
         Args: { p_limit?: number; p_visibility_timeout?: number }
         Returns: {
+          lease_id: string
           msg_id: number
           receipt_id: string
         }[]
@@ -2835,6 +2839,7 @@ export type Database = {
           original_filename: string | null
           owner_id: string
           processing_attempts: number
+          processing_lease_id: string | null
           processing_started_at: string | null
           processing_status: string
           receipt_date: string | null
@@ -2862,6 +2867,17 @@ export type Database = {
         Args: { p_entry_id: string }
         Returns: Database["public"]["Tables"]["tell_contracktor_entries"]["Row"]
       }
+      persist_receipt_extraction: {
+        Args: {
+          p_error_message: string | null
+          p_extraction: Json
+          p_processing_lease_id: string
+          p_receipt_id: string
+          p_review_status: string
+          p_status: string
+        }
+        Returns: Json
+      }
       review_tell_contracktor_proposals: {
         Args: { p_entry_id: string; p_proposals: Json }
         Returns: Json
@@ -2885,6 +2901,7 @@ export type Database = {
           original_filename: string | null
           owner_id: string
           processing_attempts: number
+          processing_lease_id: string | null
           processing_started_at: string | null
           processing_status: string
           receipt_date: string | null

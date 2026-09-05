@@ -62,16 +62,34 @@ test('receipt processing opens and resolves the durable attention lifecycle', as
 });
 
 test('receipt truth preserves credits and the final amount paid', async () => {
-  const [receiptProcessing, receiptReview] = await Promise.all([
+  const [receiptProcessing, receiptNormalization, receiptReview] = await Promise.all([
     readRepoFile('supabase/functions/_shared/receipt-processing.ts'),
+    readRepoFile('supabase/functions/_shared/receipt-normalization.ts'),
     readRepoFile('src/screens/ReceiptReviewScreen.tsx'),
   ]);
 
   assert.match(receiptProcessing, /final out-of-pocket amount paid/);
-  assert.match(receiptProcessing, /adjustedLineTotal/);
-  assert.match(receiptProcessing, /subtotal - discountTotal \+ extraction\.tax/);
-  assert.match(receiptReview, /hasReceiptAdjustments/);
-  assert.match(receiptReview, /!hasReceiptAdjustments/);
+  assert.match(receiptNormalization, /computed_total/);
+  assert.match(receiptNormalization, /total_discrepancy/);
+  assert.match(receiptNormalization, /hasReceiptTotalDiscrepancy/);
+  assert.match(receiptReview, /itemTotal - discountTotal/);
+  assert.match(receiptReview, /canAutoFinalizeSingleJobReceipt/);
+  assert.match(receiptReview, /hasCompletedDuplicateCheck/);
+});
+
+test('receipt processing retries missing identity fields and reports only the missing data', async () => {
+  const [receiptProcessing, receiptNormalization] = await Promise.all([
+    readRepoFile('supabase/functions/_shared/receipt-processing.ts'),
+    readRepoFile('supabase/functions/_shared/receipt-normalization.ts'),
+  ]);
+
+  assert.match(receiptProcessing, /recoverMissingReceiptIdentity/);
+  assert.match(receiptProcessing, /The first pass missed:/);
+  assert.match(receiptProcessing, /bottom\/footer/);
+  assert.match(receiptProcessing, /Ignore return-policy deadlines/);
+  assert.match(receiptProcessing, /receipt_identity_recovery/);
+  assert.match(receiptNormalization, /Missing or invalid data: \$\{formatList\(missingFields\)\}/);
+  assert.doesNotMatch(receiptProcessing, /Please retake a clearer photo/);
 });
 
 test('Activity collapses every approved Tell into one parent row', async () => {
