@@ -205,6 +205,17 @@ test(
     );
     assert.equal(preservedSources.length, 1);
     assert.equal(preservedSources[0].storage_path, sourceStoragePath);
+
+    const undoActivity = await required(
+      admin
+        .from('activity_events')
+        .select('job_id')
+        .eq('event_type', 'tell_contracktor_undone')
+        .eq('source_table', 'tell_contracktor_entries')
+        .eq('source_id', entryId)
+    );
+    assert.equal(undoActivity.length, 1);
+    assert.equal(undoActivity[0].job_id, jobId);
   }
 );
 

@@ -104,6 +104,16 @@ test('Activity collapses every approved Tell into one parent row', async () => {
   assert.match(activityFeed, /openTellAttentionIds\.has\(tellSubmissionId\)/);
 });
 
+test('Activity collapses receipt commit audit and expense rows into one receipt item', async () => {
+  const activityFeed = await readRepoFile('src/lib/globalActivity.ts');
+
+  assert.match(activityFeed, /getActivityEventReceiptId\(/);
+  assert.match(activityFeed, /Record<string, unknown>\)\.receiptId/);
+  assert.match(activityFeed, /collapseReceiptActivityItems\(items\)/);
+  assert.match(activityFeed, /bestReceiptItems\.set\(item\.receiptId, item\)/);
+  assert.match(activityFeed, /item\.id\.startsWith\('receipt-expense-'\)/);
+});
+
 async function readRepoFile(relativePath) {
   return readFile(new URL(relativePath, `file://${repoRoot}/`), 'utf8');
 }

@@ -274,8 +274,11 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
     }
 
     const job = getJob(jobsById, event.job_id);
-    const receiptId =
-      event.source_table === 'receipts' && event.source_id ? event.source_id : undefined;
+    const receiptId = getActivityEventReceiptId(
+      event.source_table,
+      event.source_id,
+      event.metadata
+    );
     const needsAttention =
       (event.status === 'needs_attention' || event.status === 'review_recommended') &&
       !durableAttentionEventIds.has(event.id) &&
@@ -638,6 +641,23 @@ function getTellSubmissionId(metadata: unknown): string | null {
   const record = metadata as Record<string, unknown>;
   const entryId = record.tell_entry_id ?? record.source_entry_id;
   return typeof entryId === 'string' && entryId ? entryId : null;
+}
+
+function getActivityEventReceiptId(
+  sourceTable: string | null,
+  sourceId: string | null,
+  metadata: unknown
+): string | undefined {
+  if (sourceTable === 'receipts' && sourceId) {
+    return sourceId;
+  }
+
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return undefined;
+  }
+
+  const receiptId = (metadata as Record<string, unknown>).receiptId;
+  return typeof receiptId === 'string' && receiptId ? receiptId : undefined;
 }
 
 function newestDate(left: string | null, right: string | null): string | null {
