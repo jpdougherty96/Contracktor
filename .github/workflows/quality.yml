@@ -2,9 +2,17 @@ name: Quality
 
 on:
   pull_request:
+    paths-ignore:
+      - 'marketing/**'
+      - 'brand/**'
+      - 'docs/**'
   push:
     branches:
       - main
+    paths-ignore:
+      - 'marketing/**'
+      - 'brand/**'
+      - 'docs/**'
 
 concurrency:
   group: quality-${{ github.ref }}
