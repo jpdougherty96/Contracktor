@@ -7,6 +7,18 @@
   "cleanUrls": true,
   "redirects": [
     {
+      "source": "/",
+      "has": [
+        {
+          "type": "cookie",
+          "key": "ct_session",
+          "value": "1"
+        }
+      ],
+      "destination": "https://app.contracktor.app/",
+      "permanent": false
+    },
+    {
       "source": "/jobs",
       "destination": "https://app.contracktor.app/jobs",
       "permanent": false

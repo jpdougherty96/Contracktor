@@ -62,6 +62,7 @@ test('Free pricing is scannable and stays inside the documented truth layer', ()
 
 test('the app export is excluded from search indexing and analytics URLs are redacted', () => {
   const appHtml = read('app/+html.tsx');
+  const landing = read('marketing/index.html');
   const manifest = read('public/manifest.webmanifest');
   const appVercelConfig = read('vercel.json');
   const marketingVercelConfig = read('marketing/vercel.json');
@@ -77,6 +78,14 @@ test('the app export is excluded from search indexing and analytics URLs are red
   assert.match(marketingVercelConfig, /"outputDirectory": "\."/);
   assert.match(marketingVercelConfig, /https:\/\/app\.contracktor\.app\/jobs/);
   assert.match(marketingVercelConfig, /https:\/\/app\.contracktor\.app\/activity/);
+  assert.match(marketingVercelConfig, /"type": "cookie"/);
+  assert.match(marketingVercelConfig, /"key": "ct_session"/);
+  assert.match(marketingVercelConfig, /"value": "1"/);
+  assert.match(marketingVercelConfig, /"destination": "https:\/\/app\.contracktor\.app\/"/);
+
+  assert.match(landing, /display-mode: standalone/);
+  assert.match(landing, /navigator\.standalone === true/);
+  assert.match(landing, /location\.replace\('https:\/\/app\.contracktor\.app\/'\)/);
 
   const analytics = read('src/components/VercelAnalytics.web.tsx');
   assert.match(analytics, /\/jobs\/\[jobId\]/);
