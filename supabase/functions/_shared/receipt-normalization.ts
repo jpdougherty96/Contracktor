@@ -1,3 +1,5 @@
+import { canonicalizeReceiptItemName } from '../../../shared/receiptItemNames.ts';
+
 export const categories = ['materials', 'tools', 'fuel', 'subcontractor', 'permit', 'other'] as const;
 export const lineItemCategories = [
   'material',
@@ -364,9 +366,9 @@ export function normalizeLineItem(
   const item = value as Record<string, unknown>;
   const parsedLineTotal = toMoney(item.line_total);
   const originalText = typeof item.original_text === 'string' ? item.original_text.trim() : '';
-  const cleanedName = typeof item.cleaned_name === 'string' ? item.cleaned_name.trim() : '';
+  const cleanedName = canonicalizeReceiptItemName(originalText, { lineTotal: parsedLineTotal });
 
-  if (!cleanedName || parsedLineTotal === null || parsedLineTotal === 0) {
+  if (!originalText || !cleanedName || parsedLineTotal === null || parsedLineTotal === 0) {
     return null;
   }
 
@@ -400,7 +402,7 @@ export function normalizeLineItem(
     line_number: fallbackLineNumber,
     line_total: lineType === 'discount' ? Math.abs(parsedLineTotal) : parsedLineTotal,
     line_type: lineType,
-    original_text: originalText || cleanedName,
+    original_text: originalText,
     quantity: quantity === null ? null : Math.abs(quantity),
     unit_price: unitPrice === null ? null : Math.abs(unitPrice),
   };

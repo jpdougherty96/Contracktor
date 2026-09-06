@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { canonicalizeReceiptItemName } from '@/shared/receiptItemNames';
 import { useGuardedBack } from '@/src/hooks/useGuardedBack';
 import { formatCurrency } from '@/src/lib/financials';
 import { fetchJobs } from '@/src/lib/jobs';
@@ -1551,7 +1552,11 @@ function LineItemCard({
     assignmentType: lineItem.assignment_type as ReceiptLineAssignmentType,
   };
   const canAssignToJob = jobs.length > 0;
-  const originalText = getLineItemOriginalText(lineItem);
+  const displayName = canonicalizeReceiptItemName(
+    lineItem.original_text || lineItem.cleaned_name,
+    { lineTotal: lineItem.line_total }
+  ) || lineItem.cleaned_name;
+  const originalText = getLineItemOriginalText(lineItem, displayName);
   const hasActiveSuggestion =
     showAssignments &&
     currentAssignment.assignmentType === 'job' &&
@@ -1562,7 +1567,7 @@ function LineItemCard({
     <View style={styles.lineItemCard}>
       <View style={styles.lineItemHeader}>
         <View style={styles.lineItemTextColumn}>
-          <Text style={styles.lineItemName}>{lineItem.cleaned_name}</Text>
+          <Text style={styles.lineItemName}>{displayName}</Text>
           {originalText ? (
             <Text style={styles.lineItemOriginal}>{originalText}</Text>
           ) : null}
@@ -1689,8 +1694,11 @@ function LineItemCard({
   );
 }
 
-function getLineItemOriginalText(lineItem: Tables<'receipt_line_items'>): string | null {
-  if (!lineItem.original_text || lineItem.original_text === lineItem.cleaned_name) {
+function getLineItemOriginalText(
+  lineItem: Tables<'receipt_line_items'>,
+  displayName: string
+): string | null {
+  if (!lineItem.original_text || lineItem.original_text === displayName) {
     return null;
   }
 
@@ -1706,7 +1714,7 @@ function getLineItemOriginalText(lineItem: Tables<'receipt_line_items'>): string
     .replace(trailingAmountPattern, '')
     .trim();
 
-  return displayText && displayText !== lineItem.cleaned_name ? displayText : null;
+  return displayText && displayText !== displayName ? displayText : null;
 }
 
 function formatLineItemAmount(lineItem: Tables<'receipt_line_items'>): string {

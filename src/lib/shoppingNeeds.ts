@@ -3,6 +3,7 @@ import { fetchJobs } from '@/src/lib/jobs';
 import { supabase } from '@/src/lib/supabase';
 import type { Json, Tables } from '@/src/types/database';
 import type { Job } from '@/src/types/job';
+import { canonicalizeReceiptItemName } from '@/shared/receiptItemNames';
 
 export type ShoppingNeed = Tables<'shopping_needs'>;
 export type ShoppingNeedStatus = 'dismissed' | 'fulfilled' | 'open';
@@ -702,9 +703,16 @@ function scoreShoppingNeedLineMatch(
   need: ShoppingNeed,
   lineItem: Tables<'receipt_line_items'>
 ): number {
-  const needTokens = getMatchTokens(need.normalized_name || need.description);
+  const canonicalNeedName = canonicalizeReceiptItemName(
+    need.normalized_name || need.description
+  );
+  const canonicalLineName = canonicalizeReceiptItemName(
+    lineItem.original_text || lineItem.cleaned_name,
+    { lineTotal: lineItem.line_total }
+  );
+  const needTokens = getMatchTokens(canonicalNeedName);
   const lineTokens = getMatchTokens(
-    [lineItem.cleaned_name, lineItem.original_text].filter(Boolean).join(' ')
+    [canonicalLineName, lineItem.original_text].filter(Boolean).join(' ')
   );
 
   if (needTokens.length === 0 || lineTokens.length === 0) {
@@ -730,8 +738,8 @@ function scoreShoppingNeedLineMatch(
     return 0;
   }
 
-  const exactPhraseBonus = normalizeMatchText(lineItem.cleaned_name).includes(
-    normalizeMatchText(need.description)
+  const exactPhraseBonus = normalizeMatchText(canonicalLineName).includes(
+    normalizeMatchText(canonicalizeReceiptItemName(need.description))
   )
     ? 2
     : 0;

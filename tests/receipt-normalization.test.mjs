@@ -3,10 +3,23 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import ts from 'typescript';
 
-const source = await readFile(
-  new URL('../supabase/functions/_shared/receipt-normalization.ts', import.meta.url),
+const itemNameSource = await readFile(
+  new URL('../shared/receiptItemNames.ts', import.meta.url),
   'utf8'
 );
+const compiledItemNames = ts.transpileModule(itemNameSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.ES2022,
+  },
+}).outputText;
+const itemNamesModuleUrl = `data:text/javascript;base64,${Buffer.from(compiledItemNames).toString('base64')}`;
+const source = (
+  await readFile(
+    new URL('../supabase/functions/_shared/receipt-normalization.ts', import.meta.url),
+    'utf8'
+  )
+).replace('../../../shared/receiptItemNames.ts', itemNamesModuleUrl);
 const compiled = ts.transpileModule(source, {
   compilerOptions: {
     module: ts.ModuleKind.ESNext,
@@ -126,7 +139,7 @@ test('keeps purchased card products while dropping anchored payment summary line
   ]);
 
   assert.deepEqual(lines.map((line) => line.cleaned_name), [
-    'CARDBOARD',
+    'Cardboard',
     'Card stock',
     'Gift card',
     'Placard',
@@ -148,6 +161,26 @@ test('normalizes printed negative formats and never turns a negative item into a
   assert.equal(line.line_total, 50);
   assert.equal(line.quantity, 1);
   assert.equal(line.unit_price, 50);
+});
+
+test('derives persisted names from original text instead of model rewrites', () => {
+  const line = normalization.normalizeLineItem(
+    validLine({
+      cleaned_name: 'Strong Arm Two Peak Bends',
+      original_text: 'STRONG ARM TWO PEX BENDS',
+    }),
+    1
+  );
+
+  assert.equal(line.cleaned_name, 'Strong arm two PEX bends');
+  assert.equal(line.original_text, 'STRONG ARM TWO PEX BENDS');
+  assert.equal(
+    normalization.normalizeLineItem(
+      validLine({ cleaned_name: 'Invented model name', original_text: '' }),
+      2
+    ),
+    null
+  );
 });
 
 test('keeps persisted quantity and unit price nonnegative even when the line total is positive', () => {
