@@ -46,7 +46,7 @@ export const receiptCategories: ReceiptCategory[] = [
 const duplicateAmountTolerance = 0.05;
 const receiptTotalTolerance = 0.05;
 const receiptFields =
-  'id, scan_context_job_id, owner_id, business_id, created_by_user_id, storage_path, original_filename, vendor, receipt_date, subtotal, tax, total, category, ai_confidence, extracted_json, status, review_status, processing_status, processing_started_at, processing_attempts, processing_lease_id, last_processing_error, error_message, allocated_cost, cost_basis, review_version, last_review_commit_key, voided_at, voided_by_user_id, created_at, updated_at';
+  'id, scan_context_job_id, scan_context_job_ids, scan_context_includes_inventory, owner_id, business_id, created_by_user_id, storage_path, original_filename, vendor, receipt_date, subtotal, tax, total, category, ai_confidence, extracted_json, status, review_status, processing_status, processing_started_at, processing_attempts, processing_lease_id, last_processing_error, error_message, allocated_cost, cost_basis, review_version, last_review_commit_key, voided_at, voided_by_user_id, created_at, updated_at';
 
 export type UpdateReceiptInput = {
   category: ReceiptCategory;
@@ -118,7 +118,10 @@ export async function uploadReceiptPhoto(
   };
 }
 
-export async function createUploadingReceipt(jobId: string | null): Promise<Tables<'receipts'>> {
+export async function createUploadingReceipt(
+  jobIds: string[],
+  includesInventoryDestination = false
+): Promise<Tables<'receipts'>> {
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
   if (userError) {
@@ -129,13 +132,16 @@ export async function createUploadingReceipt(jobId: string | null): Promise<Tabl
     throw new Error('You must be logged in to create a receipt.');
   }
 
+  const uniqueJobIds = Array.from(new Set(jobIds));
   const { data, error } = await supabase
     .from('receipts')
     .insert({
       owner_id: userData.user.id,
       processing_status: 'uploading',
       review_status: 'none',
-      scan_context_job_id: jobId,
+      scan_context_includes_inventory: includesInventoryDestination,
+      scan_context_job_id: uniqueJobIds.length === 1 ? uniqueJobIds[0] : null,
+      scan_context_job_ids: uniqueJobIds,
       status: 'processing',
     })
     .select(receiptFields)
@@ -182,9 +188,10 @@ export async function attachReceiptPhoto(
   return data;
 }
 
-export async function setReceiptDraftDestination(
+export async function setReceiptDraftDestinations(
   receiptId: string,
-  jobId: string | null
+  jobIds: string[],
+  includesInventoryDestination = false
 ): Promise<Tables<'receipts'>> {
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
@@ -196,10 +203,13 @@ export async function setReceiptDraftDestination(
     throw new Error('You must be logged in to update a receipt destination.');
   }
 
+  const uniqueJobIds = Array.from(new Set(jobIds));
   const { data, error } = await supabase
     .from('receipts')
     .update({
-      scan_context_job_id: jobId,
+      scan_context_includes_inventory: includesInventoryDestination,
+      scan_context_job_id: uniqueJobIds.length === 1 ? uniqueJobIds[0] : null,
+      scan_context_job_ids: uniqueJobIds,
       updated_at: new Date().toISOString(),
     })
     .eq('id', receiptId)

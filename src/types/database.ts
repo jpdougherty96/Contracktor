@@ -1844,7 +1844,9 @@ export type Database = {
           receipt_date: string | null
           review_status: string
           review_version: number
+          scan_context_includes_inventory: boolean
           scan_context_job_id: string | null
+          scan_context_job_ids: string[]
           status: string
           storage_path: string | null
           subtotal: number | null
@@ -1877,7 +1879,9 @@ export type Database = {
           receipt_date?: string | null
           review_status?: string
           review_version?: number
+          scan_context_includes_inventory?: boolean
           scan_context_job_id?: string | null
+          scan_context_job_ids?: string[]
           status?: string
           storage_path?: string | null
           subtotal?: number | null
@@ -1910,7 +1914,9 @@ export type Database = {
           receipt_date?: string | null
           review_status?: string
           review_version?: number
+          scan_context_includes_inventory?: boolean
           scan_context_job_id?: string | null
+          scan_context_job_ids?: string[]
           status?: string
           storage_path?: string | null
           subtotal?: number | null
@@ -2869,7 +2875,9 @@ export type Database = {
           receipt_date: string | null
           review_status: string
           review_version: number
+          scan_context_includes_inventory: boolean
           scan_context_job_id: string | null
+          scan_context_job_ids: string[]
           status: string
           storage_path: string | null
           subtotal: number | null
@@ -2951,7 +2959,9 @@ export type Database = {
           receipt_date: string | null
           review_status: string
           review_version: number
+          scan_context_includes_inventory: boolean
           scan_context_job_id: string | null
+          scan_context_job_ids: string[]
           status: string
           storage_path: string | null
           subtotal: number | null

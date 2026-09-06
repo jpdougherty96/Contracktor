@@ -73,3 +73,24 @@ test('only clean receipts auto-finalize and the retired direct extractor stays a
   assert.doesNotMatch(config, /functions\.extract-receipt/);
   assert.doesNotMatch(receipts, /functions\/v1\/extract-receipt/);
 });
+
+test('capture-time receipt destinations survive restart and are business validated', async () => {
+  const [migration, capture, receipts, activity] = await Promise.all([
+    readRepoFile(
+      'supabase/migrations/20260906010000_receipt_capture_destinations_and_future_rebates.sql'
+    ),
+    readRepoFile('src/screens/AddReceiptScreen.tsx'),
+    readRepoFile('src/lib/receipts.ts'),
+    readRepoFile('src/lib/globalActivity.ts'),
+  ]);
+
+  assert.match(migration, /scan_context_job_ids uuid\[\]/);
+  assert.match(migration, /scan_context_includes_inventory boolean/);
+  assert.match(migration, /validate_receipt_capture_destinations/);
+  assert.match(migration, /job\.business_id is distinct from new\.business_id/);
+  assert.match(capture, /receiptJobs\.map\(\(receiptJob\) => receiptJob\.id\)/);
+  assert.match(receipts, /scan_context_job_ids: uniqueJobIds/);
+  assert.match(receipts, /scan_context_includes_inventory: includesInventoryDestination/);
+  assert.match(activity, /receiptJobs: captureJobs/);
+  assert.match(activity, /receiptIncludesInventoryDestination: includesInventoryDestination/);
+});

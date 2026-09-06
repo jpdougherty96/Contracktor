@@ -104,3 +104,26 @@ test('auto-finalizes only a clean, reconciled, duplicate-free single-job receipt
     false
   );
 });
+
+test('untrusted lines fall back to one whole destination but never split silently', () => {
+  assert.equal(
+    adjustments.getUntrustedReceiptRecovery(true, 1, false, false),
+    'save_whole'
+  );
+  assert.equal(
+    adjustments.getUntrustedReceiptRecovery(true, 2, false, false),
+    'choose_single_destination'
+  );
+  assert.equal(
+    adjustments.getUntrustedReceiptRecovery(true, 1, false, true),
+    'choose_single_destination'
+  );
+  assert.equal(
+    adjustments.getUntrustedReceiptRecovery(true, 0, true, true),
+    'save_whole'
+  );
+  assert.equal(
+    adjustments.getUntrustedReceiptRecovery(false, 2, false, false),
+    'none'
+  );
+});

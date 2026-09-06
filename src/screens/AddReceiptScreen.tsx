@@ -1,6 +1,6 @@
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -53,7 +53,10 @@ export function AddReceiptScreen({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const didAutoStartCameraRef = useRef(false);
   const processedInitialAssetRef = useRef<ImagePicker.ImagePickerAsset | null>(null);
-  const receiptJobs = jobs && jobs.length > 0 ? jobs : job ? [job] : [];
+  const receiptJobs = useMemo(
+    () => (jobs && jobs.length > 0 ? jobs : job ? [job] : []),
+    [job, jobs]
+  );
 
   const isBusy = step === 'uploading';
   const isWeb = Platform.OS === 'web';
@@ -66,8 +69,12 @@ export function AddReceiptScreen({
       setStep('uploading');
       setMessage('Preparing receipt...');
 
-      const contextJobId = inventoryMode ? null : job?.id;
-      const receipt = await createUploadingReceipt(contextJobId ?? null);
+      const destinationJobIds = receiptJobs.map((receiptJob) => receiptJob.id);
+      const contextJobId = inventoryMode ? null : receiptJobs[0]?.id ?? job?.id;
+      const receipt = await createUploadingReceipt(
+        destinationJobIds,
+        inventoryMode || includeInventoryDestination
+      );
       createdReceiptId = receipt.id;
       const preparedAsset = await prepareReceiptAssetForUpload(asset);
       setMessage('Uploading receipt...');
@@ -98,8 +105,10 @@ export function AddReceiptScreen({
     }
   }, [
     inventoryMode,
+    includeInventoryDestination,
     job?.id,
     onReviewReceipt,
+    receiptJobs,
   ]);
 
   const handleTakePhoto = useCallback(async () => {

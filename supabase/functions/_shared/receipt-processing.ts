@@ -40,7 +40,7 @@ export async function processReceiptImage(
 ): Promise<ReceiptProcessingResult> {
   const { data: receipt, error: receiptError } = await supabase
     .from('receipts')
-    .select('id, owner_id, scan_context_job_id, storage_path, processing_status, processing_lease_id, status')
+    .select('id, owner_id, scan_context_job_id, scan_context_job_ids, scan_context_includes_inventory, storage_path, processing_status, processing_lease_id, status')
     .eq('id', receiptId)
     .single();
 
@@ -120,8 +120,9 @@ export async function processReceiptImage(
         ? 'needs_review'
         : extractionStatus;
     const reviewStatus = getProcessedReceiptReviewStatus({
+      hasCaptureDestination:
+        receipt.scan_context_job_ids.length > 0 || receipt.scan_context_includes_inventory,
       legacyStatus: status,
-      scanContextJobId: receipt.scan_context_job_id,
     });
     const errorMessage = getReceiptErrorMessage(status, normalized);
 
@@ -169,17 +170,17 @@ export async function processReceiptImage(
 }
 
 function getProcessedReceiptReviewStatus({
+  hasCaptureDestination,
   legacyStatus,
-  scanContextJobId,
 }: {
+  hasCaptureDestination: boolean;
   legacyStatus: string;
-  scanContextJobId: string | null;
 }): string {
   if (legacyStatus === 'error') {
     return 'error';
   }
 
-  if (!scanContextJobId) {
+  if (!hasCaptureDestination) {
     return 'needs_destination';
   }
 
@@ -197,7 +198,7 @@ async function extractWithOpenAI(
     ? ' This is a retry because the previous line items did not reconcile to the visible receipt total. Re-read the printed right-side extended amounts carefully, look for rebate, coupon, discount, store credit, or credit adjustment rows, return those adjustment rows as line_type discount when visible, and exclude summary/tax/payment rows.'
     : '';
   const extractionInstructions =
-    `You are extracting data from a contractor receipt photo. Return only valid JSON. If the receipt is shown inside a phone screenshot, email, browser, or app screen, ignore the surrounding UI and read only the receipt itself. Extract vendor, receipt_date in YYYY-MM-DD if visible, subtotal, tax, total, likely receipt category, confidence from 0 to 1, notes, and visible purchased line items. The top-level total must be the final out-of-pocket amount paid after every rebate, coupon, discount, store credit, or credit adjustment. If the receipt prints both a gross TOTAL and a lower AMOUNT PAID, BALANCE DUE, NET TOTAL, or GRAND TOTAL after an adjustment, use the lower final paid amount as total. Use issue date, transaction date, order date, or receipt date as receipt_date when a standard receipt date label is not present. For line_items, include purchased products/services and visible rebate, coupon, discount, store credit, or credit adjustment rows. Rebate, coupon, discount, store credit, and credit adjustment rows must use line_type discount with a positive line_total amount. Important: do not net a rebate, credit, or discount into a purchased item line. Preserve the printed gross item extended amount as an item line, and preserve the rebate/credit/discount as its own discount line. Amounts printed with a trailing minus sign, such as 299.57-, are discount/credit amounts and should be returned as positive line_total with line_type discount. Menards receipts often show MENARD REBATE or rebate receipt rows; include those rows as line_type discount when they affect the subtotal or amount paid. Never include subtotal, taxes, taxes and fees, total, ticket amount, payment, card authorization, remaining balance, survey, cashier, transaction number, address, phone, return policy, or other non-purchase/summary rows as item line_items. If itemized taxes or fees are visible and there is no separate tax total, sum those tax/fee rows into the top-level tax value. Preserve original_text exactly as visible, write a cleaned_name that expands abbreviations when clear, and do not invent invisible items. Do not bake tax into item prices. The sum of item line totals minus discount line totals plus tax should reconcile to the final out-of-pocket total when discount rows are present. If a quantity/unit price is visible, use the extended line amount printed at the right, not quantity times a misread unit price. Category must be one of: materials, tools, fuel, subcontractor, permit, other. Line item category must be one of: material, tool, inventory, rental, permit, subcontractor, fuel, other, or null. Line type must be item for purchased rows and discount for rebate, coupon, discount, store credit, or credit adjustment rows; use tax or fee only if such a row is unavoidable, and tax/fee rows will be ignored by conTRACKtor. If the receipt date is not visible, set receipt_date to null and include the exact phrase "date not visible" in notes.${retryInstruction}`;
+    `You are extracting data from a contractor receipt photo. Return only valid JSON. If the receipt is shown inside a phone screenshot, email, browser, or app screen, ignore the surrounding UI and read only the receipt itself. Extract vendor, receipt_date in YYYY-MM-DD if visible, subtotal, tax, total, likely receipt category, confidence from 0 to 1, notes, and visible purchased line items. The top-level total must be the final out-of-pocket amount paid after every rebate, coupon, discount, store credit, or credit adjustment. If the receipt prints both a gross TOTAL and a lower AMOUNT PAID, BALANCE DUE, NET TOTAL, or GRAND TOTAL after an adjustment, use the lower final paid amount as total. Use issue date, transaction date, order date, or receipt date as receipt_date when a standard receipt date label is not present. For line_items, include purchased products/services and visible rebate, coupon, discount, store credit, or credit adjustment rows that reduce this transaction's amount paid. Rebate, coupon, discount, store credit, and credit adjustment rows that reduce this purchase must use line_type discount with a positive line_total amount. Important: do not net a rebate, credit, or discount into a purchased item line. Preserve the printed gross item extended amount as an item line, and preserve the applied rebate/credit/discount as its own discount line. Amounts printed with a trailing minus sign, such as 299.57-, are discount/credit amounts and should be returned as positive line_total with line_type discount. Menards receipts may include a separate mail-in rebate receipt or future merchandise credit. Do not return that future rebate as a discount line when TOTAL plus TAX already equals TOTAL SALE or the amount tendered; mention it in notes instead. Never include subtotal, taxes, taxes and fees, total, ticket amount, payment, card authorization, remaining balance, survey, cashier, transaction number, address, phone, return policy, or other non-purchase/summary rows as item line_items. If itemized taxes or fees are visible and there is no separate tax total, sum those tax/fee rows into the top-level tax value. Preserve original_text exactly as visible, write a cleaned_name that expands abbreviations when clear, and do not invent invisible items. Do not bake tax into item prices. The sum of item line totals minus discount line totals plus tax should reconcile to the final out-of-pocket total when discount rows are present. If a quantity/unit price is visible, use the extended line amount printed at the right, not quantity times a misread unit price. Category must be one of: materials, tools, fuel, subcontractor, permit, other. Line item category must be one of: material, tool, inventory, rental, permit, subcontractor, fuel, other, or null. Line type must be item for purchased rows and discount for rebate, coupon, discount, store credit, or credit adjustment rows; use tax or fee only if such a row is unavoidable, and tax/fee rows will be ignored by conTRACKtor. If the receipt date is not visible, set receipt_date to null and include the exact phrase "date not visible" in notes.${retryInstruction}`;
 
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',

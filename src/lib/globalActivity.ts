@@ -95,7 +95,7 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
       .limit(120),
     supabase
       .from('receipts')
-      .select('id, scan_context_job_id, vendor, total, receipt_date, status, review_status, processing_status, category, error_message, last_processing_error, created_at, updated_at')
+      .select('id, scan_context_job_id, scan_context_job_ids, scan_context_includes_inventory, vendor, total, receipt_date, status, review_status, processing_status, category, error_message, last_processing_error, created_at, updated_at')
       .eq('owner_id', userId)
       .neq('status', 'voided')
       .order('created_at', { ascending: false })
@@ -536,19 +536,33 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
   }
 
   for (const receipt of receiptsResult.data ?? []) {
-    if (isReceiptProcessing(receipt.processing_status)) {
-      const job = getJob(jobsById, receipt.scan_context_job_id);
+    const captureJobIds = receipt.scan_context_job_ids.length > 0
+      ? receipt.scan_context_job_ids
+      : receipt.scan_context_job_id
+        ? [receipt.scan_context_job_id]
+        : [];
+    const captureJobs = captureJobIds
+      .map((jobId) => getJob(jobsById, jobId))
+      .filter((captureJob): captureJob is Job => Boolean(captureJob));
+    const includesInventoryDestination = receipt.scan_context_includes_inventory;
+    const hasCaptureDestination = captureJobIds.length > 0 || includesInventoryDestination;
+    const isMultiCaptureDestination =
+      captureJobIds.length > 1 || (captureJobIds.length > 0 && includesInventoryDestination);
+    const captureJob = isMultiCaptureDestination ? null : captureJobs[0] ?? null;
 
+    if (isReceiptProcessing(receipt.processing_status)) {
       items.push({
         date: receipt.created_at,
         capturedAt: receipt.created_at,
         detail: getReceiptProcessingDetail(receipt.processing_status),
         id: `receipt-processing-${receipt.id}`,
-        job,
-        jobId: receipt.scan_context_job_id,
-        jobName: getJobName(job),
+        job: captureJob,
+        jobId: captureJob?.id ?? null,
+        jobName: isMultiCaptureDestination ? 'Multiple destinations' : getJobName(captureJob),
         label: 'Receipt secured',
         receiptId: receipt.id,
+        receiptIncludesInventoryDestination: includesInventoryDestination,
+        receiptJobs: captureJobs,
         tone: 'normal',
         type: 'receipt',
       });
@@ -559,7 +573,7 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
       receipt.processing_status,
       receipt.status,
       receipt.review_status,
-      Boolean(receipt.scan_context_job_id),
+      hasCaptureDestination,
       receipt.error_message ?? receipt.last_processing_error
     );
 
@@ -571,7 +585,6 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
       continue;
     }
 
-    const job = getJob(jobsById, receipt.scan_context_job_id);
     const item: GlobalActivityItem = {
       date: receipt.receipt_date ?? receipt.created_at,
       capturedAt: receipt.created_at,
@@ -579,18 +592,22 @@ export async function fetchGlobalActivity(): Promise<GlobalActivitySummary> {
         receipt.total !== null ? ` - ${formatCurrency(receipt.total, { showCents: true })}` : ''
       }${receipt.category ? ` - ${receipt.category}` : ''}`,
       id: `receipt-review-${receipt.id}`,
-      job,
-      jobId: receipt.scan_context_job_id,
+      job: captureJob,
+      jobId: captureJob?.id ?? null,
       jobName:
-        receipt.review_status === 'needs_destination' && !receipt.scan_context_job_id
+        receipt.review_status === 'needs_destination' && !hasCaptureDestination
           ? 'Destination needed'
-          : getJobName(job),
+          : isMultiCaptureDestination
+            ? 'Multiple destinations'
+            : getJobName(captureJob),
       label:
-        receipt.review_status === 'needs_destination' && !receipt.scan_context_job_id
+        receipt.review_status === 'needs_destination' && !hasCaptureDestination
           ? 'Receipt needs destination'
           : 'Receipt needs attention',
       needsReview: true,
       receiptId: receipt.id,
+      receiptIncludesInventoryDestination: includesInventoryDestination,
+      receiptJobs: captureJobs,
       reviewReason,
       tone: receipt.processing_status === 'failed' || receipt.status === 'error' ? 'danger' : 'warning',
       type: 'receipt',

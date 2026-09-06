@@ -69,6 +69,22 @@ export function shouldOfferReceiptAdjustmentChoice(
   );
 }
 
+export function getUntrustedReceiptRecovery(
+  hasUntrustedLineItems: boolean,
+  selectedJobCount: number,
+  inventoryMode: boolean,
+  includeInventoryDestination: boolean
+): 'choose_single_destination' | 'none' | 'save_whole' {
+  if (!hasUntrustedLineItems) {
+    return 'none';
+  }
+
+  const destinationCount =
+    selectedJobCount + (inventoryMode || includeInventoryDestination ? 1 : 0);
+
+  return destinationCount === 1 ? 'save_whole' : 'choose_single_destination';
+}
+
 type ReceiptAutoFinalizeInput = {
   assignedDestinationCount: number;
   duplicateCheckComplete: boolean;

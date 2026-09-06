@@ -61,9 +61,20 @@ export function normalizeExtraction(
   const tax = parsedTax ?? taxFromLines;
   const parsedSubtotal = toMoney(value.subtotal);
   const rawLineCount = Array.isArray(value.line_items) ? value.line_items.length : 0;
-  const lineItems = normalizeLineItems(value.line_items);
-  const itemTotal = sumNormalizedLineTotals(lineItems, 'item');
-  const discountTotal = sumNormalizedLineTotals(lineItems, 'discount');
+  const normalizedLineItems = normalizeLineItems(value.line_items);
+  const itemTotal = sumNormalizedLineTotals(normalizedLineItems, 'item');
+  const extractedDiscountTotal = sumNormalizedLineTotals(normalizedLineItems, 'discount');
+  const hasNonCostingDiscountLines =
+    parsedTotal !== null &&
+    itemTotal > 0 &&
+    extractedDiscountTotal > 0 &&
+    Math.abs(roundMoney(itemTotal + (tax ?? 0)) - parsedTotal) <= receiptMathTolerance;
+  const lineItems = hasNonCostingDiscountLines
+    ? normalizedLineItems
+        .filter((lineItem) => lineItem.line_type !== 'discount')
+        .map((lineItem, index) => ({ ...lineItem, line_number: index + 1 }))
+    : normalizedLineItems;
+  const discountTotal = hasNonCostingDiscountLines ? 0 : extractedDiscountTotal;
   const computedTotal = itemTotal > 0
     ? roundMoney(itemTotal - discountTotal + (tax ?? 0))
     : null;

@@ -48,7 +48,7 @@ function validExtraction(overrides = {}) {
   };
 }
 
-test('preserves the extracted total and flags a conflicting line-derived total', () => {
+test('drops a non-costing discount when gross items plus tax already equal the amount paid', () => {
   const extraction = normalization.normalizeExtraction(
     validExtraction({
       line_items: [
@@ -69,10 +69,50 @@ test('preserves the extracted total and flags a conflicting line-derived total',
   );
 
   assert.equal(extraction.total, 1070);
-  assert.equal(extraction.computed_total, 970);
-  assert.equal(extraction.total_discrepancy, -100);
-  assert.equal(normalization.getReceiptStatus(extraction), 'needs_review');
-  assert.match(normalization.getReceiptErrorMessage('needs_review', extraction), /does not match/);
+  assert.equal(extraction.computed_total, 1070);
+  assert.equal(extraction.total_discrepancy, 0);
+  assert.equal(extraction.line_items.length, 1);
+  assert.equal(normalization.getReceiptStatus(extraction), 'accepted');
+});
+
+test('does not charge a Menards mail-in rebate against the purchase that earned it', () => {
+  const itemAmounts = [
+    20.97, 11.96, 13.98, 12.87, 12.3, 35.92, 21.98, 139.98, 15.96, 8.82,
+    4.79, 3.98, 31.98, 4.09, 3.96, 2.76, 1.76, 2.98, 7.98, 1.96,
+  ];
+  const extraction = normalization.normalizeExtraction(
+    validExtraction({
+      line_items: [
+        ...itemAmounts.map((lineTotal, index) =>
+          validLine({
+            cleaned_name: `Menards item ${index + 1}`,
+            line_number: index + 1,
+            line_total: lineTotal,
+            original_text: `ITEM ${index + 1}`,
+            unit_price: lineTotal,
+          })
+        ),
+        validLine({
+          cleaned_name: '11% mail-in rebate',
+          line_number: 21,
+          line_total: 39.71,
+          line_type: 'discount',
+          original_text: '11% REBATE AMOUNT 39.71',
+        }),
+      ],
+      subtotal: 360.98,
+      tax: 26.62,
+      total: 387.6,
+      vendor: 'Menards Marshall',
+    }),
+    referenceDate
+  );
+
+  assert.equal(extraction.line_items.length, 20);
+  assert.equal(extraction.line_items.some((line) => line.line_type === 'discount'), false);
+  assert.equal(extraction.computed_total, 387.6);
+  assert.equal(extraction.total_discrepancy, 0);
+  assert.equal(normalization.getReceiptStatus(extraction), 'accepted');
 });
 
 test('keeps purchased card products while dropping anchored payment summary lines', () => {

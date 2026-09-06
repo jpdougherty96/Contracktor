@@ -21,6 +21,7 @@ import { formatCurrency } from '@/src/lib/financials';
 import { fetchJobs } from '@/src/lib/jobs';
 import {
   getReceiptAdjustmentDecision,
+  getUntrustedReceiptRecovery,
   shouldAutoFinalizeReceipt,
   shouldOfferReceiptAdjustmentChoice,
 } from '@/src/lib/receiptAdjustments';
@@ -148,10 +149,18 @@ export function ReceiptReviewScreen({
     includeInventoryDestination
   );
   const hasUntrustedLineItems = lineItemsDoNotMatchReceiptTotal;
-  const requiresLineItems =
-    (selectedReceiptJobs.length > 1 ||
-      (includeInventoryDestination && selectedReceiptJobs.length > 0)) &&
-    (!hasLineItems || hasUntrustedLineItems);
+  const hasMultipleCaptureDestinations =
+    selectedReceiptJobs.length > 1 ||
+    (includeInventoryDestination && selectedReceiptJobs.length > 0);
+  const requiresLineItems = hasMultipleCaptureDestinations && !hasLineItems;
+  const untrustedReceiptRecovery = getUntrustedReceiptRecovery(
+    hasUntrustedLineItems,
+    selectedReceiptJobs.length,
+    inventoryMode,
+    includeInventoryDestination
+  );
+  const mustChooseSingleDestination =
+    untrustedReceiptRecovery === 'choose_single_destination';
   const areLineItemsFinalized =
     hasLineItems &&
     lineItems.every((lineItem) =>
@@ -182,6 +191,14 @@ export function ReceiptReviewScreen({
     hasLineItems &&
     !hasUntrustedLineItems &&
     (!isSavedReceipt || isEditingLineAssignments || isSingleJobLineReceipt);
+  const shouldShowQuickConfirmPanel =
+    !isReceiptStillProcessing &&
+    !isAutoFinalizing &&
+    hasLineItems &&
+    !requiresReceiptAdjustmentChoice &&
+    !hasUntrustedLineItems &&
+    isSingleJobLineReceipt &&
+    !shouldShowLineEditor;
   const canAutoFinalizeSingleJobReceipt =
     Boolean(receipt) &&
     shouldAutoFinalizeReceipt({
@@ -512,10 +529,10 @@ export function ReceiptReviewScreen({
   const handleSave = async () => {
     setErrorMessage(null);
 
-    if (requiresLineItems) {
+    if (requiresLineItems || mustChooseSingleDestination) {
       setErrorMessage(
         hasUntrustedLineItems
-          ? 'This receipt needs a clean line-item scan before it can be split across multiple jobs.'
+          ? 'These lines do not match the amount paid. Choose one job to save the printed receipt total, or remove this receipt and scan it again.'
           : 'This receipt was scanned for multiple jobs, but no line items were returned. It needs line items before it can be saved.'
       );
       return;
@@ -932,6 +949,18 @@ export function ReceiptReviewScreen({
                       This receipt was selected for multiple jobs. It cannot be saved as one
                       whole-receipt cost because that would put the full amount on one job.
                     </Text>
+                    {onEditReceiptJobs ? (
+                      <Pressable
+                        onPress={() =>
+                          onEditReceiptJobs(
+                            selectedReceiptJobs.map((selectedJob) => selectedJob.id),
+                            includeInventoryDestination
+                          )
+                        }
+                        style={styles.savedEditButton}>
+                        <Text style={styles.savedEditButtonText}>Choose one job instead</Text>
+                      </Pressable>
+                    ) : null}
                   </View>
                 ) : null}
 
@@ -1069,16 +1098,28 @@ export function ReceiptReviewScreen({
                       {formatCurrency(receipt.total, { showCents: true })}. conTRACKtor will not use
                       incomplete or excessive lines for the job cost.
                     </Text>
+                    {mustChooseSingleDestination && onEditReceiptJobs ? (
+                      <>
+                        <Text style={styles.warningText}>
+                          A non-matching receipt cannot be split safely. Choose one job to save the
+                          printed total there, or remove this receipt and scan it again.
+                        </Text>
+                        <Pressable
+                          onPress={() =>
+                            onEditReceiptJobs(
+                              selectedReceiptJobs.map((selectedJob) => selectedJob.id),
+                              includeInventoryDestination
+                            )
+                          }
+                          style={styles.savedEditButton}>
+                          <Text style={styles.savedEditButtonText}>Choose one job instead</Text>
+                        </Pressable>
+                      </>
+                    ) : null}
                   </View>
                 ) : null}
 
-                {!isReceiptStillProcessing &&
-                !isAutoFinalizing &&
-                hasLineItems &&
-                !requiresReceiptAdjustmentChoice &&
-                !hasUntrustedLineItems &&
-                isSingleJobLineReceipt &&
-                !shouldShowLineEditor ? (
+                {shouldShowQuickConfirmPanel ? (
                   <View style={styles.quickConfirmPanel}>
                     <View style={styles.quickConfirmText}>
                       <Text style={styles.quickConfirmTitle}>Materials total</Text>
@@ -1134,7 +1175,7 @@ export function ReceiptReviewScreen({
                       />
                     ))}
                   </View>
-                ) : isReceiptStillProcessing || requiresLineItems ? null : (
+                ) : isReceiptStillProcessing || requiresLineItems || mustChooseSingleDestination ? null : (
                   <>
                     {hasUntrustedLineItems ? (
                       <>
@@ -1276,7 +1317,7 @@ export function ReceiptReviewScreen({
                   </Pressable>
                 ) : null}
               </View>
-            ) : isSingleJobLineReceipt && !shouldShowLineEditor ? null : (
+            ) : shouldShowQuickConfirmPanel ? null : (
               <Pressable
                 disabled={
                   isSaving ||
@@ -1284,6 +1325,7 @@ export function ReceiptReviewScreen({
                   isLoading ||
                   !receipt ||
                   requiresLineItems ||
+                  mustChooseSingleDestination ||
                   isReceiptStillProcessing ||
                   (hasLineItems && !hasUntrustedLineItems && !canSaveLineAssignments)
                 }
@@ -1295,6 +1337,7 @@ export function ReceiptReviewScreen({
                     isLoading ||
                     !receipt ||
                     requiresLineItems ||
+                    mustChooseSingleDestination ||
                     isReceiptStillProcessing ||
                     (hasLineItems && !hasUntrustedLineItems && !canSaveLineAssignments)) &&
                     styles.disabledButton,
@@ -1302,7 +1345,9 @@ export function ReceiptReviewScreen({
                 <Text style={styles.saveButtonText}>
                   {isSaving || isAutoFinalizing
                     ? 'Saving...'
-                    : hasLineItems && !hasUntrustedLineItems
+                    : mustChooseSingleDestination
+                      ? 'Choose one job to save'
+                      : hasLineItems && !hasUntrustedLineItems
                       ? 'Save line assignments'
                       : 'Save receipt'}
                 </Text>

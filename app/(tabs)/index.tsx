@@ -14,7 +14,7 @@ import {
   clearPasswordRecoveryRequested,
   hasPendingPasswordRecoveryRequest,
 } from '@/src/lib/passwordRecovery';
-import { setReceiptDraftDestination } from '@/src/lib/receipts';
+import { setReceiptDraftDestinations } from '@/src/lib/receipts';
 import {
   globalActivityQueryOptions,
   jobQueryOptions,
@@ -786,18 +786,26 @@ export default function HomeScreen() {
             return;
           }
 
+          if (screen === 'selectJobsForReceiptEdit' && selectedReceiptId) {
+            try {
+              await setReceiptDraftDestinations(
+                selectedReceiptId,
+                jobs.map((selectedJob) => selectedJob.id),
+                includesInventory
+              );
+            } catch (error) {
+              setGlobalErrorMessage(
+                getUserFacingError(error, 'Unable to save receipt destinations.')
+              );
+              return;
+            }
+          }
+
           setSelectedJob(jobs[0] ?? null);
           setSelectedReceiptJobs(jobs);
           setIsSelectedReceiptInventoryMode(includesInventory);
 
           if (screen === 'selectJobsForReceiptEdit') {
-            if (selectedReceiptId && jobs.length === 1 && !includesInventory) {
-              await setReceiptDraftDestination(selectedReceiptId, jobs[0].id).catch((error) => {
-                setGlobalErrorMessage(
-                  getUserFacingError(error, 'Unable to save receipt destination.')
-                );
-              });
-            }
             setScreen('reviewReceipt');
             return;
           }
@@ -806,18 +814,22 @@ export default function HomeScreen() {
           setAddCompleteScreen(includesInventory ? 'toolsInventory' : 'home');
           setScreen('addExpenseMethod');
         }}
-        onSelectInventory={() => {
+        onSelectInventory={async () => {
+          if (screen === 'selectJobsForReceiptEdit' && selectedReceiptId) {
+            try {
+              await setReceiptDraftDestinations(selectedReceiptId, [], true);
+            } catch (error) {
+              setGlobalErrorMessage(
+                getUserFacingError(error, 'Unable to save receipt destination.')
+              );
+              return;
+            }
+          }
+
           setSelectedJob(null);
           setSelectedReceiptJobs([]);
           setIsSelectedReceiptInventoryMode(true);
           if (screen === 'selectJobsForReceiptEdit') {
-            if (selectedReceiptId) {
-              void setReceiptDraftDestination(selectedReceiptId, null).catch((error) => {
-                setGlobalErrorMessage(
-                  getUserFacingError(error, 'Unable to save receipt destination.')
-                );
-              });
-            }
             setScreen('reviewReceipt');
             return;
           }
