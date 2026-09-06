@@ -17,6 +17,10 @@ export type TimeClockDefaults = {
   workerName: string | null;
 };
 
+export type StopTimerResult =
+  | { disposition: 'discarded'; durationMinutes: 0 }
+  | { disposition: 'recorded'; durationMinutes: number };
+
 type TimerJob = Pick<Job, 'hourlyRate' | 'id'>;
 
 const timeEntryFields =
@@ -132,11 +136,17 @@ function firstPositiveRate(...rates: (number | null | undefined)[]): number | nu
   );
 }
 
-export async function stopJobTimer(entry: ActiveTimeEntry): Promise<void> {
-  await stopActiveTimer(entry);
+export async function stopJobTimer(entry: ActiveTimeEntry): Promise<StopTimerResult> {
+  return stopActiveTimer(entry);
 }
 
-async function stopActiveTimer(entry: ActiveTimeEntry): Promise<void> {
+export function getTimerStopNotice(jobName: string, result: StopTimerResult): string {
+  return result.disposition === 'discarded'
+    ? `${jobName} timer stopped. Less than 30 seconds, so no time was recorded.`
+    : `${jobName} timer stopped and its time was recorded.`;
+}
+
+async function stopActiveTimer(entry: ActiveTimeEntry): Promise<StopTimerResult> {
   if (!entry.started_at) {
     throw new Error('Timer entry is missing a start time.');
   }
@@ -161,7 +171,7 @@ async function stopActiveTimer(entry: ActiveTimeEntry): Promise<void> {
       throw new Error(error.message);
     }
 
-    return;
+    return { disposition: 'discarded', durationMinutes: 0 };
   }
 
   const { data, error } = await supabase
@@ -202,6 +212,8 @@ async function stopActiveTimer(entry: ActiveTimeEntry): Promise<void> {
     sourceTable: 'time_entries',
     title: 'Hours logged',
   });
+
+  return { disposition: 'recorded', durationMinutes };
 }
 
 async function recordActivityEventSafely(

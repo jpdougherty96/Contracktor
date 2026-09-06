@@ -20,6 +20,7 @@ import {
   jobQueryOptions,
   serverStateKeys,
 } from '@/src/lib/serverState';
+import { getTimerStopNotice } from '@/src/lib/timeClock';
 import { getUserFacingError } from '@/src/lib/userFacingError';
 import { AddExpenseMethodScreen } from '@/src/screens/AddExpenseMethodScreen';
 import { AddHoursScreen } from '@/src/screens/AddHoursScreen';
@@ -720,9 +721,9 @@ export default function HomeScreen() {
           setSelectedTellEntryId(null);
           setScreen('tellContracktor');
         }}
-        onTimerStopped={(jobName) => {
+        onTimerStopped={(jobName, result) => {
           setDashboardRefreshKey((key) => key + 1);
-          showNotice(`${jobName} timer stopped and its time was recorded.`);
+          showNotice(getTimerStopNotice(jobName, result));
         }}
         onLogout={handleLogout}
         showActivity={canUseActivity}

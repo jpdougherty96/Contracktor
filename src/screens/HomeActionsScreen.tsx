@@ -19,7 +19,7 @@ import {
   serverStateKeys,
   startWorkJobsQueryOptions,
 } from '@/src/lib/serverState';
-import { stopJobTimer } from '@/src/lib/timeClock';
+import { stopJobTimer, type StopTimerResult } from '@/src/lib/timeClock';
 import { getUserFacingError } from '@/src/lib/userFacingError';
 import { colors, radii } from '@/src/styles/theme';
 
@@ -32,7 +32,7 @@ type HomeActionsScreenProps = {
   onGoToJobs: () => void;
   onStartWork: () => void;
   onTellContracktor: () => void;
-  onTimerStopped?: (jobName: string) => void;
+  onTimerStopped?: (jobName: string, result: StopTimerResult) => void;
   onLogout?: () => void;
   showActivity?: boolean;
   showTellContracktor?: boolean;
@@ -188,8 +188,8 @@ export function HomeActionsScreen({
     setTimerErrorMessage(null);
 
     try {
-      await stopTimerMutation.mutateAsync(timerToStop.entry);
-      onTimerStopped?.(timerToStop.jobName);
+      const result = await stopTimerMutation.mutateAsync(timerToStop.entry);
+      onTimerStopped?.(timerToStop.jobName, result);
     } catch (error) {
       setTimerErrorMessage(getUserFacingError(error, 'Unable to stop timer. Try again.'));
     }

@@ -32,11 +32,12 @@ test('Home renders one needs-attention signal instead of duplicating the activit
 });
 
 test('Home timer state is live, accessible, stoppable, and motion-safe', async () => {
-  const [home, timeClock, serverState, route] = await Promise.all([
+  const [home, timeClock, serverState, route, hoursHub] = await Promise.all([
     readRepoFile('src/screens/HomeActionsScreen.tsx'),
     readRepoFile('src/lib/timeClock.ts'),
     readRepoFile('src/lib/serverState.tsx'),
     readRepoFile('app/(tabs)/index.tsx'),
+    readRepoFile('src/screens/AddHoursHubScreen.tsx'),
   ]);
 
   assert.match(home, /useQuery\(activeTimerQueryOptions\(\)\)/);
@@ -56,7 +57,11 @@ test('Home timer state is live, accessible, stoppable, and motion-safe', async (
   assert.doesNotMatch(timeClock, /fetchJobs\(\)/);
   assert.match(serverState, /queryFn: fetchActiveTimerState/);
   assert.match(serverState, /queryFn: fetchStartWorkJobs/);
-  assert.match(route, /onTimerStopped=\{\(jobName\) => \{/);
+  assert.match(route, /onTimerStopped=\{\(jobName, result\) => \{/);
+  assert.match(timeClock, /disposition: 'discarded'/);
+  assert.match(timeClock, /Less than 30 seconds, so no time was recorded\./);
+  assert.match(route, /getTimerStopNotice\(jobName, result\)/);
+  assert.match(hoursHub, /getTimerStopNotice\(jobName, result\)/);
 });
 
 async function readRepoFile(relativePath) {

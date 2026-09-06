@@ -11,6 +11,7 @@ import {
   startWorkJobsQueryOptions,
 } from '@/src/lib/serverState';
 import {
+  getTimerStopNotice,
   startJobTimer,
   stopJobTimer,
   type ActiveTimeEntry,
@@ -126,9 +127,9 @@ export function AddHoursHubScreen({
     setNoticeMessage(null);
 
     try {
-      await stopJobTimer(entry);
+      const result = await stopJobTimer(entry);
       queryClient.setQueryData(serverStateKeys.activeTimer, null);
-      setNoticeMessage(`${jobName} timer stopped and its time was recorded.`);
+      setNoticeMessage(getTimerStopNotice(jobName, result));
     } catch (error) {
       setErrorMessage(getUserFacingError(error, 'Unable to stop timer. Try again.'));
     } finally {
