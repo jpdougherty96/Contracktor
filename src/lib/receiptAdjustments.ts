@@ -85,6 +85,42 @@ export function getUntrustedReceiptRecovery(
   return destinationCount === 1 ? 'save_whole' : 'choose_single_destination';
 }
 
+export function shouldLoadAllReceiptJobs(
+  receiptStatus: string | null,
+  assignedJobIds: (string | null)[],
+  contextJobIds: string[]
+): boolean {
+  if (receiptStatus !== 'accepted') {
+    return false;
+  }
+
+  const contextJobIdSet = new Set(contextJobIds);
+
+  return assignedJobIds.some(
+    (assignedJobId) => assignedJobId !== null && !contextJobIdSet.has(assignedJobId)
+  );
+}
+
+export function getReceiptContextJobIds(
+  navigationJobIds: string[],
+  fallbackJobId: string | null,
+  persistedJobIds: string[],
+  legacyJobId: string | null
+): string[] {
+  const preferredJobIds =
+    navigationJobIds.length > 0
+      ? navigationJobIds
+      : fallbackJobId
+        ? [fallbackJobId]
+        : persistedJobIds.length > 0
+          ? persistedJobIds
+          : legacyJobId
+            ? [legacyJobId]
+            : [];
+
+  return Array.from(new Set(preferredJobIds));
+}
+
 type ReceiptAutoFinalizeInput = {
   assignedDestinationCount: number;
   duplicateCheckComplete: boolean;

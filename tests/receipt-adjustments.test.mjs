@@ -127,3 +127,45 @@ test('untrusted lines fall back to one whole destination but never split silentl
     'none'
   );
 });
+
+test('draft receipt assignments never widen the selected job list', () => {
+  assert.equal(
+    adjustments.shouldLoadAllReceiptJobs(
+      'needs_review',
+      ['old-draft-job', null],
+      ['selected-job-a', 'selected-job-b']
+    ),
+    false
+  );
+  assert.equal(
+    adjustments.shouldLoadAllReceiptJobs(
+      'accepted',
+      ['saved-job-a', 'saved-job-b'],
+      ['saved-job-a']
+    ),
+    true
+  );
+  assert.equal(
+    adjustments.shouldLoadAllReceiptJobs(
+      'accepted',
+      ['saved-job-a', 'saved-job-b'],
+      ['saved-job-a', 'saved-job-b']
+    ),
+    false
+  );
+});
+
+test('receipt rows restore destinations when navigation context is missing', () => {
+  assert.deepEqual(
+    adjustments.getReceiptContextJobIds([], null, ['persisted-a', 'persisted-b'], null),
+    ['persisted-a', 'persisted-b']
+  );
+  assert.deepEqual(
+    adjustments.getReceiptContextJobIds(['navigation-a', 'navigation-b'], null, ['persisted-a'], null),
+    ['navigation-a', 'navigation-b']
+  );
+  assert.deepEqual(
+    adjustments.getReceiptContextJobIds([], null, [], 'legacy-job'),
+    ['legacy-job']
+  );
+});

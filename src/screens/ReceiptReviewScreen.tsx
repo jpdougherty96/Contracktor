@@ -20,9 +20,11 @@ import { useGuardedBack } from '@/src/hooks/useGuardedBack';
 import { formatCurrency } from '@/src/lib/financials';
 import { fetchJobs } from '@/src/lib/jobs';
 import {
+  getReceiptContextJobIds,
   getReceiptAdjustmentDecision,
   getUntrustedReceiptRecovery,
   shouldAutoFinalizeReceipt,
+  shouldLoadAllReceiptJobs,
   shouldOfferReceiptAdjustmentChoice,
 } from '@/src/lib/receiptAdjustments';
 import {
@@ -69,8 +71,8 @@ type ReceiptReviewScreenProps = {
 
 export function ReceiptReviewScreen({
   enableSmartAllocation = false,
-  includeInventoryDestination = false,
-  inventoryMode = false,
+  includeInventoryDestination: requestedIncludeInventoryDestination = false,
+  inventoryMode: requestedInventoryMode = false,
   job,
   jobs: contextJobs,
   onBack,
@@ -118,6 +120,13 @@ export function ReceiptReviewScreen({
   const autoFinalizedReceiptIdsRef = useRef<Set<string>>(new Set());
   const baselineDraftSignatureRef = useRef<string | null>(null);
   const shouldUseInlineImageZoom = viewportWidth < 768;
+  const persistedReceiptJobIds = receipt?.scan_context_job_ids ?? [];
+  const inventoryMode =
+    requestedInventoryMode ||
+    (Boolean(receipt?.scan_context_includes_inventory) && persistedReceiptJobIds.length === 0);
+  const includeInventoryDestination =
+    requestedIncludeInventoryDestination ||
+    (Boolean(receipt?.scan_context_includes_inventory) && persistedReceiptJobIds.length > 0);
   const needsManualReceiptReview =
     receipt?.status === 'error' ||
     receipt?.review_status === 'error' ||
@@ -127,7 +136,13 @@ export function ReceiptReviewScreen({
   const hasReceiptAdjustments = lineItems.some((lineItem) => lineItem.line_type === 'discount');
   const isReceiptStillProcessing = isReceiptProcessingStatus(receipt?.processing_status);
   const selectedReceiptJobs =
-    contextJobs && contextJobs.length > 0 ? contextJobs : job && !inventoryMode ? [job] : [];
+    jobs.length > 0
+      ? jobs
+      : contextJobs && contextJobs.length > 0
+        ? contextJobs
+        : job && !inventoryMode
+          ? [job]
+          : [];
   const lineItemsTotal = receipt ? getLineItemsTotal(lineItems, receipt.tax) : 0;
   const lineItemsDoNotMatchReceiptTotal =
     hasLineItems &&
@@ -266,19 +281,39 @@ export function ReceiptReviewScreen({
           fetchReceiptLineItems(receiptId),
           shouldFetchJobs ? fetchJobs() : Promise.resolve([]),
         ]);
-        let nextJobs = shouldFetchJobs ? fetchedJobs : contextJobs ?? [];
-        const knownJobIds = new Set(nextJobs.map((nextJob) => nextJob.id));
-        const hasAssignedJobOutsideContext = nextLineItems.some(
-          (lineItem) => lineItem.assigned_job_id && !knownJobIds.has(lineItem.assigned_job_id)
+        const nextPersistedJobIds = nextReceipt.scan_context_job_ids ?? [];
+        const nextInventoryMode =
+          requestedInventoryMode ||
+          (nextReceipt.scan_context_includes_inventory && nextPersistedJobIds.length === 0);
+        const nextIncludesInventoryDestination =
+          requestedIncludeInventoryDestination ||
+          (nextReceipt.scan_context_includes_inventory && nextPersistedJobIds.length > 0);
+        const nextContextJobIds = getReceiptContextJobIds(
+          contextJobs?.map((contextJob) => contextJob.id) ?? [],
+          !nextInventoryMode ? job?.id ?? null : null,
+          nextPersistedJobIds,
+          nextReceipt.scan_context_job_id
+        );
+        let nextJobs =
+          contextJobs && contextJobs.length > 0
+            ? contextJobs
+            : job && !nextInventoryMode
+              ? [job]
+              : fetchedJobs.filter((fetchedJob) => nextContextJobIds.includes(fetchedJob.id));
+        const shouldExpandAssignmentJobs = shouldLoadAllReceiptJobs(
+          nextReceipt.status,
+          nextLineItems.map((lineItem) => lineItem.assigned_job_id),
+          nextJobs.map((nextJob) => nextJob.id)
         );
 
-        if (!inventoryMode && hasAssignedJobOutsideContext) {
+        if (!nextInventoryMode && shouldExpandAssignmentJobs) {
           nextJobs = await fetchJobs();
         }
 
-        const assignmentJobs = inventoryMode ? [] : nextJobs.length > 0 ? nextJobs : job ? [job] : [];
+        const assignmentJobs = nextInventoryMode ? [] : nextJobs;
         const needsLineItemReset =
-          (assignmentJobs.length > 1 || (includeInventoryDestination && assignmentJobs.length > 0)) &&
+          (assignmentJobs.length > 1 ||
+            (nextIncludesInventoryDestination && assignmentJobs.length > 0)) &&
           nextLineItems.length === 0 &&
           nextReceipt.status === 'accepted';
         const displayReceipt = needsLineItemReset
@@ -288,12 +323,13 @@ export function ReceiptReviewScreen({
           nextLineItems,
           displayReceipt,
           job?.id ?? null,
-          inventoryMode,
-          assignmentJobs.length > 1 || (includeInventoryDestination && assignmentJobs.length > 0)
+          nextInventoryMode,
+          assignmentJobs.length > 1 ||
+            (nextIncludesInventoryDestination && assignmentJobs.length > 0)
         );
         const shoppingNeedSuggestions =
           enableSmartAllocation &&
-          !inventoryMode &&
+          !nextInventoryMode &&
           nextLineItems.length > 0 &&
           assignmentJobs.length > 0
             ? await suggestReceiptLineAssignmentsFromShoppingNeeds(
@@ -308,7 +344,7 @@ export function ReceiptReviewScreen({
           initialAssignments,
           shoppingNeedSuggestions
         );
-        const displayCategory: ReceiptCategory = inventoryMode
+        const displayCategory: ReceiptCategory = nextInventoryMode
           ? 'tools'
           : isReceiptCategory(displayReceipt.category)
             ? displayReceipt.category
@@ -423,11 +459,11 @@ export function ReceiptReviewScreen({
   }, [
     contextJobs,
     enableSmartAllocation,
-    includeInventoryDestination,
-    inventoryMode,
     job,
     receiptId,
     receiptPollKey,
+    requestedIncludeInventoryDestination,
+    requestedInventoryMode,
   ]);
 
   useEffect(() => {
