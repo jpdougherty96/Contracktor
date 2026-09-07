@@ -63,9 +63,10 @@ test('finalization is atomic and refuses duplicate or excessive billing', async 
 });
 
 test('the invoice screen saves through the ledger and builds T&M from unbilled sources', async () => {
-  const [invoiceApi, invoiceDocument, invoiceScreen] = await Promise.all([
+  const [invoiceApi, invoiceDocument, invoicePdf, invoiceScreen] = await Promise.all([
     readRepoFile('src/lib/invoices.ts'),
     readRepoFile('src/lib/invoiceDocument.ts'),
+    readRepoFile('src/lib/invoicePdf.ts'),
     readRepoFile('src/screens/InvoiceDraftScreen.tsx'),
   ]);
 
@@ -84,6 +85,9 @@ test('the invoice screen saves through the ledger and builds T&M from unbilled s
   assert.match(invoiceScreen, /Materials on invoice/);
   assert.match(invoiceScreen, /buildInvoicePdf\(invoice\.documentInput\)/);
   assert.match(invoiceScreen, /savePdfBytesOnWeb/);
+  assert.match(invoiceScreen, /await import\('@\/src\/lib\/invoicePdf'\)/);
+  assert.doesNotMatch(invoiceScreen, /import \{ buildInvoicePdf \} from/);
+  assert.match(invoicePdf, /pdf-lib\/dist\/pdf-lib\.esm\.min\.js/);
   assert.doesNotMatch(invoiceScreen, /Use Print and choose Save as PDF|printHtmlFromIframe/);
   assert.match(invoiceScreen, /availablePaymentCredit/);
   assert.doesNotMatch(invoiceScreen, /snapshot\?\.payments_received \?\? 0/);

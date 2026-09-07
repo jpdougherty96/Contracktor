@@ -30,7 +30,6 @@ import {
   type InvoiceDraftPresentationLine,
   type InvoiceMaterialPresentation,
 } from '@/src/lib/invoiceDocument';
-import { buildInvoicePdf } from '@/src/lib/invoicePdf';
 import {
   createInvoiceDraft,
   fetchAvailableInvoicePaymentCredit,
@@ -286,6 +285,9 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
       const html = invoice.html;
 
       if (Platform.OS === 'web') {
+        // Keep the PDF engine out of application startup. A PDF-specific
+        // failure must never prevent users from reaching the rest of the app.
+        const { buildInvoicePdf } = await import('@/src/lib/invoicePdf');
         const pdfBytes = await buildInvoicePdf(invoice.documentInput);
         const result = await savePdfBytesOnWeb({ bytes: pdfBytes, fileBaseName });
         setMessage(result.didOpen ? `${result.fileName} is ready.` : 'PDF save canceled.');
