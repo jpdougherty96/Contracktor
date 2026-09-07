@@ -46,12 +46,40 @@ export type TellContracktorSubmission = {
   createdAt: string;
   entryId: string;
   lastProcessingError: string | null;
+  manifest: TellContracktorManifest | null;
   pendingCount: number;
   proposals: TellContracktorCommitProposal[];
   rawText: string;
   result: TellContracktorResult | null;
   status: TellContracktorSubmissionStatus;
   totalCount: number;
+};
+
+export type TellContracktorManifestRecord = {
+  blockedReason: string | null;
+  blockedReasonCode: string | null;
+  current: Record<string, unknown> | null;
+  jobId: string | null;
+  jobName: string | null;
+  original: Record<string, unknown> | null;
+  position: number;
+  proposalId: string;
+  provenanceMatches: boolean;
+  recordId: string;
+  state: string;
+  type: TellContracktorCommitProposal['type'];
+  undoBlocked: boolean;
+};
+
+export type TellContracktorManifest = {
+  commitStatus: string | null;
+  committedAt: string | null;
+  entryId: string;
+  records: TellContracktorManifestRecord[];
+  status: TellContracktorSubmissionStatus;
+  submittedAt: string;
+  undoAllowed: boolean;
+  undoBlockedReason: string | null;
 };
 
 export type TellContracktorSubmissionSummary = {
@@ -228,7 +256,11 @@ export async function retryTellContracktorSubmission(entryId: string): Promise<v
 export async function fetchTellContracktorSubmission(
   entryId: string
 ): Promise<TellContracktorSubmission> {
-  const [{ data: entry, error: entryError }, { data: proposalRows, error: proposalError }] =
+  const [
+    { data: entry, error: entryError },
+    { data: proposalRows, error: proposalError },
+    { data: manifestData, error: manifestError },
+  ] =
     await Promise.all([
       supabase
         .from('tell_contracktor_entries')
@@ -242,10 +274,12 @@ export async function fetchTellContracktorSubmission(
         .select('proposal_id, proposal_type, payload, status')
         .eq('entry_id', entryId)
         .order('created_at', { ascending: true }),
+      supabase.rpc('get_tell_contracktor_manifest', { p_entry_id: entryId }),
     ]);
 
   if (entryError || !entry) throw new Error(entryError?.message ?? 'Tell submission not found.');
   if (proposalError) throw new Error(proposalError.message);
+  if (manifestError) throw new Error(manifestError.message);
 
   const extraction = asRecord(entry.extraction);
   const candidateValues = Array.isArray(extraction?.candidates) ? extraction.candidates : [];
@@ -292,17 +326,75 @@ export async function fetchTellContracktorSubmission(
         parsed,
       }
     : null;
+  const manifest = normalizeTellManifest(manifestData);
 
   return {
     createdAt: entry.created_at ?? new Date().toISOString(),
     entryId: entry.id,
     lastProcessingError: entry.last_processing_error,
+    manifest,
     pendingCount,
     proposals,
     rawText: entry.raw_text,
     result,
     status: entry.status as TellContracktorSubmissionStatus,
     totalCount: (proposalRows ?? []).length,
+  };
+}
+
+function normalizeTellManifest(value: unknown): TellContracktorManifest | null {
+  const manifest = asRecord(value);
+  if (!manifest || typeof manifest.entry_id !== 'string' || typeof manifest.status !== 'string') {
+    return null;
+  }
+
+  const records = Array.isArray(manifest.records)
+    ? manifest.records
+        .map((value): TellContracktorManifestRecord | null => {
+          const record = asRecord(value);
+          if (
+            !record ||
+            typeof record.record_id !== 'string' ||
+            typeof record.proposal_id !== 'string' ||
+            !['note', 'shopping', 'hours'].includes(String(record.type))
+          ) {
+            return null;
+          }
+
+          return {
+            blockedReason:
+              typeof record.blocked_reason === 'string' ? record.blocked_reason : null,
+            blockedReasonCode:
+              typeof record.blocked_reason_code === 'string'
+                ? record.blocked_reason_code
+                : null,
+            current: asRecord(record.current),
+            jobId: typeof record.job_id === 'string' ? record.job_id : null,
+            jobName: typeof record.job_name === 'string' ? record.job_name : null,
+            original: asRecord(record.original),
+            position: typeof record.position === 'number' ? record.position : 0,
+            proposalId: record.proposal_id,
+            provenanceMatches: record.provenance_matches === true,
+            recordId: record.record_id,
+            state: typeof record.state === 'string' ? record.state : 'changed_since_approval',
+            type: record.type as TellContracktorCommitProposal['type'],
+            undoBlocked: record.undo_blocked === true,
+          };
+        })
+        .filter((record): record is TellContracktorManifestRecord => Boolean(record))
+    : [];
+
+  return {
+    commitStatus: typeof manifest.commit_status === 'string' ? manifest.commit_status : null,
+    committedAt: typeof manifest.committed_at === 'string' ? manifest.committed_at : null,
+    entryId: manifest.entry_id,
+    records: records.sort((a, b) => a.position - b.position),
+    status: manifest.status as TellContracktorSubmissionStatus,
+    submittedAt:
+      typeof manifest.submitted_at === 'string' ? manifest.submitted_at : new Date().toISOString(),
+    undoAllowed: manifest.undo_allowed === true,
+    undoBlockedReason:
+      typeof manifest.undo_blocked_reason === 'string' ? manifest.undo_blocked_reason : null,
   };
 }
 

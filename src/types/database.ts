@@ -2907,6 +2907,10 @@ export type Database = {
         Args: { p_invoice_id: string }
         Returns: Json
       }
+      get_tell_contracktor_manifest: {
+        Args: { p_entry_id: string }
+        Returns: Json
+      }
       get_job_invoice_draft: {
         Args: { p_job_id: string }
         Returns: Json
@@ -3085,6 +3089,23 @@ export type Database = {
       undo_tell_contracktor_entry_once: {
         Args: { p_entry_id: string }
         Returns: Json
+      }
+      tell_record_undo_eligibility: {
+        Args: { p_entry_id: string }
+        Returns: {
+          blocked_reason: string | null
+          blocked_reason_code: string | null
+          current_record: Json | null
+          job_id: string | null
+          original_payload: Json | null
+          proposal_id: string
+          provenance_matches: boolean
+          record_id: string
+          record_position: number
+          record_type: string
+          state: string
+          undo_blocked: boolean
+        }[]
       }
       upsert_activity_event: {
         Args: {

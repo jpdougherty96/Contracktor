@@ -154,10 +154,60 @@ test('Tell Undo reverses only unchanged records and preserves an audit trail', a
   assert.match(migration, /status = 'undone'/);
   assert.match(tellApi, /rpc\('undo_tell_contracktor_entry'/);
   assert.match(tellApi, /remove\(result\.attachment_storage_paths\)/);
-  assert.match(screen, /undoTellContracktorEntry\(result\.entry_id\)/);
+  assert.match(screen, /undoTellContracktorEntry\(activeSubmission\.entryId\)/);
   assert.match(screen, /isSaving \? 'Undoing\.\.\.' : 'Undo'/);
+});
+
+test('approved Tell detail uses one authoritative manifest for record state and Undo', async () => {
+  const [migration, legacyUndoMigration, api, screen, home, shopping] = await Promise.all([
+    readRepoFile('supabase/migrations/20260906011000_tell_manifest_and_undo_eligibility.sql'),
+    readRepoFile('supabase/migrations/20260820093000_tell_undo.sql'),
+    readRepoFile('src/lib/tellContracktor.ts'),
+    readRepoFile('src/screens/TellContracktorScreen.tsx'),
+    readRepoFile('app/(tabs)/index.tsx'),
+    readRepoFile('src/screens/ShoppingListScreen.tsx'),
+  ]);
+
+  assert.match(migration, /function public\.tell_record_undo_eligibility/);
+  assert.match(migration, /with ordinality/);
+  assert.match(migration, /state := 'missing'/);
+  assert.match(migration, /v_hours\.updated_at > v_commit\.committed_at \+ interval '5 seconds'/);
+  assert.match(migration, /function public\.get_tell_contracktor_manifest/);
+  assert.match(migration, /from public\.tell_record_undo_eligibility\(p_entry_id\)/g);
+  assert.match(migration, /raise exception 'CTX:Tell commit not found\.'/);
+  assert.match(migration, /raise exception 'CTX:Tell submission not found\.'/);
+  assert.match(migration, /raise exception 'CTX:%', v_blocked\.blocked_reason/);
+  assert.deepEqual(
+    extractLegacyUndoGuardMessages(legacyUndoMigration),
+    extractSqlerrmBridgeMessages(migration),
+    'the forward-migration bridge must translate every historical _once guard message'
+  );
+  assert.match(api, /rpc\('get_tell_contracktor_manifest'/);
+  assert.match(screen, /Entries from this Tell/);
+  assert.match(screen, /record\.state !== 'missing'/);
+  assert.match(screen, /manifest\?\.undoAllowed/);
+  assert.match(home, /openTellRecord\('hours'/);
+  assert.match(home, /openTellRecord\('note'/);
+  assert.match(home, /openTellRecord\('shopping'/);
+  assert.match(shopping, /initialEditingNeedId/);
 });
 
 async function readRepoFile(relativePath) {
   return readFile(new URL(relativePath, `file://${repoRoot}/`), 'utf8');
+}
+
+function extractLegacyUndoGuardMessages(migration) {
+  const validationBlock = migration.match(
+    /-- Validate the complete commit before deleting anything\.[\s\S]*?\n  end loop;\n\n(?=  for v_record in)/
+  )?.[0];
+  assert.ok(validationBlock, 'legacy Undo validation block must exist');
+  return [...validationBlock.matchAll(/raise exception '([^']+)'/g)]
+    .map((match) => match[1])
+    .sort();
+}
+
+function extractSqlerrmBridgeMessages(migration) {
+  const bridge = migration.match(/if sqlerrm in \(([\s\S]*?)\n    \) then/)?.[1];
+  assert.ok(bridge, 'forward-migration sqlerrm bridge must exist');
+  return [...bridge.matchAll(/'([^']+)'/g)].map((match) => match[1]).sort();
 }

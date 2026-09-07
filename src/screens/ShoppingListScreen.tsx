@@ -1,5 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -29,11 +29,17 @@ import type { Job } from '@/src/types/job';
 
 type ShoppingListScreenProps = {
   contextJob?: Job | null;
+  initialEditingNeedId?: string | null;
   onChanged?: () => void;
   onBack: () => void;
 };
 
-export function ShoppingListScreen({ contextJob = null, onBack, onChanged }: ShoppingListScreenProps) {
+export function ShoppingListScreen({
+  contextJob = null,
+  initialEditingNeedId = null,
+  onBack,
+  onChanged,
+}: ShoppingListScreenProps) {
   const [newItemText, setNewItemText] = useState('');
   const [selectedJobId, setSelectedJobId] = useState<string | null>(contextJob?.id ?? null);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -44,6 +50,7 @@ export function ShoppingListScreen({ contextJob = null, onBack, onChanged }: Sho
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastDismissedNeed, setLastDismissedNeed] = useState<ShoppingNeedWithJob | null>(null);
+  const openedInitialNeedRef = useRef<string | null>(null);
   const handleBack = useGuardedBack({
     hasUnsavedChanges: newItemText.trim().length > 0 || editingNeedId !== null,
     isBusy: isSaving,
@@ -79,6 +86,15 @@ export function ShoppingListScreen({ contextJob = null, onBack, onChanged }: Sho
     setSelectedJobId(contextJob?.id ?? null);
     load();
   }, [contextJob?.id, load]);
+
+  useEffect(() => {
+    if (!initialEditingNeedId || openedInitialNeedRef.current === initialEditingNeedId) return;
+    const need = needs.find((candidate) => candidate.id === initialEditingNeedId);
+    if (!need) return;
+    openedInitialNeedRef.current = initialEditingNeedId;
+    setEditingNeedId(need.id);
+    setEditingText(formatNeedForEditing(need));
+  }, [initialEditingNeedId, needs]);
 
   useEffect(() => {
     if (!lastDismissedNeed) {

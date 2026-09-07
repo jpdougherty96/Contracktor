@@ -29,6 +29,7 @@ import {
   type TellContracktorCommitProposal,
   type TellContracktorPhotoInput,
   type TellContracktorResult,
+  type TellContracktorManifestRecord,
   type TellContracktorSubmission,
   type TellContracktorSubmissionSummary,
 } from '@/src/lib/tellContracktor';
@@ -41,6 +42,9 @@ type TellContracktorScreenProps = {
   initialEntryId?: string | null;
   onBack: () => void;
   onDone: () => void;
+  onEditHours?: (recordId: string, jobId: string) => void;
+  onEditNote?: (recordId: string, jobId: string) => void;
+  onEditShoppingNeed?: (recordId: string, jobId: string) => void;
 };
 
 type Proposal =
@@ -83,6 +87,9 @@ export function TellContracktorScreen({
   initialEntryId = null,
   onBack,
   onDone,
+  onEditHours,
+  onEditNote,
+  onEditShoppingNeed,
 }: TellContracktorScreenProps) {
   const [text, setText] = useState('');
   const [photos, setPhotos] = useState<ImagePicker.ImagePickerAsset[]>([]);
@@ -160,7 +167,8 @@ export function TellContracktorScreen({
       setIsApproved(
         submission.status === 'approved' ||
           submission.status === 'processed' ||
-          submission.status === 'dismissed'
+          submission.status === 'dismissed' ||
+          submission.status === 'undone'
       );
       setErrorMessage(null);
     } catch (error) {
@@ -335,7 +343,7 @@ export function TellContracktorScreen({
   };
 
   const handleUndo = async () => {
-    if (!result) {
+    if (!activeSubmission) {
       return;
     }
 
@@ -343,13 +351,10 @@ export function TellContracktorScreen({
     setErrorMessage(null);
 
     try {
-      await undoTellContracktorEntry(result.entry_id);
-      setIsApproved(false);
-      setActiveSubmission(null);
-      setResult(null);
-      setProposals([]);
+      await undoTellContracktorEntry(activeSubmission.entryId);
+      await loadSubmission(activeSubmission.entryId);
       await refreshRecentSubmissions();
-      setNoticeMessage('Update undone. Adjust what you wrote and send it again when ready.');
+      setNoticeMessage('Update undone. The original Tell remains here for your records.');
     } catch (error) {
       setErrorMessage(getUserFacingError(error, 'Unable to undo this Tell conTRACKtor update.'));
     } finally {
@@ -489,11 +494,43 @@ export function TellContracktorScreen({
               <View style={styles.savedText}>
                 <Text style={styles.savedTitle}>Review complete</Text>
                 <Text style={styles.savedDetail}>
-                  {activeSubmission?.status === 'dismissed'
+                  {activeSubmission?.status === 'undone'
+                    ? 'This update was undone. Its original Tell is preserved below.'
+                    : activeSubmission?.status === 'dismissed'
                     ? 'No records were added from this Tell.'
                     : 'Approved entries were added to conTRACKtor.'}
                 </Text>
               </View>
+            </View>
+          ) : null}
+
+          {isApproved && activeSubmission?.manifest?.records.length ? (
+            <View style={styles.manifestSection}>
+              <View style={styles.manifestHeader}>
+                <Text style={styles.manifestTitle}>Entries from this Tell</Text>
+                <Text style={styles.manifestCount}>
+                  {activeSubmission.manifest.records.length}{' '}
+                  {activeSubmission.manifest.records.length === 1 ? 'entry' : 'entries'}
+                </Text>
+              </View>
+              {activeSubmission.manifest.records.map((record) => (
+                <TellManifestCard
+                  key={`${record.type}:${record.recordId}`}
+                  onOpen={
+                    record.jobId &&
+                    record.state !== 'missing' &&
+                    !(record.type === 'shopping' && record.state === 'dismissed')
+                      ? () => {
+                          if (record.type === 'hours') onEditHours?.(record.recordId, record.jobId!);
+                          if (record.type === 'note') onEditNote?.(record.recordId, record.jobId!);
+                          if (record.type === 'shopping')
+                            onEditShoppingNeed?.(record.recordId, record.jobId!);
+                        }
+                      : undefined
+                  }
+                  record={record}
+                />
+              ))}
             </View>
           ) : null}
 
@@ -663,13 +700,27 @@ export function TellContracktorScreen({
           {isApproved ? (
             <View style={styles.savedActions}>
               {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
-              {activeSubmission?.status !== 'dismissed' ? (
+              {activeSubmission?.status !== 'dismissed' &&
+              activeSubmission?.status !== 'undone' ? (
+                <>
+                  {!activeSubmission?.manifest?.undoAllowed &&
+                  activeSubmission?.manifest?.undoBlockedReason ? (
+                    <Text style={styles.undoBlockedText}>
+                      {activeSubmission.manifest.undoBlockedReason}
+                    </Text>
+                  ) : null}
                 <Pressable
-                  disabled={isSaving}
+                  disabled={isSaving || !activeSubmission?.manifest?.undoAllowed}
                   onPress={handleUndo}
-                  style={[styles.undoButton, isSaving ? styles.disabledButton : null]}>
+                  style={[
+                    styles.undoButton,
+                    isSaving || !activeSubmission?.manifest?.undoAllowed
+                      ? styles.disabledButton
+                      : null,
+                  ]}>
                   <Text style={styles.undoButtonText}>{isSaving ? 'Undoing...' : 'Undo'}</Text>
                 </Pressable>
+                </>
               ) : null}
               <Pressable disabled={isSaving} style={styles.sendButton} onPress={handleDone}>
                 <Text style={styles.sendButtonText}>Done</Text>
@@ -698,6 +749,86 @@ export function TellContracktorScreen({
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+function TellManifestCard({
+  onOpen,
+  record,
+}: {
+  onOpen?: () => void;
+  record: TellContracktorManifestRecord;
+}) {
+  const current = record.current;
+  const isMissing = record.state === 'missing';
+  const actionLabel = record.type === 'hours' ? 'Edit hours' : record.type === 'note' ? 'Edit note' : 'Edit item';
+
+  return (
+    <View style={styles.manifestCard}>
+      <View style={styles.manifestCardHeader}>
+        <View style={styles.manifestCardHeading}>
+          <Text style={styles.manifestKind}>{formatManifestKind(record.type)}</Text>
+          <Text style={styles.manifestJob}>{record.jobName ?? 'No job'}</Text>
+        </View>
+        <View style={[styles.stateBadge, isMissing ? styles.missingStateBadge : null]}>
+          <Text style={[styles.stateBadgeText, isMissing ? styles.missingStateBadgeText : null]}>
+            {formatManifestState(record.state)}
+          </Text>
+        </View>
+      </View>
+
+      <Text style={styles.manifestSummary}>{getManifestSummary(record)}</Text>
+      {record.blockedReason ? <Text style={styles.manifestReason}>{record.blockedReason}</Text> : null}
+
+      {onOpen ? (
+        <Pressable onPress={onOpen} style={styles.secondaryButton}>
+          <Text style={styles.secondaryButtonText}>{actionLabel}</Text>
+          <Feather color={colors.primaryGreen} name="chevron-right" size={18} />
+        </Pressable>
+      ) : null}
+      {!current && isMissing ? (
+        <Text style={styles.manifestMissingDetail}>This record was deleted and will not be recreated.</Text>
+      ) : null}
+    </View>
+  );
+}
+
+function formatManifestKind(type: TellContracktorManifestRecord['type']) {
+  if (type === 'hours') return 'Hours';
+  if (type === 'shopping') return 'Shopping item';
+  return 'Job update';
+}
+
+function formatManifestState(state: string) {
+  if (state === 'unchanged') return 'Created';
+  if (state === 'missing') return 'Deleted';
+  if (state === 'fulfilled') return 'Purchased';
+  if (state === 'dismissed') return 'Dismissed';
+  if (state === 'invoiced') return 'Invoiced';
+  if (state === 'photo_added') return 'Photo added';
+  return 'Changed';
+}
+
+function getManifestSummary(record: TellContracktorManifestRecord) {
+  const value = record.current ?? record.original ?? {};
+  if (record.type === 'note') {
+    return String(value.note ?? 'Job note');
+  }
+  if (record.type === 'shopping') {
+    const quantity = value.quantity == null ? '' : `${String(value.quantity)} `;
+    const unit = value.unit == null ? '' : `${String(value.unit)} · `;
+    return `${quantity}${unit}${String(value.description ?? 'Shopping item')}`.trim();
+  }
+
+  const hours = value.hours == null ? null : Number(value.hours);
+  const date = value.work_date ?? value.date;
+  const note = value.note;
+  return [
+    Number.isFinite(hours) ? `${hours} ${hours === 1 ? 'hour' : 'hours'}` : 'Hours entry',
+    typeof date === 'string' ? date : null,
+    typeof note === 'string' && note ? note : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 function ProposalCard({
@@ -1627,6 +1758,93 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '900',
     paddingVertical: 14,
+  },
+  manifestSection: {
+    gap: 12,
+    marginBottom: 18,
+  },
+  manifestHeader: {
+    alignItems: 'baseline',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  manifestTitle: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  manifestCount: {
+    color: colors.mutedText,
+    fontSize: 13,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  manifestCard: {
+    backgroundColor: colors.cardBackground,
+    borderColor: colors.standardBorder,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 10,
+    padding: 14,
+  },
+  manifestCardHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  manifestCardHeading: {
+    flex: 1,
+  },
+  manifestKind: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  manifestJob: {
+    color: colors.primaryGreen,
+    fontSize: 14,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  manifestSummary: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 22,
+  },
+  manifestReason: {
+    color: colors.mutedText,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  manifestMissingDetail: {
+    color: colors.mutedText,
+    fontSize: 13,
+    fontStyle: 'italic',
+  },
+  stateBadge: {
+    backgroundColor: '#E7F2EA',
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  stateBadgeText: {
+    color: colors.primaryGreen,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  missingStateBadge: {
+    backgroundColor: '#EEECE7',
+  },
+  missingStateBadgeText: {
+    color: colors.mutedText,
+  },
+  undoBlockedText: {
+    color: colors.mutedText,
+    fontSize: 14,
+    lineHeight: 20,
   },
   sourceLabel: {
     color: colors.mutedText,

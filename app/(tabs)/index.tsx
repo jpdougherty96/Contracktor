@@ -118,6 +118,7 @@ export default function HomeScreen() {
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [selectedHoursId, setSelectedHoursId] = useState<string | null>(null);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [selectedShoppingNeedId, setSelectedShoppingNeedId] = useState<string | null>(null);
   const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(null);
   const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
   const [selectedTellEntryId, setSelectedTellEntryId] = useState<string | null>(null);
@@ -128,6 +129,7 @@ export default function HomeScreen() {
   const [receiptEditInitialJobIds, setReceiptEditInitialJobIds] = useState<string[]>([]);
   const [addBackScreen, setAddBackScreen] = useState<Screen>('home');
   const [addCompleteScreen, setAddCompleteScreen] = useState<Screen>('home');
+  const [shoppingBackScreen, setShoppingBackScreen] = useState<Screen>('dashboard');
   const [createBackScreen, setCreateBackScreen] = useState<Screen>('home');
   const [editBackScreen, setEditBackScreen] = useState<Screen>('dashboard');
   const [receiptReviewBackScreen, setReceiptReviewBackScreen] = useState<Screen>('dashboard');
@@ -385,6 +387,32 @@ export default function HomeScreen() {
     [queryClient]
   );
 
+  const openTellRecord = useCallback(
+    async (type: 'hours' | 'note' | 'shopping', recordId: string, jobId: string) => {
+      try {
+        const recordJob = await queryClient.ensureQueryData(jobQueryOptions(jobId));
+        setSelectedJob(recordJob);
+        setEditBackScreen('tellContracktor');
+        setShoppingBackScreen('tellContracktor');
+        if (type === 'hours') setSelectedHoursId(recordId);
+        if (type === 'note') setSelectedNoteId(recordId);
+        if (type === 'shopping') setSelectedShoppingNeedId(recordId);
+        setScreen(type === 'hours' ? 'editHours' : type === 'note' ? 'editNote' : 'shoppingList');
+      } catch (error) {
+        setGlobalErrorMessage(getUserFacingError(error, 'Unable to open that Tell entry.'));
+      }
+    },
+    [queryClient]
+  );
+
+  const finishRecordEdit = useCallback(() => {
+    if (editBackScreen === 'tellContracktor') {
+      setScreen('tellContracktor');
+      return;
+    }
+    finishLegacyFlow(editBackScreen);
+  }, [editBackScreen, finishLegacyFlow]);
+
   useEffect(() => {
     const requestedScreen = legacyParams.legacyScreen;
 
@@ -477,6 +505,7 @@ export default function HomeScreen() {
         setEditBackScreen(returnScreen);
         setReceiptReviewBackScreen(returnScreen);
         setToolsBackScreen(returnScreen);
+        setShoppingBackScreen(returnScreen);
 
         if (requestedScreen === 'selectJobsForReceiptEdit') {
           setReceiptEditInitialJobIds(requestedJobs.map((job) => job.id));
@@ -876,7 +905,11 @@ export default function HomeScreen() {
           setReceiptReviewBackScreen('dashboard');
           setScreen('reviewReceipt');
         }}
-        onShoppingList={() => setScreen('shoppingList')}
+        onShoppingList={() => {
+          setSelectedShoppingNeedId(null);
+          setShoppingBackScreen('dashboard');
+          setScreen('shoppingList');
+        }}
         onTasksChanged={() => setDashboardRefreshKey((key) => key + 1)}
         refreshKey={dashboardRefreshKey}
         showShoppingList={canUseShopping}
@@ -888,7 +921,15 @@ export default function HomeScreen() {
     return renderScreen(
       <ShoppingListScreen
         contextJob={selectedJob}
-        onBack={() => finishLegacyFlow('dashboard')}
+        initialEditingNeedId={selectedShoppingNeedId}
+        onBack={() => {
+          setSelectedShoppingNeedId(null);
+          if (shoppingBackScreen === 'tellContracktor') {
+            setScreen('tellContracktor');
+            return;
+          }
+          finishLegacyFlow('dashboard');
+        }}
         onChanged={() => setDashboardRefreshKey((key) => key + 1)}
       />
     );
@@ -933,6 +974,11 @@ export default function HomeScreen() {
       <TellContracktorScreen
         contextJob={selectedJob}
         initialEntryId={selectedTellEntryId}
+        onEditHours={(recordId, jobId) => void openTellRecord('hours', recordId, jobId)}
+        onEditNote={(recordId, jobId) => void openTellRecord('note', recordId, jobId)}
+        onEditShoppingNeed={(recordId, jobId) =>
+          void openTellRecord('shopping', recordId, jobId)
+        }
         onBack={() => {
           void queryClient.invalidateQueries({ queryKey: serverStateKeys.activity });
           if (legacyParams.legacyScreen === 'tellContracktor') {
@@ -970,19 +1016,19 @@ export default function HomeScreen() {
       <EditHoursScreen
         hoursId={selectedHoursId}
         job={selectedJob}
-        onBack={() => finishLegacyFlow(editBackScreen)}
+        onBack={finishRecordEdit}
         onDeleted={() => {
           setSelectedHoursId(null);
           setDashboardRefreshKey((key) => key + 1);
           showNotice('Hours entry removed.');
           void invalidateRoutedData(selectedJob.id);
-          finishLegacyFlow(editBackScreen);
+          finishRecordEdit();
         }}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
           showNotice('Hours updated.');
           void invalidateRoutedData(selectedJob.id);
-          finishLegacyFlow(editBackScreen);
+          finishRecordEdit();
         }}
       />
     );
@@ -993,12 +1039,12 @@ export default function HomeScreen() {
       <EditNoteScreen
         job={selectedJob}
         noteId={selectedNoteId}
-        onBack={() => finishLegacyFlow(editBackScreen)}
+        onBack={finishRecordEdit}
         onSaved={() => {
           setDashboardRefreshKey((key) => key + 1);
           showNotice('Note updated.');
           void invalidateRoutedData(selectedJob.id);
-          finishLegacyFlow(editBackScreen);
+          finishRecordEdit();
         }}
       />
     );

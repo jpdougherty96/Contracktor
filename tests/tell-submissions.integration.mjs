@@ -179,6 +179,15 @@ test(
     assert.equal(state.proposals.filter((proposal) => proposal.status === 'approved').length, 2);
     assert.equal(state.proposals.filter((proposal) => proposal.status === 'dismissed').length, 1);
 
+    const manifest = await rpc(ownerClient, 'get_tell_contracktor_manifest', {
+      p_entry_id: entryId,
+    });
+    assert.equal(manifest.records.length, 2);
+    assert.deepEqual(manifest.records.map((record) => record.type), ['hours', 'note']);
+    assert.deepEqual(manifest.records.map((record) => record.state), ['unchanged', 'unchanged']);
+    assert.equal(manifest.records[0].job_name, `Miller Deck ${suffix}`);
+    assert.equal(manifest.undo_allowed, true);
+
     const attentionRows = await required(
       ownerClient
         .from('attention_items')
@@ -216,6 +225,12 @@ test(
     );
     assert.equal(undoActivity.length, 1);
     assert.equal(undoActivity[0].job_id, jobId);
+
+    const undoneManifest = await rpc(ownerClient, 'get_tell_contracktor_manifest', {
+      p_entry_id: entryId,
+    });
+    assert.equal(undoneManifest.undo_allowed, false);
+    assert.deepEqual(undoneManifest.records.map((record) => record.state), ['missing', 'missing']);
   }
 );
 
