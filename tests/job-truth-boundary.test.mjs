@@ -37,6 +37,27 @@ test('dashboard never renders local fallback financial facts after a snapshot fa
   assert.doesNotMatch(dashboard, /databaseSnapshot\?\.[a-z_]+ \?\? snapshot/);
 });
 
+test('fixed-bid price stays independent from the optional internal cost plan', async () => {
+  const [createScreen, editScreen] = await Promise.all([
+    readRepoFile('src/screens/CreateJobScreen.tsx'),
+    readRepoFile('src/screens/EditJobScreen.tsx'),
+  ]);
+
+  for (const screen of [createScreen, editScreen]) {
+    assert.match(screen, /Customer price/);
+    assert.match(screen, /label="Fixed bid amount"/);
+    assert.match(screen, /Optional cost plan/);
+    assert.match(screen, /Internal labor cost per hour/);
+    assert.match(screen, /label="Estimated profit"/);
+    assert.match(screen, /label="Estimated margin"/);
+    assert.ok(screen.indexOf('Fixed bid amount') < screen.indexOf('Optional cost plan'));
+    assert.doesNotMatch(screen, /applyMarkup|Set quote with markup|markupButton/);
+  }
+
+  assert.match(createScreen, /quoteAmount: parsedQuoteAmount \?\? 0/);
+  assert.match(editScreen, /quoteAmount: parsedQuoteAmount \?\? 0/);
+});
+
 async function readRepoFile(relativePath) {
   return readFile(new URL(relativePath, `file://${repoRoot}/`), 'utf8');
 }

@@ -114,12 +114,12 @@ export function CreateJobScreen({ onCancel, onCreated }: CreateJobScreenProps) {
     }
 
     if (jobType === 'fixed_bid' && parsedQuoteAmount === null) {
-      setErrorMessage('Quote amount is required and must be a valid number.');
+      setErrorMessage('Fixed bid amount is required and must be a valid number.');
       return;
     }
 
     if (parsedQuoteAmount === undefined || parsedHourlyRate === undefined) {
-      setErrorMessage('Quote amount and hourly rate must be valid numbers when provided.');
+      setErrorMessage('Fixed bid amount and hourly rate must be valid numbers when provided.');
       return;
     }
 
@@ -213,9 +213,25 @@ export function CreateJobScreen({ onCancel, onCreated }: CreateJobScreenProps) {
               </View>
             </View>
 
+            {jobType === 'fixed_bid' ? (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Customer price</Text>
+                <Text style={styles.sectionDescription}>
+                  Enter the fixed price you agreed to charge. The cost plan below will never change it.
+                </Text>
+                <Field
+                  inputMode="decimal"
+                  label="Fixed bid amount"
+                  value={quoteAmount}
+                  onChangeText={setQuoteAmount}
+                  placeholder="0"
+                />
+              </View>
+            ) : null}
+
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>
-                {jobType === 'fixed_bid' ? 'Budget this job' : 'Tracking setup'}
+                {jobType === 'fixed_bid' ? 'Optional cost plan' : 'Tracking setup'}
               </Text>
               <Text style={styles.sectionDescription}>
                 {jobType === 'fixed_bid'
@@ -238,7 +254,7 @@ export function CreateJobScreen({ onCancel, onCreated }: CreateJobScreenProps) {
               />
               <Field
                 inputMode="decimal"
-                label={jobType === 'fixed_bid' ? 'Hourly cost/rate' : 'Labor billing rate'}
+                label={jobType === 'fixed_bid' ? 'Internal labor cost per hour' : 'Labor billing rate'}
                 value={hourlyRate}
                 onChangeText={setHourlyRate}
                 placeholder="Optional"
@@ -252,35 +268,12 @@ export function CreateJobScreen({ onCancel, onCreated }: CreateJobScreenProps) {
               />
             </View>
 
-            <EstimateSummary summary={estimateSummary} />
+            <EstimateSummary
+              fixedBidAmount={jobType === 'fixed_bid' ? parseOptionalNumber(quoteAmount) ?? null : null}
+              summary={estimateSummary}
+            />
 
             <JobCrewEditor members={crewMembers} onChangeMembers={setCrewMembers} />
-
-            {jobType === 'fixed_bid' ? (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Set quote with markup</Text>
-                <View style={styles.markupGrid}>
-                  {[10, 15, 20, 25].map((percent) => (
-                    <Pressable
-                      key={percent}
-                      onPress={() =>
-                        setQuoteAmount(formatPlainNumber(applyMarkup(estimateSummary.total, percent)))
-                      }
-                      style={styles.markupButton}>
-                      <Text style={styles.markupButtonText}>{percent}%</Text>
-                    </Pressable>
-                  ))}
-                </View>
-                <Field
-                  inputMode="decimal"
-                  label="Quote amount"
-                  value={quoteAmount}
-                  onChangeText={setQuoteAmount}
-                  placeholder="0"
-                />
-                <Text style={styles.helperText}>You can edit this before saving.</Text>
-              </View>
-            ) : null}
 
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
@@ -318,15 +311,40 @@ function ChoiceButton({
   );
 }
 
-function EstimateSummary({ summary }: { summary: EstimateSummaryValue }) {
+function EstimateSummary({
+  fixedBidAmount,
+  summary,
+}: {
+  fixedBidAmount: number | null;
+  summary: EstimateSummaryValue;
+}) {
+  const estimatedProfit = fixedBidAmount === null ? null : fixedBidAmount - summary.total;
+  const estimatedMargin =
+    fixedBidAmount && fixedBidAmount > 0 && estimatedProfit !== null
+      ? (estimatedProfit / fixedBidAmount) * 100
+      : null;
+
   return (
     <View style={styles.summaryPanel}>
-      <Text style={styles.sectionTitle}>Estimated total</Text>
+      <Text style={styles.sectionTitle}>Cost outlook</Text>
       <SummaryRow label="Labor" value={formatCurrency(summary.laborCost)} />
       <SummaryRow label="Materials" value={formatCurrency(summary.materialCost)} />
       <SummaryRow label="Other" value={formatCurrency(summary.otherCost)} />
       <View style={styles.summaryDivider} />
-      <SummaryRow isTotal label="Total" value={formatCurrency(summary.total)} />
+      <SummaryRow isTotal label="Estimated cost" value={formatCurrency(summary.total)} />
+      {fixedBidAmount !== null ? (
+        <>
+          <SummaryRow label="Fixed bid" value={formatCurrency(fixedBidAmount)} />
+          <SummaryRow
+            label="Estimated profit"
+            value={estimatedProfit === null ? '—' : formatCurrency(estimatedProfit)}
+          />
+          <SummaryRow
+            label="Estimated margin"
+            value={estimatedMargin === null ? '—' : `${estimatedMargin.toFixed(1)}%`}
+          />
+        </>
+      ) : null}
     </View>
   );
 }
@@ -417,14 +435,6 @@ function getEstimateSummary({
     otherCost,
     total: laborCost + materialCost + otherCost,
   };
-}
-
-function applyMarkup(total: number, percent: number): number {
-  return Math.round(total * (1 + percent / 100));
-}
-
-function formatPlainNumber(value: number): string {
-  return String(value);
 }
 
 function formatEditableNumber(value: number | null | undefined): string {
@@ -598,30 +608,6 @@ const styles = StyleSheet.create({
     color: '#1F2933',
     fontSize: 17,
     fontWeight: '900',
-  },
-  markupGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  markupButton: {
-    alignItems: 'center',
-    borderColor: '#335C43',
-    borderRadius: 999,
-    borderWidth: 1,
-    justifyContent: 'center',
-    minHeight: 38,
-    paddingHorizontal: 16,
-  },
-  markupButtonText: {
-    color: '#335C43',
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  helperText: {
-    color: '#64748B',
-    fontSize: 13,
-    lineHeight: 18,
   },
   errorText: {
     color: '#B91C1C',

@@ -30,6 +30,13 @@ type EditJobScreenProps = {
   onSaved: (job: Job) => void;
 };
 
+type EstimateSummaryValue = {
+  laborCost: number;
+  materialCost: number;
+  otherCost: number;
+  total: number;
+};
+
 export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
   const [name, setName] = useState(job.name);
   const [clientName, setClientName] = useState(job.clientName === 'No client name' ? '' : job.clientName);
@@ -52,6 +59,12 @@ export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
   const [status, setStatus] = useState(job.status || 'active');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const estimateSummary = getEstimateSummary({
+    estimatedLaborHours,
+    estimatedMaterialCost,
+    estimatedOtherCost,
+    hourlyRate,
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -119,12 +132,12 @@ export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
     }
 
     if (jobType === 'fixed_bid' && parsedQuoteAmount === null) {
-      setErrorMessage('Quote amount is required and must be a valid number.');
+      setErrorMessage('Fixed bid amount is required and must be a valid number.');
       return;
     }
 
     if (parsedQuoteAmount === undefined || parsedHourlyRate === undefined) {
-      setErrorMessage('Quote amount and hourly rate must be valid numbers when provided.');
+      setErrorMessage('Fixed bid amount and hourly rate must be valid numbers when provided.');
       return;
     }
 
@@ -228,21 +241,20 @@ export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
               </View>
             </View>
             {jobType === 'fixed_bid' ? (
-              <Field
-                inputMode="decimal"
-                label="Quote amount"
-                value={quoteAmount}
-                onChangeText={setQuoteAmount}
-                placeholder="0"
-              />
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Customer price</Text>
+                <Text style={styles.sectionDescription}>
+                  This fixed price is independent from the optional cost plan below.
+                </Text>
+                <Field
+                  inputMode="decimal"
+                  label="Fixed bid amount"
+                  value={quoteAmount}
+                  onChangeText={setQuoteAmount}
+                  placeholder="0"
+                />
+              </View>
             ) : null}
-            <Field
-              inputMode="decimal"
-              label={jobType === 'fixed_bid' ? 'Hourly cost/rate' : 'Labor billing rate'}
-              value={hourlyRate}
-              onChangeText={setHourlyRate}
-              placeholder="Optional"
-            />
             <View style={styles.field}>
               <Text style={styles.label}>Status</Text>
               <View style={styles.statusGrid}>
@@ -262,26 +274,47 @@ export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
                 ))}
               </View>
             </View>
-            <Field
-              inputMode="decimal"
-              label="Estimated labor hours"
-              value={estimatedLaborHours}
-              onChangeText={setEstimatedLaborHours}
-              placeholder="Optional"
-            />
-            <Field
-              inputMode="decimal"
-              label="Material budget"
-              value={estimatedMaterialCost}
-              onChangeText={setEstimatedMaterialCost}
-              placeholder="Optional"
-            />
-            <Field
-              inputMode="decimal"
-              label="Other estimated costs"
-              value={estimatedOtherCost}
-              onChangeText={setEstimatedOtherCost}
-              placeholder="Optional"
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>
+                {jobType === 'fixed_bid' ? 'Optional cost plan' : 'Tracking setup'}
+              </Text>
+              <Text style={styles.sectionDescription}>
+                {jobType === 'fixed_bid'
+                  ? 'These targets help track cost and profitability without changing the fixed bid.'
+                  : 'Set the billing rate and optional targets you want to track.'}
+              </Text>
+              <Field
+                inputMode="decimal"
+                label="Estimated labor hours"
+                value={estimatedLaborHours}
+                onChangeText={setEstimatedLaborHours}
+                placeholder="Optional"
+              />
+              <Field
+                inputMode="decimal"
+                label={jobType === 'fixed_bid' ? 'Internal labor cost per hour' : 'Labor billing rate'}
+                value={hourlyRate}
+                onChangeText={setHourlyRate}
+                placeholder="Optional"
+              />
+              <Field
+                inputMode="decimal"
+                label="Material budget"
+                value={estimatedMaterialCost}
+                onChangeText={setEstimatedMaterialCost}
+                placeholder="Optional"
+              />
+              <Field
+                inputMode="decimal"
+                label="Other estimated costs"
+                value={estimatedOtherCost}
+                onChangeText={setEstimatedOtherCost}
+                placeholder="Optional"
+              />
+            </View>
+            <EstimateSummary
+              fixedBidAmount={jobType === 'fixed_bid' ? parseOptionalNumber(quoteAmount) ?? null : null}
+              summary={estimateSummary}
             />
             <JobCrewEditor members={crewMembers} onChangeMembers={setCrewMembers} />
 
@@ -297,6 +330,58 @@ export function EditJobScreen({ job, onCancel, onSaved }: EditJobScreenProps) {
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+
+function EstimateSummary({
+  fixedBidAmount,
+  summary,
+}: {
+  fixedBidAmount: number | null;
+  summary: EstimateSummaryValue;
+}) {
+  const estimatedProfit = fixedBidAmount === null ? null : fixedBidAmount - summary.total;
+  const estimatedMargin =
+    fixedBidAmount && fixedBidAmount > 0 && estimatedProfit !== null
+      ? (estimatedProfit / fixedBidAmount) * 100
+      : null;
+
+  return (
+    <View style={styles.summaryPanel}>
+      <Text style={styles.sectionTitle}>Cost outlook</Text>
+      <SummaryRow label="Labor" value={formatCurrency(summary.laborCost)} />
+      <SummaryRow label="Materials" value={formatCurrency(summary.materialCost)} />
+      <SummaryRow label="Other" value={formatCurrency(summary.otherCost)} />
+      <View style={styles.summaryDivider} />
+      <SummaryRow isTotal label="Estimated cost" value={formatCurrency(summary.total)} />
+      {fixedBidAmount !== null ? (
+        <>
+          <SummaryRow label="Fixed bid" value={formatCurrency(fixedBidAmount)} />
+          <SummaryRow label="Estimated profit" value={formatCurrency(estimatedProfit ?? 0)} />
+          <SummaryRow
+            label="Estimated margin"
+            value={estimatedMargin === null ? '—' : `${estimatedMargin.toFixed(1)}%`}
+          />
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+function SummaryRow({
+  isTotal = false,
+  label,
+  value,
+}: {
+  isTotal?: boolean;
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.summaryRow}>
+      <Text style={[styles.summaryLabel, isTotal && styles.summaryTotalText]}>{label}</Text>
+      <Text style={[styles.summaryValue, isTotal && styles.summaryTotalText]}>{value}</Text>
+    </View>
   );
 }
 
@@ -356,6 +441,34 @@ function parseOptionalNumber(value: string): number | null | undefined {
   const parsed = Number(trimmed);
 
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function getEstimateSummary({
+  estimatedLaborHours,
+  estimatedMaterialCost,
+  estimatedOtherCost,
+  hourlyRate,
+}: {
+  estimatedLaborHours: string;
+  estimatedMaterialCost: string;
+  estimatedOtherCost: string;
+  hourlyRate: string;
+}): EstimateSummaryValue {
+  const laborHours = parseOptionalNumber(estimatedLaborHours) ?? 0;
+  const rate = parseOptionalNumber(hourlyRate) ?? 0;
+  const materialCost = parseOptionalNumber(estimatedMaterialCost) ?? 0;
+  const otherCost = parseOptionalNumber(estimatedOtherCost) ?? 0;
+  const laborCost = laborHours * rate;
+
+  return { laborCost, materialCost, otherCost, total: laborCost + materialCost + otherCost };
+}
+
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    currency: 'USD',
+    maximumFractionDigits: 0,
+    style: 'currency',
+  }).format(value);
 }
 
 function parseCrewMembers(
@@ -433,6 +546,19 @@ const styles = StyleSheet.create({
     gap: 14,
     padding: 16,
   },
+  section: {
+    gap: 12,
+  },
+  sectionTitle: {
+    color: '#1F2933',
+    fontSize: 19,
+    fontWeight: '900',
+  },
+  sectionDescription: {
+    color: '#64748B',
+    fontSize: 14,
+    lineHeight: 20,
+  },
   field: {
     gap: 6,
   },
@@ -475,6 +601,37 @@ const styles = StyleSheet.create({
   },
   selectedStatusButtonText: {
     color: '#FFFFFF',
+  },
+  summaryPanel: {
+    backgroundColor: '#F6F5F2',
+    borderColor: '#E2E0DA',
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 8,
+    padding: 14,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  summaryLabel: {
+    color: '#64748B',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  summaryValue: {
+    color: '#1F2933',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  summaryDivider: {
+    backgroundColor: '#E2E0DA',
+    height: 1,
+  },
+  summaryTotalText: {
+    color: '#1F2933',
+    fontSize: 16,
+    fontWeight: '900',
   },
   errorText: {
     color: '#B91C1C',
