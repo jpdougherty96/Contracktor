@@ -47,49 +47,27 @@ export function sanitizePdfFileName(value: string): string {
   return sanitized || 'conTRACKtor export';
 }
 
-export async function savePdfBytesOnWeb({
+export function openPdfOnWeb({
   bytes,
   fileBaseName,
 }: {
   bytes: Uint8Array;
   fileBaseName: string;
-}): Promise<{ didOpen: boolean; fileName: string }> {
+}): { fileName: string } {
   const fileName = `${sanitizePdfFileName(fileBaseName)}.pdf`;
-  const safeBytes = new Uint8Array(bytes);
-  const blob = new Blob([safeBytes], { type: 'application/pdf' });
-  const navigatorRef = globalThis.navigator;
-  const file = typeof File === 'function'
-    ? new File([blob], fileName, { type: 'application/pdf' })
-    : null;
-
-  if (
-    file &&
-    navigatorRef?.share &&
-    typeof navigatorRef.canShare === 'function' &&
-    navigatorRef.canShare({ files: [file] })
-  ) {
-    try {
-      await navigatorRef.share({ files: [file], title: fileName });
-      return { didOpen: true, fileName };
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        return { didOpen: false, fileName };
-      }
-      // A browser can reject Web Share when transient activation expires while
-      // the PDF is generated. Fall back to a normal file download in that case.
-    }
-  }
-
   const documentRef = globalThis.document;
   if (!documentRef) throw new Error('Document is unavailable.');
+  const pdfBuffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(pdfBuffer).set(bytes);
+  const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
   const objectUrl = URL.createObjectURL(blob);
   const anchor = documentRef.createElement('a');
+
   anchor.href = objectUrl;
   anchor.download = fileName;
-  anchor.rel = 'noopener';
   documentRef.body.appendChild(anchor);
   anchor.click();
   documentRef.body.removeChild(anchor);
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
-  return { didOpen: true, fileName };
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+  return { fileName };
 }

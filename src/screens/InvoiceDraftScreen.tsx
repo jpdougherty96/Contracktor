@@ -39,7 +39,7 @@ import {
   type InvoiceDraftLineInput,
 } from '@/src/lib/invoices';
 import { getLocalDateString } from '@/src/lib/localDate';
-import { createAndSharePdf, savePdfBytesOnWeb } from '@/src/lib/pdfExport';
+import { createAndSharePdf, openPdfOnWeb } from '@/src/lib/pdfExport';
 import { fetchAccountProfile, type AccountProfile } from '@/src/lib/profiles';
 import { getUserFacingError } from '@/src/lib/userFacingError';
 import { buttonStyles, colors, radii } from '@/src/styles/theme';
@@ -289,8 +289,8 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
         // failure must never prevent users from reaching the rest of the app.
         const { buildInvoicePdf } = await import('@/src/lib/invoicePdf');
         const pdfBytes = await buildInvoicePdf(invoice.documentInput);
-        const result = await savePdfBytesOnWeb({ bytes: pdfBytes, fileBaseName });
-        setMessage(result.didOpen ? `${result.fileName} is ready.` : 'PDF save canceled.');
+        openPdfOnWeb({ bytes: pdfBytes, fileBaseName });
+        setMessage('Invoice PDF opened.');
         return;
       }
 
