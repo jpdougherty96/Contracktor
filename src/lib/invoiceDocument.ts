@@ -31,6 +31,8 @@ export type InvoiceExpenseSource = {
   total_amount: number;
 };
 
+export type InvoiceMaterialPresentation = 'itemized' | 'summary';
+
 export type InvoiceDocumentInput = {
   balanceDue: number;
   billToLines: string[];
@@ -64,10 +66,12 @@ export function buildTimeAndMaterialsInvoiceLines({
   expenseEntries,
   laborEntries,
   materialMarkupPercent,
+  materialPresentation = 'summary',
 }: {
   expenseEntries: InvoiceExpenseSource[];
   laborEntries: InvoiceLaborSource[];
   materialMarkupPercent: number;
+  materialPresentation?: InvoiceMaterialPresentation;
 }): InvoiceDraftPresentationLine[] {
   const unbilledLaborEntries = laborEntries.filter((entry) => !entry.invoice_id);
   const unbilledExpenseEntries = expenseEntries.filter(
@@ -113,19 +117,34 @@ export function buildTimeAndMaterialsInvoiceLines({
     });
   }
 
-  for (const entry of [...unbilledExpenseEntries].sort((left, right) =>
-    left.expense_date.localeCompare(right.expense_date)
-  )) {
+  if (materialPresentation === 'summary' && unbilledExpenseEntries.length > 0) {
     lines.push({
-      expenseIds: [entry.id],
-      label: entry.description.trim() || `${formatExpenseType(entry.expense_type)} expense`,
+      expenseIds: unbilledExpenseEntries.map((entry) => entry.id),
+      label: 'Materials & supplies',
       lineType: 'material',
-      meta: `${formatExpenseType(entry.expense_type)} - ${formatInvoiceDate(entry.expense_date)}`,
+      meta: `${unbilledExpenseEntries.length} recorded ${
+        unbilledExpenseEntries.length === 1 ? 'purchase' : 'purchases'
+      }`,
       quantity: 1,
       unit: 'item',
-      unitRate: entry.total_amount,
-      value: entry.total_amount,
+      unitRate: expenseTotal,
+      value: expenseTotal,
     });
+  } else {
+    for (const entry of [...unbilledExpenseEntries].sort((left, right) =>
+      left.expense_date.localeCompare(right.expense_date)
+    )) {
+      lines.push({
+        expenseIds: [entry.id],
+        label: entry.description.trim() || `${formatExpenseType(entry.expense_type)} expense`,
+        lineType: 'material',
+        meta: `${formatExpenseType(entry.expense_type)} - ${formatInvoiceDate(entry.expense_date)}`,
+        quantity: 1,
+        unit: 'item',
+        unitRate: entry.total_amount,
+        value: entry.total_amount,
+      });
+    }
   }
 
   if (materialFee > 0) {

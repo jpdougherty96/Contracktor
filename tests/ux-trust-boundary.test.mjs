@@ -13,7 +13,8 @@ test('invoice, activity, password, and template-route defects stay fixed', async
   ]);
 
   assert.doesNotMatch(invoice, /PDF ready: \$\{sharedUri\}/);
-  assert.match(invoice, /result\.didOpen \? 'Invoice PDF opened for sharing\.'/);
+  assert.match(invoice, /buildInvoicePdf\(invoice\.documentInput\)/);
+  assert.match(invoice, /savePdfBytesOnWeb/);
   assert.doesNotMatch(activity, /\.slice\(0, 10\)/);
   assert.match(password, /onBack: \(\) => void/);
   await assert.rejects(access(repoPath('app/(tabs)/explore.tsx')));

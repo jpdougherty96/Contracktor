@@ -28,7 +28,9 @@ import {
   formatInvoiceDate,
   getInvoiceDueDate,
   type InvoiceDraftPresentationLine,
+  type InvoiceMaterialPresentation,
 } from '@/src/lib/invoiceDocument';
+import { buildInvoicePdf } from '@/src/lib/invoicePdf';
 import {
   createInvoiceDraft,
   fetchAvailableInvoicePaymentCredit,
@@ -38,7 +40,7 @@ import {
   type InvoiceDraftLineInput,
 } from '@/src/lib/invoices';
 import { getLocalDateString } from '@/src/lib/localDate';
-import { createAndSharePdf } from '@/src/lib/pdfExport';
+import { createAndSharePdf, savePdfBytesOnWeb } from '@/src/lib/pdfExport';
 import { fetchAccountProfile, type AccountProfile } from '@/src/lib/profiles';
 import { getUserFacingError } from '@/src/lib/userFacingError';
 import { buttonStyles, colors, radii } from '@/src/styles/theme';
@@ -64,6 +66,8 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
   const [availablePaymentCredit, setAvailablePaymentCredit] = useState(0);
   const [savedDraftFingerprint, setSavedDraftFingerprint] = useState<string | null>(null);
   const [materialMarkupPercent, setMaterialMarkupPercent] = useState('0');
+  const [materialPresentation, setMaterialPresentation] =
+    useState<InvoiceMaterialPresentation>('summary');
   const [note, setNote] = useState(defaultNote);
   const [message, setMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -118,6 +122,7 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
           setMaterialMarkupPercent(
             nextDraft ? String(nextDraft.invoice.material_markup_percent) : '0'
           );
+          setMaterialPresentation(getSavedMaterialPresentation(nextDraft));
           setNote(nextDraft?.invoice.note ?? nextProfile.defaultInvoiceNote ?? defaultNote);
         }
       } catch (error) {
@@ -146,6 +151,7 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
         laborEntries,
         materialEntries,
         parsedMaterialMarkupPercent ?? 0,
+        materialPresentation,
         note,
         profile,
         availablePaymentCredit,
@@ -163,6 +169,7 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
       job,
       laborEntries,
       materialEntries,
+      materialPresentation,
       note,
       parsedMaterialMarkupPercent,
       profile,
@@ -279,7 +286,9 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
       const html = invoice.html;
 
       if (Platform.OS === 'web') {
-        setMessage('Use Print and choose Save as PDF in your browser.');
+        const pdfBytes = await buildInvoicePdf(invoice.documentInput);
+        const result = await savePdfBytesOnWeb({ bytes: pdfBytes, fileBaseName });
+        setMessage(result.didOpen ? `${result.fileName} is ready.` : 'PDF save canceled.');
         return;
       }
 
@@ -294,39 +303,6 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
     }
   };
 
-  const handlePrint = async () => {
-    setMessage(null);
-
-    if (materialMarkupError) {
-      setMessage(materialMarkupError);
-      return;
-    }
-
-    if (missingInvoiceFields.length > 0) {
-      setMessage('Complete your business profile before printing this invoice.');
-      return;
-    }
-
-    try {
-      const fileBaseName = `${job.name} Invoice`;
-      const html = invoice.html;
-
-      if (Platform.OS === 'web') {
-        printHtmlFromIframe(html);
-        return;
-      }
-
-      const result = await createAndSharePdf({
-        dialogTitle: 'Share invoice PDF',
-        fileBaseName,
-        html,
-      });
-      setMessage(result.didOpen ? 'Invoice PDF opened for sharing.' : 'Invoice PDF saved.');
-    } catch {
-      setMessage('Unable to create invoice PDF.');
-    }
-  };
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
@@ -337,24 +313,16 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
           <View style={styles.exportActions}>
             <Pressable
               disabled={!canExportInvoice}
-              style={[styles.secondaryButton, !canExportInvoice && styles.disabledButton]}
-              onPress={handleSavePdf}>
-              <Text style={styles.secondaryButtonText}>Save PDF</Text>
-            </Pressable>
-            <Pressable
-              disabled={!canExportInvoice}
               style={[styles.primaryButton, !canExportInvoice && styles.disabledButton]}
-              onPress={handlePrint}>
-              <Text style={styles.primaryButtonText}>
-                {Platform.OS === 'web' ? 'Print' : 'Share PDF'}
-              </Text>
+              onPress={handleSavePdf}>
+              <Text style={styles.primaryButtonText}>Save PDF</Text>
             </Pressable>
           </View>
         </View>
 
         <View style={styles.header}>
           <Text style={styles.title}>Invoice preview</Text>
-          <Text style={styles.subtitle}>Save the current draft before printing or exporting.</Text>
+          <Text style={styles.subtitle}>Save the draft, then create a finished PDF to save, share, or print.</Text>
         </View>
 
         {isLoading ? <Text style={styles.messageText}>Building invoice...</Text> : null}
@@ -388,6 +356,43 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
             </View>
           </View>
           {isTimeAndMaterialsJob ? (
+            <>
+            <View style={styles.presentationPanel}>
+              <Text style={styles.sectionLabel}>Materials on invoice</Text>
+              <Text style={styles.markupHelp}>Choose how the customer sees recorded purchases.</Text>
+              <View style={styles.presentationChoices}>
+                <Pressable
+                  onPress={() => setMaterialPresentation('summary')}
+                  style={[
+                    styles.presentationChoice,
+                    materialPresentation === 'summary' && styles.selectedPresentationChoice,
+                  ]}>
+                  <Text style={[
+                    styles.presentationChoiceTitle,
+                    materialPresentation === 'summary' && styles.selectedPresentationChoiceText,
+                  ]}>Summary</Text>
+                  <Text style={[
+                    styles.presentationChoiceDetail,
+                    materialPresentation === 'summary' && styles.selectedPresentationChoiceText,
+                  ]}>One materials total</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setMaterialPresentation('itemized')}
+                  style={[
+                    styles.presentationChoice,
+                    materialPresentation === 'itemized' && styles.selectedPresentationChoice,
+                  ]}>
+                  <Text style={[
+                    styles.presentationChoiceTitle,
+                    materialPresentation === 'itemized' && styles.selectedPresentationChoiceText,
+                  ]}>Itemized</Text>
+                  <Text style={[
+                    styles.presentationChoiceDetail,
+                    materialPresentation === 'itemized' && styles.selectedPresentationChoiceText,
+                  ]}>Each recorded purchase</Text>
+                </Pressable>
+              </View>
+            </View>
             <View style={styles.markupPanel}>
               <View style={styles.markupHeader}>
                 <View style={styles.markupText}>
@@ -431,6 +436,7 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
                 <Text style={styles.markupErrorText}>{materialMarkupError}</Text>
               ) : null}
             </View>
+            </>
           ) : null}
 
           <View style={styles.noteEditor}>
@@ -542,48 +548,6 @@ export function InvoiceDraftScreen({ job, onBack, onEditBusinessProfile }: Invoi
   );
 }
 
-function printHtmlFromIframe(html: string): void {
-  const documentRef = globalThis.document;
-
-  if (!documentRef) {
-    throw new Error('Document is unavailable.');
-  }
-
-  const iframe = documentRef.createElement('iframe');
-  const previousTitle = documentRef.title;
-  const printTitle = html.match(/<title>(.*?)<\/title>/i)?.[1]?.trim();
-
-  if (printTitle) {
-    documentRef.title = printTitle;
-  }
-
-  iframe.style.height = '0';
-  iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.width = '0';
-  iframe.style.border = '0';
-  documentRef.body.appendChild(iframe);
-
-  const frameWindow = iframe.contentWindow;
-  const frameDocument = iframe.contentDocument ?? frameWindow?.document;
-
-  if (!frameWindow || !frameDocument) {
-    documentRef.body.removeChild(iframe);
-    throw new Error('Print frame is unavailable.');
-  }
-
-  frameDocument.open();
-  frameDocument.write(html);
-  frameDocument.close();
-
-  frameWindow.focus();
-  frameWindow.print();
-  window.setTimeout(() => {
-    documentRef.title = previousTitle;
-    documentRef.body.removeChild(iframe);
-  }, 1000);
-}
-
 function TotalRow({
   isCredit = false,
   isStrong = false,
@@ -612,6 +576,7 @@ function buildInvoiceDraft(
   laborEntries: JobLaborCostEntry[],
   materialEntries: JobMaterialCostEntry[],
   materialMarkupPercent: number,
+  materialPresentation: InvoiceMaterialPresentation,
   note: string,
   profile: AccountProfile | null,
   invoiceAmountPaid: number,
@@ -626,6 +591,7 @@ function buildInvoiceDraft(
           expenseEntries: materialEntries,
           laborEntries,
           materialMarkupPercent,
+          materialPresentation,
         })
       : buildFixedBidInvoiceLines(snapshot?.quote_amount ?? job.quoteAmount);
   const subtotal = lines.reduce((sum, line) => sum + line.value, 0);
@@ -651,6 +617,7 @@ function buildInvoiceDraft(
     balanceDue,
     dueDate,
     html: buildInvoiceDocumentHtml(documentInput),
+    documentInput,
     invoiceNumber,
     issueDate,
     lines,
@@ -806,6 +773,17 @@ function hasText(value: string | null | undefined): value is string {
   return Boolean(value?.trim());
 }
 
+function getSavedMaterialPresentation(
+  draft: InvoiceBundle | null
+): InvoiceMaterialPresentation {
+  if (!draft) return 'summary';
+  return draft.lines.some(
+    (line) => line.line_type === 'material' && line.description === 'Materials & supplies'
+  )
+    ? 'summary'
+    : 'itemized';
+}
+
 const styles = StyleSheet.create({
   safeArea: {
     backgroundColor: colors.appBackground,
@@ -841,16 +819,6 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     ...buttonStyles.primary.text,
-    fontSize: 15,
-  },
-  secondaryButton: {
-    ...buttonStyles.secondary.container,
-    borderRadius: radii.button,
-    flex: 1,
-    minHeight: 46,
-  },
-  secondaryButtonText: {
-    ...buttonStyles.secondary.text,
     fontSize: 15,
   },
   disabledButton: {
@@ -1052,6 +1020,40 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     lineHeight: 23,
+  },
+  presentationPanel: {
+    gap: 10,
+  },
+  presentationChoices: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  presentationChoice: {
+    borderColor: colors.standardBorder,
+    borderRadius: 10,
+    borderWidth: 1,
+    flex: 1,
+    gap: 3,
+    minHeight: 72,
+    padding: 12,
+  },
+  selectedPresentationChoice: {
+    backgroundColor: colors.primaryGreen,
+    borderColor: colors.primaryGreen,
+  },
+  presentationChoiceTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  presentationChoiceDetail: {
+    color: colors.mutedText,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+  selectedPresentationChoiceText: {
+    color: colors.warmWhite,
   },
   markupPanel: {
     borderColor: colors.standardBorder,

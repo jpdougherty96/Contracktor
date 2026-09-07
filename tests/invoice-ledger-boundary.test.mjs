@@ -79,6 +79,12 @@ test('the invoice screen saves through the ledger and builds T&M from unbilled s
   assert.match(invoiceDocument, /entry\.billable[\s\S]*?!entry\.invoice_id/);
   assert.match(invoiceDocument, /entry\.hourly_rate/);
   assert.match(invoiceDocument, /Material procurement & handling fee/);
+  assert.match(invoiceDocument, /materialPresentation === 'summary'/);
+  assert.match(invoiceDocument, /expenseIds: unbilledExpenseEntries\.map/);
+  assert.match(invoiceScreen, /Materials on invoice/);
+  assert.match(invoiceScreen, /buildInvoicePdf\(invoice\.documentInput\)/);
+  assert.match(invoiceScreen, /savePdfBytesOnWeb/);
+  assert.doesNotMatch(invoiceScreen, /Use Print and choose Save as PDF|printHtmlFromIframe/);
   assert.match(invoiceScreen, /availablePaymentCredit/);
   assert.doesNotMatch(invoiceScreen, /snapshot\?\.payments_received \?\? 0/);
   assert.match(invoiceScreen, /savedDraftFingerprint !== currentDraftFingerprint/);

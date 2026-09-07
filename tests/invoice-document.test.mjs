@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { PDFDocument } from 'pdf-lib';
 
 import {
   buildFixedBidInvoiceLines,
@@ -8,6 +9,7 @@ import {
   formatDurationMinutes,
   getInvoiceDueDate,
 } from '../src/lib/invoiceDocument.ts';
+import { buildInvoicePdf } from '../src/lib/invoicePdf.ts';
 
 test('fixed-price invoices remain one deliverable-focused contract line', () => {
   assert.deepEqual(buildFixedBidInvoiceLines(4500), [
@@ -34,6 +36,7 @@ test('T&M invoices use exact labor duration and itemize only eligible expenses',
       { duration_minutes: 10, hourly_rate: 49.98, id: 'labor-1', invoice_id: null },
     ],
     materialMarkupPercent: 20,
+    materialPresentation: 'itemized',
   });
 
   assert.equal(lines[0].label, 'Labor');
@@ -56,6 +59,55 @@ test('T&M invoices use exact labor duration and itemize only eligible expenses',
     value: 80,
   });
   assert.doesNotMatch(JSON.stringify(lines), /reviewed billable/i);
+});
+
+test('T&M invoice can consolidate materials without losing source attribution', () => {
+  const lines = buildTimeAndMaterialsInvoiceLines({
+    expenseEntries: [expense('one', '2026-09-01', 100), expense('two', '2026-09-02', 50)],
+    laborEntries: [],
+    materialMarkupPercent: 10,
+    materialPresentation: 'summary',
+  });
+
+  assert.deepEqual(lines[0], {
+    expenseIds: ['one', 'two'],
+    label: 'Materials & supplies',
+    lineType: 'material',
+    meta: '2 recorded purchases',
+    quantity: 1,
+    unit: 'item',
+    unitRate: 150,
+    value: 150,
+  });
+  assert.equal(lines[1].label, 'Material procurement & handling fee');
+  assert.equal(lines[1].value, 15);
+});
+
+test('invoice PDF generator creates a named, printable Letter document', async () => {
+  const bytes = await buildInvoicePdf({
+    balanceDue: 2356.15,
+    billToLines: ['Tony Customer', "Tony's Roof", 'Marshall, MN'],
+    dueDate: '2026-10-06',
+    fileName: "Tony's Roof Invoice",
+    fromLines: ['Dougherty Contracting', 'JohnPaul Dougherty', 'Porter, MN 56280'],
+    invoiceNumber: 'INV-00002',
+    invoiceType: 'Time & materials',
+    issueDate: '2026-09-06',
+    lines: [
+      { label: 'Labor', meta: '18.5 hr at $75.00/hr', value: 1387.5 },
+      { label: 'Materials & supplies', meta: '4 recorded purchases', value: 842.3 },
+      { label: 'Material procurement & handling fee', meta: '15% contractual fee', value: 126.35 },
+    ],
+    note: 'Thank you for your business.',
+    paymentsReceived: 0,
+    subtotal: 2356.15,
+    terms: 'Net 30',
+  });
+  const document = await PDFDocument.load(bytes);
+
+  assert.equal(document.getPageCount(), 1);
+  assert.equal(document.getTitle(), "Tony's Roof Invoice");
+  assert.deepEqual(document.getPage(0).getSize(), { height: 792, width: 612 });
 });
 
 test('invoice terms derive explicit, calendar-safe due dates', () => {
