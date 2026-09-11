@@ -270,7 +270,7 @@ function getLoginErrorMessage(message: string): string {
 
 function getAuthRedirectUrl(flow?: 'passwordRecovery'): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    const url = new URL(window.location.origin);
+    const url = new URL(flow === 'passwordRecovery' ? '/reset-password' : '/', window.location.origin);
 
     if (flow === 'passwordRecovery') {
       url.searchParams.set('authFlow', 'password-recovery');
@@ -280,7 +280,7 @@ function getAuthRedirectUrl(flow?: 'passwordRecovery'): string {
   }
 
   return Linking.createURL(
-    '/',
+    flow === 'passwordRecovery' ? '/reset-password' : '/',
     flow === 'passwordRecovery'
       ? {
           queryParams: {

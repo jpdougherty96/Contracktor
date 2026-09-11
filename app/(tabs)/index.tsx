@@ -13,6 +13,7 @@ import type { GlobalActivityItem } from '@/src/lib/globalActivity';
 import {
   clearPasswordRecoveryRequested,
   hasPendingPasswordRecoveryRequest,
+  isPasswordRecoveryUrl,
 } from '@/src/lib/passwordRecovery';
 import { setReceiptDraftDestinations } from '@/src/lib/receipts';
 import {
@@ -1578,23 +1579,6 @@ function getReceiptCompleteScreen(
   }
 
   return canUseActivity ? 'activity' : 'home';
-}
-
-function isPasswordRecoveryUrl(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  const searchParams = new URLSearchParams(window.location.search);
-  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-
-  return (
-    searchParams.get('authFlow') === 'password-recovery' ||
-    hashParams.get('authFlow') === 'password-recovery' ||
-    searchParams.get('type') === 'recovery' ||
-    hashParams.get('type') === 'recovery' ||
-    window.location.href.includes('type=recovery')
-  );
 }
 
 function getSafeReturnTo(value: string | undefined): string | null {

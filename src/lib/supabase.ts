@@ -3,10 +3,15 @@ import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 
+import { preservePasswordRecoveryRequestFromUrl } from '@/src/lib/passwordRecovery';
 import type { Database } from '@/src/types/database';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+
+// Supabase may consume and clean the recovery parameters while creating the
+// client. Preserve that intent first so rendering cannot lose the reset flow.
+preservePasswordRecoveryRequestFromUrl();
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error(
